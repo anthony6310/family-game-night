@@ -1,0 +1,114 @@
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { io, type Socket } from 'socket.io-client';
+import {
+  MAX_PLAYERS,
+  type Ack, type ClientToServerEvents, type JoinResult, type RoomError, type RoomState, type ServerToClientEvents,
+} from '@fgn/shared';
+import { useAuth } from '../auth/AuthContext';
+import { SERVER_URL } from '../components/DevStatus';
+import { supabase } from '../lib/supabase';
+
+type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
+
+const ERROR_TEXT: Record<RoomError, string> = {
+  ROOM_NOT_FOUND: 'No room with that code.',
+  ROOM_FULL: `That room is full (${MAX_PLAYERS} players max).`,
+  ALREADY_IN_ROOM: "You're already in a room (maybe in another tab).",
+};
+
+interface RoomContextValue {
+  /** The room I'm in, kept fresh by the server's `room:state` broadcasts. Null when not in one. */
+  room: RoomState | null;
+  /** My player id, to find "me" in room.players. */
+  selfId: string | null;
+  /** Each returns an error message to display, or null on success. */
+  createRoom: () => Promise<string | null>;
+  joinRoom: (code: string) => Promise<string | null>;
+  leaveRoom: () => void;
+}
+
+const RoomContext = createContext<RoomContextValue | null>(null);
+
+export function RoomProvider({ children }: { children: ReactNode }) {
+  const { session, guestName } = useAuth();
+  const socketRef = useRef<ClientSocket | null>(null);
+  const guestNameRef = useRef(guestName);
+  guestNameRef.current = guestName;
+  const [room, setRoom] = useState<RoomState | null>(null);
+  const [selfId, setSelfId] = useState<string | null>(null);
+
+  const disconnect = useCallback(() => {
+    socketRef.current?.disconnect();
+    socketRef.current = null;
+    setRoom(null);
+    setSelfId(null);
+  }, []);
+
+  // If the player logs out / leaves as guest, drop the connection.
+  const hasIdentity = Boolean(session || guestName);
+  useEffect(() => {
+    if (!hasIdentity) disconnect();
+  }, [hasIdentity, disconnect]);
+
+  // The socket is created lazily on first use and reused afterwards.
+  function getSocket(): ClientSocket {
+    if (!socketRef.current) {
+      const socket: ClientSocket = io(SERVER_URL, {
+        autoConnect: false,
+        // `auth` as a function runs on every (re)connect, so an account always sends a fresh token.
+        auth: (send) => {
+          supabase.auth.getSession().then(({ data }) =>
+            send(data.session ? { token: data.session.access_token } : { guestName: guestNameRef.current ?? '' }),
+          );
+        },
+      });
+      socket.on('room:state', setRoom); // the server is the source of truth: just mirror it
+      socket.on('disconnect', () => {
+        setRoom(null);
+        setSelfId(null);
+      });
+      socketRef.current = socket;
+    }
+    return socketRef.current;
+  }
+
+  // Sends one room request. Resolves with an error message, or null on success.
+  function request(send: (socket: ClientSocket, ack: (res: Ack<JoinResult>) => void) => void): Promise<string | null> {
+    return new Promise((resolve) => {
+      const socket = getSocket();
+      // A rejected handshake (bad token, empty name) surfaces as `connect_error`, not as an ack.
+      const onConnectError = (err: Error) => {
+        disconnect();
+        resolve(err.message);
+      };
+      socket.once('connect_error', onConnectError);
+      send(socket, (res) => {
+        socket.off('connect_error', onConnectError);
+        if (!res.ok) return resolve(ERROR_TEXT[res.error]);
+        setRoom(res.data.room);
+        setSelfId(res.data.playerId);
+        resolve(null);
+      });
+      socket.connect(); // emits above are buffered until the connection is open
+    });
+  }
+
+  const value: RoomContextValue = {
+    room,
+    selfId,
+    createRoom: () => request((s, ack) => s.emit('room:create', ack)),
+    joinRoom: (code) => request((s, ack) => s.emit('room:join', code, ack)),
+    leaveRoom: () => {
+      socketRef.current?.emit('room:leave');
+      setRoom(null);
+      setSelfId(null);
+    },
+  };
+  return <RoomContext.Provider value={value}>{children}</RoomContext.Provider>;
+}
+
+export function useRoom(): RoomContextValue {
+  const ctx = useContext(RoomContext);
+  if (!ctx) throw new Error('useRoom must be used inside <RoomProvider>');
+  return ctx;
+}

@@ -12,3 +12,7 @@ export const DISPLAY_NAME_MAX = 20;
 /** Avatar upload rules (mirrored by the Storage bucket settings). */
 export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 export const AVATAR_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'];
+
+/** Invite codes: 4 characters, skipping look-alikes (no 0/O or 1/I) so they're easy to read out loud. */
+export const ROOM_CODE_LENGTH = 4;
+export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

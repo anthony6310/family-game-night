@@ -125,12 +125,12 @@ Each milestone is small, testable, and leaves the app working.
 - **Done when:** a new user confirms email, picks an avatar and reaches Play; a guest reaches Play with just a name; user B cannot edit user A's profile.
 
 ### MVP 2 — Rooms, Invite Codes & Lobby
-- [ ] 2.1 Socket.io server; handshake accepts a Supabase JWT **or** a guest name
-- [ ] 2.2 *Play* creates a room with a short invite code; host is the first player
-- [ ] 2.3 Join by code (account or guest)
-- [ ] 2.4 Live lobby: avatars and names update as players join, leave or disconnect
-- [ ] 2.5 Host handling: host leaves, so host is reassigned
-- [ ] 2.6 Enforce the 8-player cap ("room full")
+- [x] 2.1 Socket.io server; handshake accepts a Supabase JWT **or** a guest name
+- [x] 2.2 *Play* creates a room with a short invite code; host is the first player
+- [x] 2.3 Join by code (account or guest)
+- [x] 2.4 Live lobby: avatars and names update as players join, leave or disconnect
+- [x] 2.5 Host handling: host leaves, so host is reassigned
+- [x] 2.6 Enforce the 8-player cap ("room full")
 - **Done when:** 3 phones (mix of account and guest) join one room and all see the same player list in real time; a 9th join is rejected.
 
 ### MVP 3 — Session Setup, Ready-up & Countdown

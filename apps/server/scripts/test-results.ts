@@ -23,7 +23,7 @@ const check = (name: string, ok: boolean) => {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Real saving (no onRound override), short rounds.
-const httpServer = createGameServer('http://localhost:5173', { countdownMs: 150, roundMs: 500 });
+const httpServer = createGameServer('http://localhost:5173', { countdownMs: 150, roundMs: 500, resultsMs: 60_000 });
 await new Promise<void>((r) => httpServer.listen(0, r));
 const serverUrl = `http://localhost:${(httpServer.address() as AddressInfo).port}`;
 

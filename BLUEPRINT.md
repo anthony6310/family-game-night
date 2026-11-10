@@ -146,11 +146,11 @@ Each milestone is small, testable, and leaves the app working.
 - **Done when:** a full round plays end-to-end and the winner's point shows on every phone.
 
 ### MVP 5 — Session Loop & Winner Record
-- [ ] 5.1 Track round count against the host's chosen `total_rounds`; return to the lobby between rounds
-- [ ] 5.2 After the final round, crown the session winner; if tied, run tie-breaker rounds among the tied players only (spectators watch)
-- [ ] 5.3 Host chooses **Reset room** or **Close room**
-- [ ] 5.4 Write `session_results` (guest winners stored by name only)
-- [ ] 5.5 History page showing past session winners
+- [x] 5.1 Track round count against the host's chosen `total_rounds` (a drawn round is replayed and doesn't count); results move on by themselves back to the lobby between rounds; the session length locks after the first round
+- [x] 5.2 After the final round, crown the session winner; if tied, run tie-breaker rounds among the tied players only (spectators watch)
+- [x] 5.3 Host chooses **Reset room** or **Close room**
+- [ ] 5.4 Write `session_results` (guest winners stored by name only). Code done; needs `supabase/migrations/0003_session_results.sql` applied, then `npm run test:history -w @fgn/server`
+- [ ] 5.5 History page showing past session winners (page built at `/history`; confirm it lists real rows once 0003 is applied)
 - **Done when:** a 3-round session ends with a crowned winner and a new `session_results` row, for both account and guest winners; a forced 3-way tie resolves via tie-breaker rounds.
 
 ### MVP 6 — Polish, Games & Deploy *(stretch)*

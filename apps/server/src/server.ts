@@ -3,14 +3,17 @@ import cors from 'cors';
 import express from 'express';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, HealthResponse, ServerToClientEvents } from '@fgn/shared';
-import { saveRound } from './results';
-import { RoomManager, type RoundRecord } from './rooms';
+import { saveRound, saveSession } from './results';
+import { RoomManager, type RoundRecord, type SessionRecord } from './rooms';
 import { registerSockets, type GameServer } from './sockets';
 import { checkSupabase } from './supabase';
 
 /** Builds the HTTP + WebSocket server without starting it, so tests can run it on any port. */
-/** Durations can be shortened in tests; `onRound` replaces database saving (tests spy on it). */
-export function createGameServer(clientOrigin: string, options: { countdownMs?: number; roundMs?: number; onRound?: (round: RoundRecord) => void } = {}) {
+/** Durations can be shortened in tests; `onRound`/`onSession` replace database saving (tests spy on them). */
+export function createGameServer(clientOrigin: string, options: {
+    countdownMs?: number; roundMs?: number; resultsMs?: number;
+    onRound?: (round: RoundRecord) => void; onSession?: (session: SessionRecord) => void;
+  } = {}) {
   const app = express();
   // CORS: the browser blocks cross-origin calls unless the server explicitly allows the web origin.
   app.use(cors({ origin: clientOrigin }));
@@ -30,6 +33,9 @@ export function createGameServer(clientOrigin: string, options: { countdownMs?: 
   const io: GameServer = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: clientOrigin },
   });
-  registerSockets(io, new RoomManager(options), options.onRound ?? saveRound);
+  registerSockets(io, new RoomManager(options), {
+    onRound: options.onRound ?? saveRound,
+    onSession: options.onSession ?? saveSession,
+  });
   return httpServer;
 }

@@ -49,3 +49,8 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .bar { flex: 1; height: 0.6rem; background: #26264a; border-radius: 1rem; overflow: hidden; }
 .bar span { display: block; height: 100%; background: #6ee7a0; transition: width 0.1s linear; }
 .standing-taps { width: 2rem; text-align: right; }
+.session-line { margin: 0; font-weight: bold; }
+.players li.spectator { opacity: 0.55; }
+.history-page { justify-content: flex-start; padding-top: 2rem; }
+.crown { font-size: 1.5rem; }
+.block { display: block; }

@@ -1,7 +1,7 @@
 import type { Server } from 'socket.io';
 import type { Ack, ClientToServerEvents, Player, RoomState, ServerToClientEvents } from '@fgn/shared';
 import { AuthError, authenticate } from './auth';
-import { RoomManager, type Outcome, type Result, type RoundRecord } from './rooms';
+import { RoomManager, type Outcome, type Result, type RoundRecord, type SessionRecord } from './rooms';
 
 /** Per-connection data the server keeps on each socket. */
 interface SocketData {
@@ -19,9 +19,16 @@ interface ScheduledTimer {
   timer: NodeJS.Timeout;
 }
 
-export function registerSockets(io: GameServer, rooms: RoomManager, onRound: (round: RoundRecord) => void) {
+/** What to do when something permanent happens (the server wires these to the database). */
+export interface SocketDeps {
+  onRound: (round: RoundRecord) => void;
+  onSession: (session: SessionRecord) => void;
+}
+
+export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, onSession }: SocketDeps) {
   const countdownTimers = new Map<string, ScheduledTimer>(); // room code -> timer
   const roundTimers = new Map<string, ScheduledTimer>();
+  const resultsTimers = new Map<string, ScheduledTimer>();
   const flushPending = new Set<string>(); // rooms with a batched tap broadcast already scheduled
 
   /**
@@ -55,11 +62,20 @@ export function registerSockets(io: GameServer, rooms: RoomManager, onRound: (ro
       const outcome = rooms.finishRound(state.code, endsAt);
       if (outcome) publishOutcome(outcome); // time's up: decide the winner
     });
+    syncTimer(resultsTimers, state.code, state.phase === 'results' ? state.resultsEndsAt : null, (endsAt) => {
+      const outcome = rooms.finishResults(state.code, endsAt);
+      if (outcome) publishOutcome(outcome); // results shown long enough: next round, tie-breaker or session end
+    });
   }
 
-  function publishOutcome({ room, round }: Outcome) {
+  function clearTimers(code: string) {
+    for (const timers of [countdownTimers, roundTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
+  }
+
+  function publishOutcome({ room, round, session }: Outcome) {
     publish(room);
     if (round) onRound(round); // persist the decided round
+    if (session) onSession(session); // persist the finished session
   }
 
   // Batches live tap counts: many taps within 100 ms produce ONE broadcast.
@@ -95,12 +111,8 @@ export function registerSockets(io: GameServer, rooms: RoomManager, onRound: (ro
       socket.leave(socket.data.roomCode);
       socket.data.roomCode = undefined;
       if (!result) return;
-      if (result.room) publish(result.room);
-      else {
-        // Room emptied: drop its timers.
-        syncTimer(countdownTimers, result.code, null, () => {});
-        syncTimer(roundTimers, result.code, null, () => {});
-      }
+      if (result.room) publishOutcome({ room: result.room, session: result.session });
+      else clearTimers(result.code); // room emptied: drop its timers
     };
 
     // Joins this socket to the Socket.io room and replies with who "I" am.
@@ -114,7 +126,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, onRound: (ro
 
     // For commands whose effect shows up through the broadcast: publish on success, ack either way.
     const command = (result: Result, ack?: (res: Ack<null>) => void) => {
-      if (result.ok) publish(result.room);
+      if (result.ok) publishOutcome(result);
       if (typeof ack === 'function') ack(result.ok ? { ok: true, data: null } : result);
     };
 
@@ -130,6 +142,19 @@ export function registerSockets(io: GameServer, rooms: RoomManager, onRound: (ro
     });
     socket.on('player:ready', (ready, ack) => command(rooms.setReady(player.id, ready === true), ack));
     socket.on('room:return-to-lobby', (ack) => command(rooms.returnToLobby(player.id), ack));
+    socket.on('room:reset', (ack) => command(rooms.reset(player.id), ack));
+    socket.on('room:close', async (ack) => {
+      const result = rooms.close(player.id);
+      if (!result.ok) return typeof ack === 'function' && ack(result);
+      clearTimers(result.code);
+      io.to(result.code).emit('room:closed');
+      // Take every member's socket out of the Socket.io group and forget their room.
+      for (const member of await io.in(result.code).fetchSockets()) {
+        member.data.roomCode = undefined;
+        member.leave(result.code);
+      }
+      if (typeof ack === 'function') ack({ ok: true, data: null });
+    });
     socket.on('game:action', (action) => {
       if (action?.type !== 'tap') return; // never trust the payload shape
       const outcome = rooms.gameAction(player.id, action);

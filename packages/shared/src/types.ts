@@ -17,3 +17,14 @@ export interface AvatarPreset {
   label: string;
   image_url: string;
 }
+
+/** A row of `session_results` as the history page reads it. */
+export interface SessionHistoryRow {
+  id: string;
+  winner_name: string;
+  is_guest: boolean;
+  winner_wins: number;
+  total_rounds: number;
+  tiebreaker_rounds: number;
+  finished_at: string; // ISO timestamp
+}

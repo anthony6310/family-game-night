@@ -9,7 +9,7 @@ import { useRoom } from '../room/RoomContext';
 export function PlayPage() {
   const navigate = useNavigate();
   const { session, profile, guestName, signOut } = useAuth();
-  const { createRoom, joinRoom } = useRoom();
+  const { createRoom, joinRoom, notice, clearNotice } = useRoom();
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -18,6 +18,7 @@ export function PlayPage() {
   // Run a create/join request, then enter the lobby or show why it failed.
   async function enter(request: () => Promise<string | null>) {
     setError(null);
+    clearNotice();
     setBusy(true);
     const err = await request();
     setBusy(false);
@@ -54,7 +55,9 @@ export function PlayPage() {
         <button disabled={busy || code.length !== ROOM_CODE_LENGTH}>Join room</button>
       </form>
       {error && <p className="error">{error}</p>}
+      {notice && <p className="muted" onClick={clearNotice}>{notice}</p>}
 
+      <button className="link" onClick={() => navigate('/history')}>Winners history</button>
       {session && <button className="link" onClick={() => navigate('/profile')}>Edit profile</button>}
       <button className="link" onClick={leave}>{session ? 'Log out' : 'Leave'}</button>
     </main>

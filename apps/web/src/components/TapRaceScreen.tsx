@@ -17,15 +17,18 @@ export function TapRaceScreen({ game, players, selfId, serverNow, sendAction }: 
   // Optimistic local counter so the button feels instant; the leaderboard shows the server's count.
   const [myTaps, setMyTaps] = useState(0);
   const over = remainingMs <= 0;
+  // In a tie-breaker, players outside the tie are spectators: they aren't in the game's tap table.
+  const isPlayer = selfId !== null && selfId in game.taps;
 
   function onTap() {
-    if (over) return;
+    if (over || !isPlayer) return;
     setMyTaps((n) => n + 1);
     sendAction({ type: 'tap' });
   }
 
   const best = Math.max(1, ...Object.values(game.taps));
   const standings = players
+    .filter((p) => p.id in game.taps)
     .map((p) => ({ player: p, taps: game.taps[p.id] ?? 0 }))
     .sort((a, b) => b.taps - a.taps);
 
@@ -33,9 +36,9 @@ export function TapRaceScreen({ game, players, selfId, serverNow, sendAction }: 
     <main className="page tap-page">
       <div className="timer">{over ? 'Time!' : Math.ceil(remainingMs / 1000)}</div>
       {/* pointerdown fires the instant a finger lands (onClick waits for release) */}
-      <button className="tap-button" disabled={over} onPointerDown={onTap} onContextMenu={(e) => e.preventDefault()}>
-        TAP!
-        <span className="tap-count">{myTaps}</span>
+      <button className="tap-button" disabled={over || !isPlayer} onPointerDown={onTap} onContextMenu={(e) => e.preventDefault()}>
+        {isPlayer ? 'TAP!' : 'Watching'}
+        {isPlayer && <span className="tap-count">{myTaps}</span>}
       </button>
       <ul className="standings">
         {standings.map(({ player, taps }) => (

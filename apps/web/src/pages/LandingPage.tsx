@@ -17,6 +17,7 @@ export function LandingPage() {
       <button onClick={() => navigate(session ? '/play' : '/login')}>
         {session ? 'My account' : 'Log in'}
       </button>
+      <button className="link" onClick={() => navigate('/history')}>Winners history</button>
     </main>
   );
 }

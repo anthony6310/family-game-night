@@ -39,6 +39,12 @@ interface RoomContextValue {
   returnToLobby: () => Promise<string | null>;
   /** Send an in-game action (a tap). Fire-and-forget: the server's count is what matters. */
   sendAction: (action: GameAction) => void;
+  /** Host: start a fresh session in the same room (scores wiped), or close the room for everyone. */
+  resetRoom: () => Promise<string | null>;
+  closeRoom: () => Promise<string | null>;
+  /** One-off message to show on the Play page (e.g. "The host closed the room"). */
+  notice: string | null;
+  clearNotice: () => void;
   /** The server's current time (ms), estimated from the offset measured on the last update. */
   serverNow: () => number;
 }
@@ -59,6 +65,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setRoom(state);
   }, []);
   const [selfId, setSelfId] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const disconnect = useCallback(() => {
     socketRef.current?.disconnect();
@@ -86,6 +93,11 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         },
       });
       socket.on('room:state', applyState); // the server is the source of truth: just mirror it
+      socket.on('room:closed', () => {
+        setRoom(null);
+        setSelfId(null);
+        setNotice('The room was closed.');
+      });
       socket.on('disconnect', () => {
         setRoom(null);
         setSelfId(null);
@@ -132,6 +144,10 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setReady: (ready) => command((s, ack) => s.emit('player:ready', ready, ack)),
     returnToLobby: () => command((s, ack) => s.emit('room:return-to-lobby', ack)),
     sendAction: (action) => socketRef.current?.emit('game:action', action),
+    resetRoom: () => command((s, ack) => s.emit('room:reset', ack)),
+    closeRoom: () => command((s, ack) => s.emit('room:close', ack)),
+    notice,
+    clearNotice: () => setNotice(null),
     serverNow: () => Date.now() + clockOffset.current,
     leaveRoom: () => {
       socketRef.current?.emit('room:leave');

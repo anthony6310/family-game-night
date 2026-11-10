@@ -23,9 +23,10 @@ export interface RoomSettings {
  * 'lobby'     choosing settings and readying up
  * 'countdown' everyone is ready; the game starts at `countdownEndsAt`
  * 'playing'   a round is running
- * 'results'   the round is over; the winner is on screen
+ * 'results'   the round is over; the winner is on screen (moves on by itself after a few seconds)
+ * 'session-over' the last round (and any tie-breaker) is done; the session winner is crowned
  */
-export type RoomPhase = 'lobby' | 'countdown' | 'playing' | 'results';
+export type RoomPhase = 'lobby' | 'countdown' | 'playing' | 'results' | 'session-over';
 
 /** What a phone may send during a round. The server decides what it actually means. */
 export type GameAction = { type: 'tap' };
@@ -41,6 +42,8 @@ export interface GameView {
 /** Outcome of a finished round. `winnerId` is null for a draw. */
 export interface RoundResult {
   winnerId: string | null;
+  winner: Player | null; // snapshot, so the screen still works if the winner leaves
+  isTiebreaker: boolean;
   scores: Record<string, number>; // playerId -> that round's score (taps)
 }
 
@@ -58,6 +61,14 @@ export interface RoomState {
   scores: Record<string, number>;
   game: GameView | null; // only while phase === 'playing'
   result: RoundResult | null; // only while phase === 'results'
+  /** Decided (non-tie-breaker) rounds played this session. Draws are replayed and don't count. */
+  roundsPlayed: number;
+  /** While a tie-breaker is pending: the tied players who may play. Everyone else spectates. */
+  contenders: string[] | null;
+  /** Set once the session is over (a snapshot of who won). */
+  sessionWinner: Player | null;
+  /** Server clock when the results screen moves on, or null. */
+  resultsEndsAt: number | null;
   /** Server clock when this message was built. Phones compare it to their own clock to stay in sync. */
   serverTime: number;
 }
@@ -96,10 +107,16 @@ export interface ClientToServerEvents {
   'player:ready': (ready: boolean, ack?: (res: Ack<null>) => void) => void;
   /** Fire-and-forget (no ack) because taps are frequent. */
   'game:action': (action: GameAction) => void;
-  /** Host only; ends the round / closes the results and returns everyone to the lobby. */
+  /** Host only, lobby or session-over: wipe the scores and start a fresh session in the same room. */
+  'room:reset': (ack?: (res: Ack<null>) => void) => void;
+  /** Host only, lobby or session-over: close the room and send everyone out. */
+  'room:close': (ack?: (res: Ack<null>) => void) => void;
+  /** Host only; ends the round early, or skips the results screen. */
   'room:return-to-lobby': (ack?: (res: Ack<null>) => void) => void;
 }
 
 export interface ServerToClientEvents {
   'room:state': (state: RoomState) => void;
+  /** The host closed the room: everyone has been removed from it. */
+  'room:closed': () => void;
 }

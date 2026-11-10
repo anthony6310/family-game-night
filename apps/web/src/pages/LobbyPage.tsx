@@ -3,12 +3,14 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { GAMES, MAX_PLAYERS, ROUND_OPTIONS, getGame } from '@fgn/shared';
 import { Avatar } from '../components/Avatar';
 import { Countdown } from '../components/Countdown';
+import { ResultsScreen } from '../components/ResultsScreen';
+import { TapRaceScreen } from '../components/TapRaceScreen';
 import { useRoom } from '../room/RoomContext';
 
 /** The room lobby. Renders whatever the server last said; it holds no game logic itself. */
 export function LobbyPage() {
   const navigate = useNavigate();
-  const { room, selfId, leaveRoom, updateSettings, setReady, returnToLobby, serverNow } = useRoom();
+  const { room, selfId, leaveRoom, updateSettings, setReady, returnToLobby, sendAction, serverNow } = useRoom();
   const [error, setError] = useState<string | null>(null);
 
   // No room (e.g. page refresh or lost connection): back to the hub.
@@ -34,16 +36,13 @@ export function LobbyPage() {
   else if (room.players.length < game.minPlayers) status = `Waiting for more players (need ${game.minPlayers}).`;
   else if (waitingOn > 0) status = `Waiting for ${waitingOn} ${waitingOn === 1 ? 'player' : 'players'} to ready up…`;
 
-  if (room.phase === 'playing') {
-    return (
-      <main className="page">
-        <h1>Game on! 🎮</h1>
-        <p>{game?.name} · {room.settings.totalRounds} rounds</p>
-        <p className="muted">The game itself arrives in MVP 4.</p>
-        {isHost && <button onClick={() => run(returnToLobby())}>Back to lobby</button>}
-        {error && <p className="error">{error}</p>}
-      </main>
-    );
+  if (room.phase === 'playing' && room.game) {
+    // `key` = a fresh screen (and tap counter) for every round.
+    return <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
+      serverNow={serverNow} sendAction={sendAction} />;
+  }
+  if (room.phase === 'results' && room.result) {
+    return <ResultsScreen room={room} selfId={selfId} error={error} onBack={() => run(returnToLobby())} />;
   }
 
   return (
@@ -58,6 +57,7 @@ export function LobbyPage() {
             <Avatar url={p.avatarUrl} name={p.name} size={44} />
             <span className="player-name">{p.name}{p.id === selfId && ' (you)'}</span>
             {p.id === room.hostId && <span className="badge">Host</span>}
+            {(room.scores[p.id] ?? 0) > 0 && <span className="badge wins" title="Rounds won this session">🏆 {room.scores[p.id]}</span>}
             {room.readyIds.includes(p.id) && <span className="ready-mark" title="Ready">✓</span>}
           </li>
         ))}

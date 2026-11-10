@@ -22,9 +22,27 @@ export interface RoomSettings {
 /**
  * 'lobby'     choosing settings and readying up
  * 'countdown' everyone is ready; the game starts at `countdownEndsAt`
- * 'playing'   a game is running (the game itself arrives in MVP 4)
+ * 'playing'   a round is running
+ * 'results'   the round is over; the winner is on screen
  */
-export type RoomPhase = 'lobby' | 'countdown' | 'playing';
+export type RoomPhase = 'lobby' | 'countdown' | 'playing' | 'results';
+
+/** What a phone may send during a round. The server decides what it actually means. */
+export type GameAction = { type: 'tap' };
+
+/** What phones are told about a running round (Tap Race for now; a union once there are more games). */
+export interface GameView {
+  gameId: GameId;
+  startsAt: number; // server clock (epoch ms)
+  endsAt: number;
+  taps: Record<string, number>; // playerId -> taps counted by the SERVER
+}
+
+/** Outcome of a finished round. `winnerId` is null for a draw. */
+export interface RoundResult {
+  winnerId: string | null;
+  scores: Record<string, number>; // playerId -> that round's score (taps)
+}
 
 /** Everything a phone needs to draw the lobby. The server sends a fresh copy on every change. */
 export interface RoomState {
@@ -36,6 +54,10 @@ export interface RoomState {
   phase: RoomPhase;
   /** Server clock (epoch ms) when the countdown hits zero, or null. */
   countdownEndsAt: number | null;
+  /** Rounds won so far this session, by player id (players with none are absent). */
+  scores: Record<string, number>;
+  game: GameView | null; // only while phase === 'playing'
+  result: RoundResult | null; // only while phase === 'results'
   /** Server clock when this message was built. Phones compare it to their own clock to stay in sync. */
   serverTime: number;
 }
@@ -72,7 +94,9 @@ export interface ClientToServerEvents {
   /** Host only. Changing anything cancels a running countdown and clears every Ready. */
   'room:settings': (settings: Partial<RoomSettings>, ack?: (res: Ack<null>) => void) => void;
   'player:ready': (ready: boolean, ack?: (res: Ack<null>) => void) => void;
-  /** Host only; ends the current game and returns everyone to the lobby. */
+  /** Fire-and-forget (no ack) because taps are frequent. */
+  'game:action': (action: GameAction) => void;
+  /** Host only; ends the round / closes the results and returns everyone to the lobby. */
   'room:return-to-lobby': (ack?: (res: Ack<null>) => void) => void;
 }
 

@@ -18,7 +18,7 @@ const check = (name: string, ok: boolean) => {
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
-const httpServer = createGameServer('http://localhost:5173', { countdownMs: COUNTDOWN_MS });
+const httpServer = createGameServer('http://localhost:5173', { countdownMs: COUNTDOWN_MS, onRound: () => {} });
 await new Promise<void>((r) => httpServer.listen(0, r));
 const serverUrl = `http://localhost:${(httpServer.address() as AddressInfo).port}`;
 

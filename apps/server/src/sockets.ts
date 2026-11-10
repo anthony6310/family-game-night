@@ -1,7 +1,7 @@
 import type { Server } from 'socket.io';
 import type { Ack, ClientToServerEvents, Player, RoomState, ServerToClientEvents } from '@fgn/shared';
 import { AuthError, authenticate } from './auth';
-import { RoomManager, type Result } from './rooms';
+import { RoomManager, type Outcome, type Result, type RoundRecord } from './rooms';
 
 /** Per-connection data the server keeps on each socket. */
 interface SocketData {
@@ -11,29 +11,66 @@ interface SocketData {
 
 export type GameServer = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
 
-export function registerSockets(io: GameServer, rooms: RoomManager) {
-  // One countdown timer per room. `endsAt` identifies which countdown the timer belongs to.
-  const timers = new Map<string, { endsAt: number; timer: NodeJS.Timeout }>();
+/** Taps arrive far faster than phones need updates, so live tap counts go out in batches. */
+const TAP_BROADCAST_MS = 100;
 
-  // Broadcast the room to everyone in it, and keep that room's countdown timer in step with it.
+interface ScheduledTimer {
+  endsAt: number; // identifies WHICH countdown/round this timer belongs to
+  timer: NodeJS.Timeout;
+}
+
+export function registerSockets(io: GameServer, rooms: RoomManager, onRound: (round: RoundRecord) => void) {
+  const countdownTimers = new Map<string, ScheduledTimer>(); // room code -> timer
+  const roundTimers = new Map<string, ScheduledTimer>();
+  const flushPending = new Set<string>(); // rooms with a batched tap broadcast already scheduled
+
+  /**
+   * Keeps one timer in step with the room: `endsAt` = when it should fire, or null = no timer.
+   * Safe to call after every broadcast: it only reschedules if the target time changed.
+   */
+  function syncTimer(timers: Map<string, ScheduledTimer>, code: string, endsAt: number | null, onFire: (endsAt: number) => void) {
+    const current = timers.get(code);
+    if (endsAt === null) {
+      if (current) clearTimeout(current.timer);
+      timers.delete(code);
+      return;
+    }
+    if (current?.endsAt === endsAt) return; // already scheduled
+    if (current) clearTimeout(current.timer);
+    const timer = setTimeout(() => {
+      timers.delete(code);
+      onFire(endsAt);
+    }, Math.max(0, endsAt - Date.now()));
+    timers.set(code, { endsAt, timer });
+  }
+
+  // Broadcast the room to everyone in it, then make sure the right timers exist for its phase.
   function publish(state: RoomState) {
     io.to(state.code).emit('room:state', state);
+    syncTimer(countdownTimers, state.code, state.phase === 'countdown' ? state.countdownEndsAt : null, (endsAt) => {
+      const started = rooms.finishCountdown(state.code, endsAt);
+      if (started) publish(started); // countdown hit zero: the round begins
+    });
+    syncTimer(roundTimers, state.code, state.phase === 'playing' ? (state.game?.endsAt ?? null) : null, (endsAt) => {
+      const outcome = rooms.finishRound(state.code, endsAt);
+      if (outcome) publishOutcome(outcome); // time's up: decide the winner
+    });
+  }
 
-    const current = timers.get(state.code);
-    if (state.phase === 'countdown' && state.countdownEndsAt !== null) {
-      if (current?.endsAt === state.countdownEndsAt) return; // already scheduled
-      if (current) clearTimeout(current.timer);
-      const endsAt = state.countdownEndsAt;
-      const timer = setTimeout(() => {
-        timers.delete(state.code);
-        const started = rooms.finishCountdown(state.code, endsAt);
-        if (started) publish(started); // countdown hit zero: the game phase begins
-      }, Math.max(0, endsAt - Date.now()));
-      timers.set(state.code, { endsAt, timer });
-    } else if (current) {
-      clearTimeout(current.timer); // countdown was cancelled (or the room is gone)
-      timers.delete(state.code);
-    }
+  function publishOutcome({ room, round }: Outcome) {
+    publish(room);
+    if (round) onRound(round); // persist the decided round
+  }
+
+  // Batches live tap counts: many taps within 100 ms produce ONE broadcast.
+  function scheduleTapBroadcast(code: string) {
+    if (flushPending.has(code)) return;
+    flushPending.add(code);
+    setTimeout(() => {
+      flushPending.delete(code);
+      const state = rooms.stateOf(code);
+      if (state?.phase === 'playing') publish(state);
+    }, TAP_BROADCAST_MS);
   }
 
   // Middleware runs once per connection, before 'connection'. Calling next(error) rejects it,
@@ -60,9 +97,9 @@ export function registerSockets(io: GameServer, rooms: RoomManager) {
       if (!result) return;
       if (result.room) publish(result.room);
       else {
-        const current = timers.get(result.code); // room emptied: drop its timer
-        if (current) clearTimeout(current.timer);
-        timers.delete(result.code);
+        // Room emptied: drop its timers.
+        syncTimer(countdownTimers, result.code, null, () => {});
+        syncTimer(roundTimers, result.code, null, () => {});
       }
     };
 
@@ -93,6 +130,13 @@ export function registerSockets(io: GameServer, rooms: RoomManager) {
     });
     socket.on('player:ready', (ready, ack) => command(rooms.setReady(player.id, ready === true), ack));
     socket.on('room:return-to-lobby', (ack) => command(rooms.returnToLobby(player.id), ack));
+    socket.on('game:action', (action) => {
+      if (action?.type !== 'tap') return; // never trust the payload shape
+      const outcome = rooms.gameAction(player.id, action);
+      if (!outcome) return;
+      if (outcome.room.phase === 'playing') scheduleTapBroadcast(outcome.room.code);
+      else publishOutcome(outcome); // the action ended the round
+    });
     socket.on('disconnect', leave); // closing the tab or losing signal counts as leaving (for now)
   });
 }

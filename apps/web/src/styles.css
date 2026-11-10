@@ -35,3 +35,17 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .choice.selected { border-color: #ff5d8f; }
 .ready-mark { color: #6ee7a0; font-weight: bold; margin-left: 0.4rem; }
 .countdown { font-size: 5rem; font-weight: bold; color: #ff5d8f; line-height: 1; }
+.badge.wins { background: #3a3a5c; margin-left: 0.4rem; }
+.tap-page { gap: 0.75rem; justify-content: flex-start; padding-top: 1rem; }
+.timer { font-size: 3rem; font-weight: bold; color: #ff5d8f; line-height: 1; }
+.tap-button { width: min(70vw, 16rem); height: min(70vw, 16rem); aspect-ratio: 1; border-radius: 50%; background: #ff5d8f; color: #fff;
+  font-size: 2.5rem; font-weight: bold; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.25rem;
+  touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; box-shadow: 0 0.4rem 0 #b83a66; }
+.tap-button:active:not(:disabled) { transform: translateY(0.3rem); box-shadow: 0 0.1rem 0 #b83a66; }
+.tap-count { font-size: 1.5rem; font-weight: normal; opacity: 0.85; }
+.standings { list-style: none; padding: 0; margin: 0; width: min(100%, 22rem); display: flex; flex-direction: column; gap: 0.35rem; }
+.standings li { display: flex; align-items: center; gap: 0.5rem; font-size: 0.9rem; }
+.standing-name { width: 5.5rem; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar { flex: 1; height: 0.6rem; background: #26264a; border-radius: 1rem; overflow: hidden; }
+.bar span { display: block; height: 100%; background: #6ee7a0; transition: width 0.1s linear; }
+.standing-taps { width: 2rem; text-align: right; }

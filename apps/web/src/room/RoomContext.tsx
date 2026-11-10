@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { io, type Socket } from 'socket.io-client';
 import {
   MAX_PLAYERS,
-  type Ack, type ClientToServerEvents, type JoinResult, type RoomError, type RoomSettings, type RoomState,
+  type Ack, type ClientToServerEvents, type GameAction, type JoinResult, type RoomError, type RoomSettings, type RoomState,
   type ServerToClientEvents,
 } from '@fgn/shared';
 import { useAuth } from '../auth/AuthContext';
@@ -37,6 +37,8 @@ interface RoomContextValue {
   setReady: (ready: boolean) => Promise<string | null>;
   /** Host: end the current game and go back to the lobby. */
   returnToLobby: () => Promise<string | null>;
+  /** Send an in-game action (a tap). Fire-and-forget: the server's count is what matters. */
+  sendAction: (action: GameAction) => void;
   /** The server's current time (ms), estimated from the offset measured on the last update. */
   serverNow: () => number;
 }
@@ -129,6 +131,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     updateSettings: (change) => command((s, ack) => s.emit('room:settings', change, ack)),
     setReady: (ready) => command((s, ack) => s.emit('player:ready', ready, ack)),
     returnToLobby: () => command((s, ack) => s.emit('room:return-to-lobby', ack)),
+    sendAction: (action) => socketRef.current?.emit('game:action', action),
     serverNow: () => Date.now() + clockOffset.current,
     leaveRoom: () => {
       socketRef.current?.emit('room:leave');

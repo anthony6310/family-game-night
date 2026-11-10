@@ -8,7 +8,9 @@
     "typecheck": "tsc -p .",
     "test:rls": "tsx --env-file=.env scripts/test-rls.ts",
     "test:rooms": "tsx --env-file=.env scripts/test-rooms.ts",
-    "test:lobby": "tsx --env-file=.env scripts/test-lobby.ts"
+    "test:lobby": "tsx --env-file=.env scripts/test-lobby.ts",
+    "test:game": "tsx --env-file=.env scripts/test-game.ts",
+    "test:results": "tsx --env-file=.env scripts/test-results.ts"
   },
   "dependencies": {
     "@fgn/shared": "*",

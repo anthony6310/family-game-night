@@ -53,10 +53,8 @@ family-game-night/
 |---|---|---|
 | `profiles` | `id` (= `auth.users.id`), `display_name`, `avatar_url` (preset path or uploaded image URL), `created_at` | Public-facing player identity |
 | `avatar_presets` | `id`, `label`, `image_url` | Your provided image list (seeded) |
-| `rooms` | `id`, `code` (unique), `host_id`, `total_rounds`, `status` (`lobby/playing/finished/closed`), `created_at` | A play session container |
-| `room_players` | `room_id`, `profile_id` (nullable for guests), `joined_at`, `wins` | Membership and per-session points. *May stay in server memory only (see below)* |
-| `game_results` | `id`, `room_id`, `game_type`, `winner_profile_id` (nullable), `winner_name`, `is_guest`, `played_at` | One row per round |
-| `session_results` | `id`, `room_id`, `winner_profile_id` (nullable), `winner_name`, `is_guest`, `winner_wins`, `total_rounds`, `finished_at` | **Daily record**: one row per completed session |
+| `game_results` | `id`, `room_code`, `game_type`, `winner_profile_id` (nullable), `winner_name`, `is_guest`, `is_tiebreaker`, `played_at` | One row per decided round. Rooms live in server memory, so there are no `rooms`/`room_players` tables; `room_code` is plain text |
+| `session_results` | `id`, `room_code`, `winner_profile_id` (nullable), `winner_name`, `is_guest`, `winner_wins`, `total_rounds`, `tiebreaker_rounds`, `finished_at` | **Daily record**: one row per completed session |
 
 **Guest rule:** guests never get a `profiles` row or a Supabase user. Result tables store a `winner_name` snapshot (so history still reads well) plus `winner_profile_id` only for real accounts.
 
@@ -71,7 +69,7 @@ Storage: `avatars` bucket, with files at `avatars/{user_id}/...`.
 **RLS rules (draft)**
 - `profiles`: anyone authenticated can **read**; a user can **insert/update only their own** row (`auth.uid() = id`).
 - `avatar_presets`: read-only for all authenticated users; only you can write (via migration/dashboard).
-- `rooms` / `room_players`: live room state is held by the Socket.io server (guests have no DB identity), so these tables are mainly for history. Only the server writes them.
+- Live room state (rooms, players, scores) is held by the Socket.io server, since guests have no DB identity. There are no `rooms` tables.
 - `game_results` / `session_results`: readable by anyone (leaderboard/history); **written only by the server** with the service-role key. No client, guest or account, can write scores.
 - Storage `avatars`: a user can write only inside their own folder; reads are public.
 
@@ -141,10 +139,10 @@ Each milestone is small, testable, and leaves the app working.
 - **Done when:** countdown starts only when everyone is ready and is in sync across phones.
 
 ### MVP 4 — Tap Race (proof of concept) & Scoring
-- [ ] 4.1 Bare-bones **Tap Race**: on "Go", players tap a big button as fast as they can for a fixed time (e.g. 10s, or first to N taps); most taps wins. No theme or art yet.
-- [ ] 4.2 Server counts taps (authoritative) and decides the round winner
-- [ ] 4.3 Winner screen, then +1 point on the room scoreboard
-- [ ] 4.4 Persist each round to `game_results`
+- [x] 4.1 Bare-bones **Tap Race**: after the countdown, players tap a big button for 10s (`TAP_RACE_SECONDS`); most taps wins; a tie for most (or nobody tapping) is a draw with no point. Pure game engine in `apps/server/src/games/`. No theme or art yet.
+- [x] 4.2 Server counts taps (authoritative: server clock window, per-player tap-rate limit) and decides the round winner
+- [x] 4.3 Winner screen, then +1 point on the room scoreboard
+- [x] 4.4 Persist each decided round to `game_results` (verified by `npm run test:results -w @fgn/server`). Draws are not saved
 - **Done when:** a full round plays end-to-end and the winner's point shows on every phone.
 
 ### MVP 5 — Session Loop & Winner Record

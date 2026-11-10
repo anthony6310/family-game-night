@@ -16,3 +16,6 @@ export const AVATAR_MIME_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'imag
 /** Invite codes: 4 characters, skipping look-alikes (no 0/O or 1/I) so they're easy to read out loud. */
 export const ROOM_CODE_LENGTH = 4;
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+/** Seconds of countdown once everyone is ready. */
+export const COUNTDOWN_SECONDS = 5;

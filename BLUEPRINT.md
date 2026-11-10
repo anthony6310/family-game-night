@@ -134,10 +134,10 @@ Each milestone is small, testable, and leaves the app working.
 - **Done when:** 3 phones (mix of account and guest) join one room and all see the same player list in real time; a 9th join is rejected.
 
 ### MVP 3 — Session Setup, Ready-up & Countdown
-- [ ] 3.1 Shared `Game` interface, game registry and `ROUND_OPTIONS` config
-- [ ] 3.2 Host picks session length (3/5/7) and a game; all players see both
-- [ ] 3.3 Ready toggle per player; the server starts a synced countdown when all are ready
-- [ ] 3.4 Edge cases: a player un-readies or leaves mid-countdown, so cancel
+- [x] 3.1 Shared game registry (`GAMES` info: name, min/max players) and `ROUND_OPTIONS` config. The game *engine* interface is designed in MVP 4 alongside Tap Race
+- [x] 3.2 Host picks session length (3/5/7) and a game; all players see both
+- [x] 3.3 Ready toggle per player; the server starts a synced countdown when all are ready
+- [x] 3.4 Edge cases: the countdown cancels whenever the start conditions stop holding (someone un-readies, an unready player joins, the host changes settings, or players drop below the minimum). A ready player leaving does not cancel it if enough ready players remain
 - **Done when:** countdown starts only when everyone is ready and is in sync across phones.
 
 ### MVP 4 — Tap Race (proof of concept) & Scoring

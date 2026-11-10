@@ -3,11 +3,13 @@ import cors from 'cors';
 import express from 'express';
 import { Server } from 'socket.io';
 import type { ClientToServerEvents, HealthResponse, ServerToClientEvents } from '@fgn/shared';
+import { RoomManager } from './rooms';
 import { registerSockets, type GameServer } from './sockets';
 import { checkSupabase } from './supabase';
 
 /** Builds the HTTP + WebSocket server without starting it, so tests can run it on any port. */
-export function createGameServer(clientOrigin: string) {
+/** `countdownMs` can be shortened in tests. */
+export function createGameServer(clientOrigin: string, options: { countdownMs?: number } = {}) {
   const app = express();
   // CORS: the browser blocks cross-origin calls unless the server explicitly allows the web origin.
   app.use(cors({ origin: clientOrigin }));
@@ -27,6 +29,6 @@ export function createGameServer(clientOrigin: string) {
   const io: GameServer = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: clientOrigin },
   });
-  registerSockets(io);
+  registerSockets(io, new RoomManager(options.countdownMs));
   return httpServer;
 }

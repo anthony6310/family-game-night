@@ -7,7 +7,8 @@
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
     "typecheck": "tsc -p .",
     "test:rls": "tsx --env-file=.env scripts/test-rls.ts",
-    "test:rooms": "tsx --env-file=.env scripts/test-rooms.ts"
+    "test:rooms": "tsx --env-file=.env scripts/test-rooms.ts",
+    "test:lobby": "tsx --env-file=.env scripts/test-lobby.ts"
   },
   "dependencies": {
     "@fgn/shared": "*",

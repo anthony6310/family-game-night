@@ -2,7 +2,8 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { io, type Socket } from 'socket.io-client';
 import {
   MAX_PLAYERS,
-  type Ack, type ClientToServerEvents, type JoinResult, type RoomError, type RoomState, type ServerToClientEvents,
+  type Ack, type ClientToServerEvents, type JoinResult, type RoomError, type RoomSettings, type RoomState,
+  type ServerToClientEvents,
 } from '@fgn/shared';
 import { useAuth } from '../auth/AuthContext';
 import { SERVER_URL } from '../components/DevStatus';
@@ -14,6 +15,12 @@ const ERROR_TEXT: Record<RoomError, string> = {
   ROOM_NOT_FOUND: 'No room with that code.',
   ROOM_FULL: `That room is full (${MAX_PLAYERS} players max).`,
   ALREADY_IN_ROOM: "You're already in a room (maybe in another tab).",
+  GAME_IN_PROGRESS: 'That room is mid-game. Try again in a moment.',
+  NOT_IN_ROOM: "You're not in a room.",
+  NOT_HOST: 'Only the host can do that.',
+  INVALID_SETTING: "That setting isn't allowed.",
+  WRONG_PHASE: "That can't be changed right now.",
+  NO_GAME_SELECTED: 'Wait for the host to pick a game.',
 };
 
 interface RoomContextValue {
@@ -25,6 +32,13 @@ interface RoomContextValue {
   createRoom: () => Promise<string | null>;
   joinRoom: (code: string) => Promise<string | null>;
   leaveRoom: () => void;
+  /** Host: pick the game and/or session length. */
+  updateSettings: (change: Partial<RoomSettings>) => Promise<string | null>;
+  setReady: (ready: boolean) => Promise<string | null>;
+  /** Host: end the current game and go back to the lobby. */
+  returnToLobby: () => Promise<string | null>;
+  /** The server's current time (ms), estimated from the offset measured on the last update. */
+  serverNow: () => number;
 }
 
 const RoomContext = createContext<RoomContextValue | null>(null);
@@ -35,6 +49,13 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const guestNameRef = useRef(guestName);
   guestNameRef.current = guestName;
   const [room, setRoom] = useState<RoomState | null>(null);
+  // serverTime - localTime, refreshed on every update. Phone clocks can be seconds off, so the
+  // countdown is shown relative to the SERVER's clock and every phone sees the same zero.
+  const clockOffset = useRef(0);
+  const applyState = useCallback((state: RoomState) => {
+    clockOffset.current = state.serverTime - Date.now();
+    setRoom(state);
+  }, []);
   const [selfId, setSelfId] = useState<string | null>(null);
 
   const disconnect = useCallback(() => {
@@ -62,7 +83,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
           );
         },
       });
-      socket.on('room:state', setRoom); // the server is the source of truth: just mirror it
+      socket.on('room:state', applyState); // the server is the source of truth: just mirror it
       socket.on('disconnect', () => {
         setRoom(null);
         setSelfId(null);
@@ -85,7 +106,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       send(socket, (res) => {
         socket.off('connect_error', onConnectError);
         if (!res.ok) return resolve(ERROR_TEXT[res.error]);
-        setRoom(res.data.room);
+        applyState(res.data.room);
         setSelfId(res.data.playerId);
         resolve(null);
       });
@@ -93,11 +114,22 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  // Sends a command on the existing connection; resolves with an error message or null.
+  function command(send: (socket: ClientSocket, ack: (res: Ack<null>) => void) => void): Promise<string | null> {
+    const socket = socketRef.current;
+    if (!socket) return Promise.resolve('Not connected.');
+    return new Promise((resolve) => send(socket, (res) => resolve(res.ok ? null : ERROR_TEXT[res.error])));
+  }
+
   const value: RoomContextValue = {
     room,
     selfId,
     createRoom: () => request((s, ack) => s.emit('room:create', ack)),
     joinRoom: (code) => request((s, ack) => s.emit('room:join', code, ack)),
+    updateSettings: (change) => command((s, ack) => s.emit('room:settings', change, ack)),
+    setReady: (ready) => command((s, ack) => s.emit('player:ready', ready, ack)),
+    returnToLobby: () => command((s, ack) => s.emit('room:return-to-lobby', ack)),
+    serverNow: () => Date.now() + clockOffset.current,
     leaveRoom: () => {
       socketRef.current?.emit('room:leave');
       setRoom(null);

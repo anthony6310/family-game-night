@@ -93,6 +93,11 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         },
       });
       socket.on('room:state', applyState); // the server is the source of truth: just mirror it
+      // Continuous games (Snowball) stream their state here many times a second. Merge it into the room.
+      socket.on('game:view', (view, serverTime) => {
+        clockOffset.current = serverTime - Date.now();
+        setRoom((prev) => (prev && prev.phase === 'playing' ? { ...prev, game: view, serverTime } : prev));
+      });
       socket.on('room:closed', () => {
         setRoom(null);
         setSelfId(null);

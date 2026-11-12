@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import type { GameAction, GameView, Player } from '@fgn/shared';
+import type { GameAction, Player, TapRaceView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Avatar } from './Avatar';
 
 interface Props {
-  game: GameView;
+  game: TapRaceView;
   players: Player[];
   selfId: string | null;
   serverNow: () => number;

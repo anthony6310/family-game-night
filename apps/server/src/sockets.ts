@@ -14,6 +14,10 @@ export type GameServer = Server<ClientToServerEvents, ServerToClientEvents, Reco
 /** Taps arrive far faster than phones need updates, so live tap counts go out in batches. */
 const TAP_BROADCAST_MS = 100;
 
+/** Physics games advance 40 times a second; every 2nd step is streamed to phones (20 snapshots/s). */
+const TICK_MS = 25;
+const SNAPSHOT_EVERY_N_TICKS = 2;
+
 interface ScheduledTimer {
   endsAt: number; // identifies WHICH countdown/round this timer belongs to
   timer: NodeJS.Timeout;
@@ -25,7 +29,8 @@ export interface SocketDeps {
   onSession: (session: SessionRecord) => void;
 }
 
-export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, onSession }: SocketDeps) {
+/** Returns a function that stops the game loop (the server calls it when it closes). */
+export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, onSession }: SocketDeps): () => void {
   const countdownTimers = new Map<string, ScheduledTimer>(); // room code -> timer
   const roundTimers = new Map<string, ScheduledTimer>();
   const resultsTimers = new Map<string, ScheduledTimer>();
@@ -88,6 +93,24 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       if (state?.phase === 'playing') publish(state);
     }, TAP_BROADCAST_MS);
   }
+
+  // The game loop for physics games (Snowball). Tap Race has no `tick`, so rooms playing it are skipped.
+  let tickCount = 0;
+  const loop = setInterval(() => {
+    tickCount++;
+    try {
+      for (const { code, view, ended } of rooms.tick(Date.now())) {
+        if (ended) publishOutcome(ended); // time's up: the usual results flow takes over
+        else if (view && tickCount % SNAPSHOT_EVERY_N_TICKS === 0) {
+          // volatile: if a phone is lagging, drop this snapshot rather than queueing stale ones.
+          io.to(code).volatile.emit('game:view', view, Date.now());
+        }
+      }
+    } catch (err) {
+      console.error('Game loop error:', err); // never let one bad tick kill the server
+    }
+  }, TICK_MS);
+  loop.unref(); // don't keep the process alive just for this timer
 
   // Middleware runs once per connection, before 'connection'. Calling next(error) rejects it,
   // and the client receives that message as a `connect_error`.
@@ -156,12 +179,16 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       if (typeof ack === 'function') ack({ ok: true, data: null });
     });
     socket.on('game:action', (action) => {
-      if (action?.type !== 'tap') return; // never trust the payload shape
+      // Never trust the payload shape: accept only the two known actions with sane numbers.
+      const valid = action?.type === 'tap' || (action?.type === 'steer' && Number.isFinite(action.x) && Number.isFinite(action.z));
+      if (!valid) return;
       const outcome = rooms.gameAction(player.id, action);
       if (!outcome) return;
-      if (outcome.room.phase === 'playing') scheduleTapBroadcast(outcome.room.code);
-      else publishOutcome(outcome); // the action ended the round
+      if (outcome.room.phase !== 'playing') publishOutcome(outcome); // the action ended the round
+      else if (!rooms.isTicking(outcome.room.code)) scheduleTapBroadcast(outcome.room.code); // tick games stream by themselves
     });
     socket.on('disconnect', leave); // closing the tab or losing signal counts as leaving (for now)
   });
+
+  return () => clearInterval(loop);
 }

@@ -102,7 +102,7 @@ Storage: `avatars` bucket, with files at `avatars/{user_id}/...`.
 
 **Core socket events (draft):** `room:create`, `room:join`, `room:state`, `room:leave`, `game:select`, `player:ready`, `game:countdown`, `game:start`, `game:action`, `game:end`, `session:end`, `room:reset`, `room:close`.
 
-**Game plugin interface (draft):** `{ id, name, minPlayers, init(players), reduce(state, action), isOver(state), getWinner(state) }`. Adding a game later = adding one file implementing this.
+**Game plugin interface:** a pure engine `{ id, init, reduce, tick?, isOver, getWinner, scores, removePlayer, view }` (see `apps/server/src/games/types.ts`). `tick` is optional: games with continuous movement (Snowball) get a server game loop; turn-based games (Tap Race) omit it. Adding a game = one engine file, one entry in `GAMES`, and one phone screen.
 
 ## 4. Execution Plan (MVP-first)
 
@@ -149,12 +149,19 @@ Each milestone is small, testable, and leaves the app working.
 - [x] 5.1 Track round count against the host's chosen `total_rounds` (a drawn round is replayed and doesn't count); results move on by themselves back to the lobby between rounds; the session length locks after the first round
 - [x] 5.2 After the final round, crown the session winner; if tied, run tie-breaker rounds among the tied players only (spectators watch)
 - [x] 5.3 Host chooses **Reset room** or **Close room**
-- [ ] 5.4 Write `session_results` (guest winners stored by name only). Code done; needs `supabase/migrations/0003_session_results.sql` applied, then `npm run test:history -w @fgn/server`
-- [ ] 5.5 History page showing past session winners (page built at `/history`; confirm it lists real rows once 0003 is applied)
+- [x] 5.4 Write `session_results` (guest winners stored by name only; verified by `npm run test:history -w @fgn/server`)
+- [x] 5.5 History page showing past session winners (`/history`)
 - **Done when:** a 3-round session ends with a crowned winner and a new `session_results` row, for both account and guest winners; a forced 3-way tie resolves via tie-breaker rounds.
 
 ### MVP 6 — Polish, Games & Deploy *(stretch)*
-- [ ] 6.1 Additional games via the plugin interface
+- [ ] 6.1 Additional games via the plugin interface *(ongoing: more games will follow; the rest of MVP 6 is parked for now)*
+  - [x] Tap Race (MVP 4)
+  - [ ] **Snowball** (three.js). Roll, grow by distance rolled, bigger balls steal snow from smaller ones on hard hits; biggest ball after 60 s wins. Solid circular wall, rebounds off balls and walls, 0.2 s immunity after a hit, plain white low-poly balls, a single snow *texture* for the ground (no snow geometry).
+    - [x] Engine tick support (`tick` on the game engine, a server game loop at 40 Hz, volatile `game:view` snapshots at 20 Hz)
+    - [x] Snowball engine and tests (`test:snowball`, `test:snowball-net`); all tuning numbers in one `SnowballConfig`
+    - [x] three.js scene (`SnowballScene`) with keyboard steering
+    - [x] Touch joystick, HUD (timer, live sizes), name tags and colours, spectator view
+    - [ ] Tuning from playtests on real phones (speed, growth, damage, camera)
 - [ ] 6.2 Reconnection (phone sleeps or loses signal), error and empty states
 - [ ] 6.3 Deploy over HTTPS (web, Node server, Supabase prod)
 

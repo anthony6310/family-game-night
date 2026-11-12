@@ -25,3 +25,6 @@ export const TAP_RACE_SECONDS = 10;
 
 /** How long round results stay on screen before the room moves on by itself. */
 export const RESULTS_SECONDS = 6;
+
+/** How long a Snowball round lasts. */
+export const SNOWBALL_SECONDS = 60;

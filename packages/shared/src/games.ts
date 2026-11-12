@@ -10,6 +10,8 @@ export interface GameInfo {
   description: string;
   minPlayers: number;
   maxPlayers: number;
+  /** Unit shown next to each player's round score on the results screen. */
+  scoreLabel: string;
 }
 
 export const GAMES = [
@@ -19,6 +21,15 @@ export const GAMES = [
     description: 'Tap as fast as you can. Most taps wins!',
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
+    scoreLabel: 'taps',
+  },
+  {
+    id: 'snowball',
+    name: 'Snowball',
+    description: 'Roll around, grow bigger, and bump smaller balls to steal their snow. Biggest ball wins!',
+    minPlayers: 2,
+    maxPlayers: MAX_PLAYERS,
+    scoreLabel: 'cm',
   },
 ] as const satisfies readonly GameInfo[];
 

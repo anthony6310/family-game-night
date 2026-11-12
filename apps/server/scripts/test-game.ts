@@ -6,7 +6,7 @@
  */
 import type { AddressInfo } from 'node:net';
 import { io, type Socket } from 'socket.io-client';
-import type { Ack, ClientToServerEvents, JoinResult, RoomState, ServerToClientEvents } from '@fgn/shared';
+import type { Ack, ClientToServerEvents, JoinResult, RoomState, ServerToClientEvents, TapRaceView } from '@fgn/shared';
 import { createGameServer } from '../src/server';
 import type { RoundRecord } from '../src/rooms';
 
@@ -19,6 +19,8 @@ const check = (name: string, ok: boolean) => {
   console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`);
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** The room's game view, narrowed to Tap Race (these tests only play Tap Race). */
+const tapView = (s: RoomState | null) => (s?.game?.gameId === 'tap-race' ? (s.game as TapRaceView) : undefined);
 
 const saved: RoundRecord[] = []; // what the server asked to persist
 const httpServer = createGameServer('http://localhost:5173', {
@@ -75,18 +77,18 @@ try {
   const R = await startRound(3);
   const [host, p1, p2] = R.players;
   check('round starts after the countdown with a game view', R.running && host.latest?.game?.gameId === 'tap-race');
-  const view = host.latest!.game!;
+  const view = tapView(host.latest)!;
   check('round window matches the configured duration', view.endsAt - view.startsAt === ROUND_MS);
   check('every player starts at 0 taps', Object.values(view.taps).every((n) => n === 0) && Object.keys(view.taps).length === 3);
 
   // A burst of 20 taps with no pause: the server's rate limit should let only ~1 through.
   for (let i = 0; i < 20; i++) tap(host);
   await sleep(250);
-  check('rapid-fire taps are rate limited by the server', (host.latest!.game?.taps[host.id] ?? 99) <= 2);
+  check('rapid-fire taps are rate limited by the server', (tapView(host.latest)?.taps[host.id] ?? 99) <= 2);
 
   // Record the highest tap count p2 SEES for p1 while the round is still running.
   let seenMid = 0;
-  p2.socket.on('room:state', (s) => { if (s.phase === 'playing') seenMid = Math.max(seenMid, s.game?.taps[p1.id] ?? 0); });
+  p2.socket.on('room:state', (s) => { if (s.phase === 'playing') seenMid = Math.max(seenMid, tapView(s)?.taps[p1.id] ?? 0); });
   await Promise.all([tapMany(p1, 6), tapMany(p2, 3)]);
   check('live tap counts reach other players mid-round (batched broadcast)', seenMid >= 3);
 
@@ -125,7 +127,7 @@ try {
   await tapMany(L.players[1], 2);
   L.players[2].socket.close(); // a spectator-ish player leaves; 2 remain, still enough
   await until(L.players[0], (s) => s.players.length === 2);
-  check('with enough players left, the round carries on', L.players[0].latest!.phase === 'playing' && !(L.players[2].id in L.players[0].latest!.game!.taps));
+  check('with enough players left, the round carries on', L.players[0].latest!.phase === 'playing' && !(L.players[2].id in tapView(L.players[0].latest)!.taps));
   await until(L.players[0], (s) => s.phase === 'results', ROUND_MS + 1000);
   check('a leaver is excluded from the results', L.players[0].latest!.result?.winnerId === L.players[1].id && !(L.players[2].id in L.players[0].latest!.result!.scores));
 

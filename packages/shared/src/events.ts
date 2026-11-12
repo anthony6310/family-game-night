@@ -28,16 +28,42 @@ export interface RoomSettings {
  */
 export type RoomPhase = 'lobby' | 'countdown' | 'playing' | 'results' | 'session-over';
 
-/** What a phone may send during a round. The server decides what it actually means. */
-export type GameAction = { type: 'tap' };
+/**
+ * What a phone may send during a round. The server decides what it actually means.
+ * `steer` is a direction on the ground in world axes (x = east, z = south), each -1..1.
+ * The server clamps its length to 1, so sending a bigger vector gains nothing.
+ */
+export type GameAction = { type: 'tap' } | { type: 'steer'; x: number; z: number };
 
-/** What phones are told about a running round (Tap Race for now; a union once there are more games). */
-export interface GameView {
-  gameId: GameId;
+/** Tap Race, as phones see it. */
+export interface TapRaceView {
+  gameId: 'tap-race';
   startsAt: number; // server clock (epoch ms)
   endsAt: number;
   taps: Record<string, number>; // playerId -> taps counted by the SERVER
 }
+
+/** One snowball, as phones see it. Positions are on the ground plane (x east, z south), y is up. */
+export interface SnowballBall {
+  x: number;
+  z: number;
+  vx: number;
+  vz: number;
+  radius: number;
+  immune: boolean; // briefly true after being hit (drawn as a flash)
+}
+
+/** Snowball, as phones see it. Streamed ~20 times a second while the round runs. */
+export interface SnowballView {
+  gameId: 'snowball';
+  startsAt: number;
+  endsAt: number;
+  arenaRadius: number;
+  balls: Record<string, SnowballBall>; // playerId -> ball (players outside a tie-breaker have none)
+}
+
+/** What phones are told about a running round: one shape per game, told apart by `gameId`. */
+export type GameView = TapRaceView | SnowballView;
 
 /** Outcome of a finished round. `winnerId` is null for a draw. */
 export interface RoundResult {
@@ -119,4 +145,9 @@ export interface ServerToClientEvents {
   'room:state': (state: RoomState) => void;
   /** The host closed the room: everyone has been removed from it. */
   'room:closed': () => void;
+  /**
+   * A live snapshot of a continuous game (e.g. Snowball), sent many times a second as "volatile"
+   * (a phone on a bad connection just skips the ones it can't take). Carries the server clock too.
+   */
+  'game:view': (view: GameView, serverTime: number) => void;
 }

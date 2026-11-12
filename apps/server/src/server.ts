@@ -11,7 +11,7 @@ import { checkSupabase } from './supabase';
 /** Builds the HTTP + WebSocket server without starting it, so tests can run it on any port. */
 /** Durations can be shortened in tests; `onRound`/`onSession` replace database saving (tests spy on them). */
 export function createGameServer(clientOrigin: string, options: {
-    countdownMs?: number; roundMs?: number; resultsMs?: number;
+    countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number;
     onRound?: (round: RoundRecord) => void; onSession?: (session: SessionRecord) => void;
   } = {}) {
   const app = express();
@@ -33,9 +33,10 @@ export function createGameServer(clientOrigin: string, options: {
   const io: GameServer = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
     cors: { origin: clientOrigin },
   });
-  registerSockets(io, new RoomManager(options), {
+  const stopLoop = registerSockets(io, new RoomManager(options), {
     onRound: options.onRound ?? saveRound,
     onSession: options.onSession ?? saveSession,
   });
+  httpServer.on('close', stopLoop);
   return httpServer;
 }

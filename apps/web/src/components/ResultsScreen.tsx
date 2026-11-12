@@ -1,4 +1,4 @@
-import type { Player, RoomState } from '@fgn/shared';
+import { getGame, type Player, type RoomState } from '@fgn/shared';
 import { Avatar } from './Avatar';
 import { useRemainingMs } from './Countdown';
 
@@ -19,6 +19,7 @@ export function ResultsScreen({ room, selfId, error, serverNow, onSkip }: Props)
   const rows = Object.entries(result.scores)
     .filter(([id]) => byId.has(id))
     .sort(([, a], [, b]) => b - a);
+  const unit = getGame(room.settings.gameId)?.scoreLabel ?? ''; // "taps" for Tap Race, "cm" for Snowball
   const secondsLeft = Math.ceil(useRemainingMs(room.resultsEndsAt ?? 0, serverNow) / 1000);
 
   return (
@@ -46,7 +47,7 @@ export function ResultsScreen({ room, selfId, error, serverNow, onSkip }: Props)
           <li key={id}>
             <Avatar url={byId.get(id)!.avatarUrl} name={byId.get(id)!.name} size={36} />
             <span className="player-name">{byId.get(id)!.name}{id === selfId && ' (you)'}</span>
-            <span>{taps} taps</span>
+            <span>{taps} {unit}</span>
             <span className="badge wins" title="Rounds won this session">🏆 {room.scores[id] ?? 0}</span>
           </li>
         ))}

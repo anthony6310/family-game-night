@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { GAMES, MAX_PLAYERS, ROUND_OPTIONS, getGame } from '@fgn/shared';
 import { Avatar } from '../components/Avatar';
@@ -8,11 +8,21 @@ import { SessionOverScreen } from '../components/SessionOverScreen';
 import { TapRaceScreen } from '../components/TapRaceScreen';
 import { useRoom } from '../room/RoomContext';
 
+// three.js is big, so the Snowball screen is its own download, fetched only when needed.
+const loadSnowballScreen = () => import('../components/SnowballScreen');
+const SnowballScreen = lazy(loadSnowballScreen);
+
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
   const navigate = useNavigate();
   const { room, selfId, leaveRoom, updateSettings, setReady, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
   const [error, setError] = useState<string | null>(null);
+
+  // As soon as the host picks Snowball, start downloading its code so the round can begin instantly.
+  const pickedGame = room?.settings.gameId;
+  useEffect(() => {
+    if (pickedGame === 'snowball') void loadSnowballScreen();
+  }, [pickedGame]);
 
   // No room (refresh, lost connection, or the host closed it): back to the hub.
   if (!room) return <Navigate to="/play" replace />;
@@ -27,7 +37,15 @@ export function LobbyPage() {
   }
 
   if (room.phase === 'playing' && room.game) {
-    // `key` = a fresh screen (and tap counter) for every round.
+    // `key` = a fresh screen for every round.
+    if (room.game.gameId === 'snowball') {
+      return (
+        <Suspense fallback={<p className="center">Loading…</p>}>
+          <SnowballScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
+            serverNow={serverNow} sendAction={sendAction} />
+        </Suspense>
+      );
+    }
     return <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
       serverNow={serverNow} sendAction={sendAction} />;
   }

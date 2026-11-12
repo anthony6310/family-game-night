@@ -36,7 +36,7 @@ async function guest(name: string): Promise<Player> {
   const p: Player = { socket, id: '', latest: null, closed: false, seenTapKeys: [] };
   socket.on('room:state', (s) => {
     p.latest = s;
-    if (s.phase === 'playing' && s.game) p.seenTapKeys = Object.keys(s.game.taps).sort();
+    if (s.phase === 'playing' && s.game?.gameId === 'tap-race') p.seenTapKeys = Object.keys(s.game.taps).sort();
   });
   socket.on('room:closed', () => (p.closed = true));
   return p;

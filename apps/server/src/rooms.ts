@@ -1,10 +1,11 @@
 import { randomInt } from 'node:crypto';
 import {
   COUNTDOWN_SECONDS, GAMES, MAX_PLAYERS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROUND_OPTIONS,
-  TAP_RACE_SECONDS, getGame,
-  type GameAction, type GameId, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
+  SNOWBALL_SECONDS, TAP_RACE_SECONDS, getGame,
+  type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult,
 } from '@fgn/shared';
+import { createSnowball } from './games/snowball';
 import { createTapRace } from './games/tapRace';
 import type { GameEngine } from './games/types';
 
@@ -17,7 +18,7 @@ interface Room {
   phase: RoomPhase;
   countdownEndsAt: number | null;
   wins: Record<string, number>; // rounds won this session, by player id
-  game: { engine: GameEngine; state: unknown } | null; // set while phase === 'playing'
+  game: { engine: GameEngine; state: unknown; lastTickAt: number } | null; // set while phase === 'playing'
   result: RoundResult | null; // set while phase === 'results'
   resultsEndsAt: number | null;
   roundsPlayed: number; // decided, non-tie-breaker rounds
@@ -66,10 +67,13 @@ export class RoomManager {
   private engines: Record<GameId, GameEngine>;
 
   /** Durations are injectable so tests can run fast. */
-  constructor(options: { countdownMs?: number; roundMs?: number; resultsMs?: number } = {}) {
+  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number } = {}) {
     this.countdownMs = options.countdownMs ?? COUNTDOWN_SECONDS * 1000;
     this.resultsMs = options.resultsMs ?? RESULTS_SECONDS * 1000;
-    this.engines = { 'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000) };
+    this.engines = {
+      'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000),
+      snowball: createSnowball({ durationMs: options.snowballMs ?? SNOWBALL_SECONDS * 1000 }),
+    };
   }
 
   create(host: Player): Result {
@@ -191,7 +195,8 @@ export class RoomManager {
     const engine = this.engines[room.settings.gameId!];
     room.phase = 'playing';
     room.countdownEndsAt = null;
-    room.game = { engine, state: engine.init(this.participants(room), Date.now()) };
+    const now = Date.now();
+    room.game = { engine, state: engine.init(this.participants(room), now), lastTickAt: now };
     return toState(room);
   }
 
@@ -204,6 +209,31 @@ export class RoomManager {
     // Some games end early (first to N); Tap Race just waits for its timer.
     if (room.game.engine.isOver(room.game.state, now)) return this.endRound(room);
     return { room: toState(room) };
+  }
+
+  /**
+   * Advances every running round whose game has continuous movement (an engine with `tick`).
+   * Called ~40 times a second. For each such room it reports either the fresh `view` to stream to
+   * phones, or the `ended` outcome if the round just finished.
+   */
+  tick(now: number): { code: string; view?: GameView; ended?: Outcome }[] {
+    const results: { code: string; view?: GameView; ended?: Outcome }[] = [];
+    for (const room of this.rooms.values()) {
+      const game = room.game;
+      if (room.phase !== 'playing' || !game?.engine.tick) continue;
+      // Real elapsed time, capped so a stalled server can't make balls teleport.
+      const dt = Math.min(0.1, Math.max(0, (now - game.lastTickAt) / 1000));
+      game.lastTickAt = now;
+      game.state = game.engine.tick(game.state, dt, now);
+      if (game.engine.isOver(game.state, now)) results.push({ code: room.code, ended: this.endRound(room) });
+      else results.push({ code: room.code, view: game.engine.view(game.state) });
+    }
+    return results;
+  }
+
+  /** True while this room's round is driven by the tick loop (so it streams snapshots itself). */
+  isTicking(code: string): boolean {
+    return Boolean(this.rooms.get(code)?.game?.engine.tick);
   }
 
   /** Round timer fired. Same stale-timer guard as the countdown. */

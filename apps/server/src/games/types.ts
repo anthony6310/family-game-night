@@ -13,6 +13,12 @@ export interface GameEngine<S = any> {
   init(playerIds: string[], now: number): S;
   /** Apply one player action and return the NEW state (or the same one if it's not allowed). */
   reduce(state: S, playerId: string, action: GameAction, now: number): S;
+  /**
+   * Optional. Games with continuous movement (physics) provide this and the room calls it ~40 times a
+   * second while the round runs: advance the simulation by `dt` seconds. Turn-based games, like Tap
+   * Race, simply leave it out. Still pure: the caller supplies both `dt` and `now`.
+   */
+  tick?(state: S, dt: number, now: number): S;
   /** True when the round should end (checked after each action; the room also ends it on a timer). */
   isOver(state: S, now: number): boolean;
   /** The winner's player id, or null for a draw. */

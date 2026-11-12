@@ -23,7 +23,7 @@ const check = (name: string, ok: boolean) => {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // Real saving (no overrides), short timings.
-const httpServer = createGameServer('http://localhost:5173', { countdownMs: 100, roundMs: 300, resultsMs: 200 });
+const httpServer = createGameServer('http://localhost:5173', { countdownMs: 100, roundMs: 300, finishMs: 50, resultsMs: 200 });
 await new Promise<void>((r) => httpServer.listen(0, r));
 const serverUrl = `http://localhost:${(httpServer.address() as AddressInfo).port}`;
 
@@ -47,7 +47,7 @@ async function playRound(players: Player[], winner: Player) {
   await Promise.all(players.map(ready));
   await until(players[0], (s) => s.phase === 'playing');
   for (let i = 0; i < 3; i++) { winner.socket.emit('game:action', { type: 'tap' }); await sleep(60); }
-  await until(players[0], (s) => s.phase !== 'playing' && s.phase !== 'results', 3000);
+  await until(players[0], (s) => s.phase === 'lobby' || s.phase === 'session-over', 3000); // (playing -> finish -> results -> next)
 }
 
 const email = `history-${Date.now()}@example.com`;

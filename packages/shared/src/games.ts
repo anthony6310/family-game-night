@@ -10,7 +10,7 @@ export interface GameInfo {
   description: string;
   minPlayers: number;
   maxPlayers: number;
-  /** Unit shown next to each player's round score on the results screen. */
+  /** Word shown after each player's round score on the results screen (empty = just the number). */
   scoreLabel: string;
 }
 
@@ -29,7 +29,7 @@ export const GAMES = [
     description: 'Roll around and grow as big as you can. Every bump costs both balls size, the biggest ball hits twice as hard, and smaller balls get a speed boost to get away. Biggest ball wins!',
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
-    scoreLabel: 'cm',
+    scoreLabel: '',
   },
 ] as const satisfies readonly GameInfo[];
 

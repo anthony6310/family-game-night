@@ -33,6 +33,7 @@ export interface SocketDeps {
 export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, onSession }: SocketDeps): () => void {
   const countdownTimers = new Map<string, ScheduledTimer>(); // room code -> timer
   const roundTimers = new Map<string, ScheduledTimer>();
+  const finishTimers = new Map<string, ScheduledTimer>();
   const resultsTimers = new Map<string, ScheduledTimer>();
   const flushPending = new Set<string>(); // rooms with a batched tap broadcast already scheduled
 
@@ -67,6 +68,10 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       const outcome = rooms.finishRound(state.code, endsAt);
       if (outcome) publishOutcome(outcome); // time's up: decide the winner
     });
+    syncTimer(finishTimers, state.code, state.phase === 'finish' ? state.finishEndsAt : null, (endsAt) => {
+      const results = rooms.finishFinish(state.code, endsAt);
+      if (results) publish(results); // the you-won / you-lost sequence is over: show the summary
+    });
     syncTimer(resultsTimers, state.code, state.phase === 'results' ? state.resultsEndsAt : null, (endsAt) => {
       const outcome = rooms.finishResults(state.code, endsAt);
       if (outcome) publishOutcome(outcome); // results shown long enough: next round, tie-breaker or session end
@@ -74,7 +79,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   }
 
   function clearTimers(code: string) {
-    for (const timers of [countdownTimers, roundTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
+    for (const timers of [countdownTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
   }
 
   function publishOutcome({ room, round, session }: Outcome) {

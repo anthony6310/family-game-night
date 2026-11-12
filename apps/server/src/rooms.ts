@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto';
 import {
-  COUNTDOWN_SECONDS, GAMES, MAX_PLAYERS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROUND_OPTIONS,
+  COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROUND_OPTIONS,
   SNOWBALL_SECONDS, TAP_RACE_SECONDS, getGame,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult,
@@ -19,8 +19,9 @@ interface Room {
   phase: RoomPhase;
   countdownEndsAt: number | null;
   wins: Record<string, number>; // rounds won this session, by player id
-  game: { engine: GameEngine; state: unknown; lastTickAt: number } | null; // set while phase === 'playing'
-  result: RoundResult | null; // set while phase === 'results'
+  game: { engine: GameEngine; state: unknown; lastTickAt: number } | null; // set while phase is 'playing' or 'finish' (frozen in 'finish')
+  result: RoundResult | null; // set while phase is 'finish' or 'results'
+  finishEndsAt: number | null; // when the "you won / you lost" sequence ends
   resultsEndsAt: number | null;
   roundsPlayed: number; // decided, non-tie-breaker rounds
   tiebreakerRounds: number; // decided tie-breaker rounds
@@ -65,12 +66,14 @@ export class RoomManager {
   private roomOfPlayer = new Map<string, string>(); // playerId -> room code
   private countdownMs: number;
   private resultsMs: number;
+  private finishMs: number;
   private engines: Record<GameId, GameEngine>;
 
   /** Durations are injectable so tests can run fast. */
-  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number } = {}) {
+  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number } = {}) {
     this.countdownMs = options.countdownMs ?? COUNTDOWN_SECONDS * 1000;
     this.resultsMs = options.resultsMs ?? RESULTS_SECONDS * 1000;
+    this.finishMs = options.finishMs ?? FINISH_SECONDS * 1000;
     this.engines = {
       'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000),
       snowball: createSnowball({ durationMs: options.snowballMs ?? SNOWBALL_SECONDS * 1000 }),
@@ -91,6 +94,7 @@ export class RoomManager {
       wins: {},
       game: null,
       result: null,
+      finishEndsAt: null,
       resultsEndsAt: null,
       roundsPlayed: 0,
       tiebreakerRounds: 0,
@@ -106,7 +110,7 @@ export class RoomManager {
     if (this.roomOfPlayer.has(player.id)) return fail('ALREADY_IN_ROOM');
     const room = this.rooms.get(rawCode.trim().toUpperCase()); // codes are case-insensitive
     if (!room) return fail('ROOM_NOT_FOUND');
-    if (room.phase === 'playing') return fail('GAME_IN_PROGRESS');
+    if (room.phase === 'playing' || room.phase === 'finish') return fail('GAME_IN_PROGRESS'); // (the finish sequence still belongs to the round)
     if (room.players.size >= MAX_PLAYERS) return fail('ROOM_FULL');
     room.players.set(player.id, player);
     this.roomOfPlayer.set(player.id, room.code);
@@ -255,6 +259,17 @@ export class RoomManager {
     return this.endRound(room);
   }
 
+  /** Finish sequence over: show the round summary screen. Same stale-timer guard as the countdown. */
+  finishFinish(code: string, expectedEndsAt: number): RoomState | null {
+    const room = this.rooms.get(code);
+    if (!room || room.phase !== 'finish' || room.finishEndsAt !== expectedEndsAt) return null;
+    room.phase = 'results';
+    room.finishEndsAt = null;
+    room.game = null;
+    room.resultsEndsAt = Date.now() + this.resultsMs;
+    return toState(room);
+  }
+
   /** Results timer fired: move on to the next round, a tie-breaker, or the end of the session. */
   finishResults(code: string, expectedEndsAt: number): Outcome | null {
     const room = this.rooms.get(code);
@@ -322,9 +337,11 @@ export class RoomManager {
     }
     const winner = winnerId ? (room.players.get(winnerId) ?? null) : null;
     room.result = { winnerId, winner, isTiebreaker, scores: engine.scores(state) };
-    room.phase = 'results';
-    room.resultsEndsAt = Date.now() + this.resultsMs;
-    room.game = null;
+    // The result is decided NOW, but players first get the short "you won / you lost" sequence over the frozen game
+    // (input is ignored in this phase). `game` stays so phones can keep drawing the final moment; the summary comes next.
+    room.phase = 'finish';
+    room.finishEndsAt = Date.now() + this.finishMs;
+    room.resultsEndsAt = null;
     return {
       room: toState(room),
       round: winner ? { roomCode: room.code, gameType: room.settings.gameId!, winner, isTiebreaker } : undefined,
@@ -374,6 +391,7 @@ export class RoomManager {
     room.phase = 'lobby';
     room.game = null;
     room.result = null;
+    room.finishEndsAt = null;
     room.resultsEndsAt = null;
     room.countdownEndsAt = null;
     room.ready.clear();
@@ -443,6 +461,7 @@ function toState(room: Room): RoomState {
     roundsPlayed: room.roundsPlayed,
     contenders: room.contenders ? [...room.contenders] : null,
     sessionWinner: room.sessionWinner,
+    finishEndsAt: room.finishEndsAt,
     resultsEndsAt: room.resultsEndsAt,
     serverTime: Date.now(), // stamped at send time; phones use it to correct for clock differences
   };

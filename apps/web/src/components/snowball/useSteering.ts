@@ -20,12 +20,14 @@ const MIN_CHANGE = 0.02; // ignore wiggles smaller than this
  * changes, at most every 50 ms, and always send "stop" when you let go or the screen closes.
  * Returns `setStick` for the joystick to report its vector (or null when released).
  */
-export function useSteering(sendAction: (action: GameAction) => void) {
+export function useSteering(sendAction: (action: GameAction) => void, enabled = true) {
   const keys = useRef({ ...DIRECTIONS });
   const stick = useRef<Steer | null>(null);
   const sent = useRef<Steer>({ x: 0, z: 0 }); // what the server currently believes
   const sendRef = useRef(sendAction);
   sendRef.current = sendAction;
+  const enabledRef = useRef(enabled); // false while the round-end sequence has stopped player input
+  enabledRef.current = enabled;
 
   /** The joystick wins while touched; otherwise the keyboard decides. */
   const desired = useCallback((): Steer => {
@@ -38,6 +40,7 @@ export function useSteering(sendAction: (action: GameAction) => void) {
   }, []);
 
   const flush = useCallback(() => {
+    if (!enabledRef.current) return;
     const want = desired();
     if (Math.abs(want.x - sent.current.x) < MIN_CHANGE && Math.abs(want.z - sent.current.z) < MIN_CHANGE) return;
     sent.current = want;

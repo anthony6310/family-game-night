@@ -21,7 +21,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const rounds: RoundRecord[] = [];
 const sessions: SessionRecord[] = [];
 const httpServer = createGameServer('http://localhost:5173', {
-  countdownMs: 100, roundMs: 300, resultsMs: 200,
+  countdownMs: 100, roundMs: 300, finishMs: 50, resultsMs: 200,
   onRound: (r) => rounds.push(r), onSession: (s) => sessions.push(s),
 });
 await new Promise<void>((r) => httpServer.listen(0, r));

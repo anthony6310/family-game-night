@@ -18,13 +18,19 @@ export const ROOM_CODE_LENGTH = 4;
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 /** Seconds of countdown once everyone is ready. */
-export const COUNTDOWN_SECONDS = 5;
+export const COUNTDOWN_SECONDS = 3;
 
 /** How long a Tap Race round lasts. */
 export const TAP_RACE_SECONDS = 10;
 
-/** How long round results stay on screen before the room moves on by itself. */
-export const RESULTS_SECONDS = 6;
+/**
+ * How long the "you won / you lost" sequence lasts when a round ends: input is stopped and a message plays over the
+ * frozen game, before the round summary screen appears.
+ */
+export const FINISH_SECONDS = 3;
+
+/** How long the round summary screen stays up before the room moves on by itself. */
+export const RESULTS_SECONDS = 4;
 
 /** How long a Snowball round lasts. */
 export const SNOWBALL_SECONDS = 60;

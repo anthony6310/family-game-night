@@ -6,7 +6,7 @@
  */
 import { createTerrain, type Terrain, type TerrainFeature } from '@fgn/shared';
 import { createSnowball, DEFAULT_SNOWBALL_CONFIG, type SnowballState } from '../src/games/snowball';
-import { DEFAULT_FEATURE_SPECS, generateTerrainFeatures, mulberry32, spawnPoints } from '../src/games/terrain';
+import { arenaRadiusFor, generateTerrainFeatures, mulberry32, spawnPoints } from '../src/games/terrain';
 
 let failures = 0;
 const check = (name: string, ok: boolean) => {
@@ -58,7 +58,7 @@ const s4 = fresh(engine, ['A', 'B', 'C', 'D']);
 check('init: one ball per player, all start at radius 1, standing still',
   Object.keys(s4.balls).length === 4 && Object.values(s4.balls).every((b) => near(radius(b), 1) && b.vx === 0 && b.vz === 0 && b.slowStacks === 0 && b.boostStacks === 0));
 check('init: spawn points are inside the arena and well apart',
-  Object.values(s4.balls).every((b) => Math.hypot(b.x, b.z) + 1 < cfg.arenaRadius)
+  Object.values(s4.balls).every((b) => Math.hypot(b.x, b.z) + 1 < s4.arenaRadius)
   && Object.values(s4.balls).every((b, i, all) => all.every((o, j) => i === j || Math.hypot(b.x - o.x, b.z - o.z) > 10)));
 check('init: the round lasts the configured time', s4.endsAt - s4.startsAt === cfg.durationMs);
 check('init: 8 players fit with room to spare', (() => {
@@ -66,7 +66,7 @@ check('init: 8 players fit with room to spare', (() => {
   const b = Object.values(s8.balls);
   return b.every((x, i) => b.every((y, j) => i === j || Math.hypot(x.x - y.x, x.z - y.z) > 2 * 1 + 5));
 })());
-check('init: the arena is bigger than before (radius 45)', cfg.arenaRadius === 45);
+check('init: the base arena (2 players) has radius 45', cfg.arenaRadius === 45 && cfg.basePlayers === 2 && fresh(engine, ['A', 'B']).arenaRadius === 45);
 
 // ================= steering input =================
 check('steer: NaN or infinite input is ignored', steer(engine, s4, 'A', NaN, 0, 1100) === s4 && steer(engine, s4, 'A', 0, Infinity, 1100) === s4);
@@ -111,7 +111,7 @@ check('growth: a ball that never moves never grows', near(run(engine, fresh(engi
   };
   const small = topSpeedAfter(noGrowth, 1);
   const big = topSpeedAfter(noGrowth, 9); // radius 3
-  check('speed: base speed is 9', near(cfg.maxSpeed, 9) && near(small, cfg.maxSpeed, 0.25));
+  check('speed: base speed is 11', near(cfg.maxSpeed, 11) && near(small, cfg.maxSpeed, 0.3));
   check('speed: size no longer slows a ball (a radius-3 ball is as fast as a radius-1 ball)', near(big, small, 0.2) && near(big, cfg.maxSpeed, 0.2));
   const oldBehaviour = createSnowball({ terrain: FLAT, growthPerUnit: 0, speedFalloff: 0.5 });
   check('config: speedFalloff can bring the size slowdown back', topSpeedAfter(oldBehaviour, 9) < topSpeedAfter(oldBehaviour, 1) * 0.7);
@@ -146,57 +146,141 @@ check('friction: a ball that isn\'t steering coasts to a stop',
   check('terrain: the gradient really points uphill', uphillOk);
 }
 
+// ================= the map grows with the number of players =================
+{
+  const radius = (n: number) => arenaRadiusFor(n, cfg.arenaRadius, cfg.basePlayers);
+  check('size: 2 players get the base arena; the minimum never goes below it', near(radius(2), 45) && near(radius(1), 45) && near(radius(0), 45));
+  check('size: the AREA is proportional to the number of players (same room per player at every size)',
+    [2, 3, 4, 5, 6, 7, 8].every((n) => near((Math.PI * radius(n) ** 2) / n, (Math.PI * 45 ** 2) / 2, 1e-6)));
+  check('size: more players always means a bigger map', [2, 3, 4, 5, 6, 7].every((n) => radius(n + 1) > radius(n)));
+  check('size: 4 players ≈ 1.41x the radius, 8 players = 2x', near(radius(4) / 45, Math.SQRT2, 1e-9) && near(radius(8) / 45, 2, 1e-9));
+  const sized = (n: number) => fresh(engine, Array.from({ length: n }, (_, i) => `P${i}`));
+  check('size: a round really uses that radius (state and what phones are told)',
+    [2, 3, 5, 8].every((n) => { const st = sized(n); const v = engine.view(st); return near(st.arenaRadius, radius(n)) && v.gameId === 'snowball' && near(v.arenaRadius, radius(n)); }));
+  check('size: spawn points are spread over the bigger ring and inside the walls', [2, 4, 8].every((n) => {
+    const st = sized(n);
+    return Object.values(st.balls).every((b) => near(Math.hypot(b.x, b.z), st.arenaRadius * 0.7, 1e-9) && Math.hypot(b.x, b.z) + 1 < st.arenaRadius);
+  }));
+  check('size: a tie-breaker with fewer players gets the smaller map', near(sized(3).arenaRadius, radius(3)) && sized(3).arenaRadius < sized(8).arenaRadius);
+  // The wall of a big arena is the wall of THAT round: a ball can roll out to 80 in an 8-player round but not in a 2-player one.
+  const roll80 = (n: number) => {
+    const ids = Array.from({ length: n }, (_, i) => `P${i}`);
+    let st = fresh(createSnowball({ terrain: FLAT, growthPerUnit: 0 }), ids);
+    const e = createSnowball({ terrain: FLAT, growthPerUnit: 0 });
+    st = place(st, 'P0', { x: 0, z: 0 });
+    st = steer(e, st, 'P0', 1, 0, 1000);
+    return Math.max(...(() => { const xs: number[] = []; run(e, st, 12, 1000, (c) => xs.push(c.balls.P0.x)); return xs; })());
+  };
+  check('size: the walls move with the map (the 8-player arena lets you roll farther than the 2-player one)', roll80(2) < 45 && roll80(8) > 60);
+}
+
 // ================= terrain: a random layout every round =================
 {
-  const layout = (seed: number, players: number, arenaRadius = cfg.arenaRadius) =>
-    generateTerrainFeatures(mulberry32(seed), { arenaRadius, spawns: spawnPoints(players, arenaRadius) });
+  const radius = (n: number) => arenaRadiusFor(n, cfg.arenaRadius, cfg.basePlayers);
+  const bonusFor = (players: number) => cfg.featureRadiusPerPlayer * Math.max(0, players - cfg.basePlayers);
+  const layout = (seed: number, players: number) =>
+    generateTerrainFeatures(mulberry32(seed), {
+      arenaRadius: radius(players), spawns: spawnPoints(players, radius(players)),
+      extraFeatures: Math.max(0, players - cfg.basePlayers), radiusBonus: bonusFor(players),
+    });
+  const count = (f: TerrainFeature[], id: string) => f.filter((x) => x.id === id).length;
   const seeds = Array.from({ length: 300 }, (_, i) => i + 1);
 
-  check('layout: always exactly one big hill, one small hill and one ditch',
-    seeds.every((sd) => { const f = layout(sd, 2 + (sd % 7)); return f.length === 3 && f[0].id === 'big-hill' && f[1].id === 'small-hill' && f[2].id === 'ditch'
-      && f[0].height > f[1].height && f[1].height > 0 && f[2].height < 0; }));
-  check('layout: every feature lies completely inside the arena',
-    seeds.every((sd) => layout(sd, 2 + (sd % 7)).every((f) => Math.hypot(f.x, f.z) + f.radius <= cfg.arenaRadius + 0.01))); // (positions are rounded to 1 cm)
+  check('layout: 2 players get exactly the base: one big hill, one small hill, one ditch',
+    seeds.every((sd) => { const f = layout(sd, 2); return f.length === 3 && count(f, 'big-hill') === 1 && count(f, 'small-hill') === 1 && count(f, 'ditch') === 1; }));
+  check('layout: every additional player adds exactly one feature (players + 1 in total)',
+    [2, 3, 4, 5, 6, 7, 8].every((n) => seeds.every((sd) => layout(sd, n).length === n + 1)));
+  check('layout: the base three are always there, whatever the player count',
+    [3, 5, 8].every((n) => seeds.every((sd) => { const f = layout(sd, n); return count(f, 'big-hill') >= 1 && count(f, 'small-hill') >= 1 && count(f, 'ditch') >= 1; })));
+  check('layout: the extras are random: any of the three types can be added', (() => {
+    const extras = { 'big-hill': 0, 'small-hill': 0, ditch: 0 } as Record<string, number>;
+    for (const sd of seeds) { const f = layout(sd, 8); for (const id of Object.keys(extras)) extras[id] += count(f, id) - 1; } // minus the base one
+    const total = Object.values(extras).reduce((a, b) => a + b, 0);
+    return total === 6 * seeds.length && Object.values(extras).every((n) => n > total * 0.25 && n < total * 0.42); // roughly a third each
+  })());
+  check('layout: the extras vary from round to round (not always the same mix)', new Set(seeds.slice(0, 60).map((sd) => layout(sd, 6).map((x) => x.id).sort().join())).size >= 5);
+  check('layout: every feature lies completely inside that round\'s arena', [2, 3, 5, 8].every((n) =>
+    seeds.every((sd) => layout(sd, n).every((f) => Math.hypot(f.x, f.z) + f.radius <= radius(n) + 0.01)))); // (positions are rounded to 0.01 units)
   check('layout: nobody starts on a slope (2 to 8 players, 300 layouts each)', (() => {
     for (let n = 2; n <= 8; n++) for (const sd of seeds) {
       const ground = createTerrain(layout(sd, n));
-      for (const sp of spawnPoints(n, cfg.arenaRadius)) {
+      for (const sp of spawnPoints(n, radius(n))) {
         const g = ground.gradient(sp.x, sp.z);
         if (Math.abs(ground.height(sp.x, sp.z)) > 1e-9 || Math.hypot(g.x, g.z) > 1e-9) return false;
       }
     }
     return true;
   })());
-  check('layout: the same random numbers always give the same layout (reproducible)', JSON.stringify(layout(42, 4)) === JSON.stringify(layout(42, 4)));
+  check('layout: the same random numbers always give the same layout (reproducible)', JSON.stringify(layout(42, 5)) === JSON.stringify(layout(42, 5)));
   check('layout: different rounds get different layouts', new Set(seeds.slice(0, 40).map((sd) => JSON.stringify(layout(sd, 3)))).size >= 38);
+  const spread = (v: number[]) => Math.sqrt(v.reduce((t, n) => t + (n - v.reduce((a, c) => a + c, 0) / v.length) ** 2, 0) / v.length);
+  const bigHills = (players: number) => seeds.map((sd) => layout(sd, players).find((f) => f.id === 'big-hill')!);
   check('layout: positions really vary across the map (the big hill is not always in the same place)', (() => {
-    const xs = seeds.map((sd) => layout(sd, 2)[0].x), zs = seeds.map((sd) => layout(sd, 2)[0].z);
-    const spread = (v: number[]) => Math.sqrt(v.reduce((t, n) => t + (n - v.reduce((a, c) => a + c, 0) / v.length) ** 2, 0) / v.length);
-    return spread(xs) > 6 && spread(zs) > 6;
+    // With 2 players the (big) hill has to sit between the two start spots, so it moves north/south more than east/west.
+    const two = bigHills(2), four = bigHills(4);
+    return spread(two.map((f) => f.z)) > 6 && spread(four.map((f) => f.x)) > 6 && spread(four.map((f) => f.z)) > 6;
   })());
-  check('layout: all three features move around (small hill and ditch too)', [1, 2].every((k) => {
-    const xs = seeds.map((sd) => layout(sd, 3)[k].x);
+  check('layout: all three base features move around (small hill and ditch too)', [1, 2].every((k) => {
+    const xs = seeds.map((sd) => layout(sd, 4).filter((f) => f.id === (k === 1 ? 'small-hill' : 'ditch'))[0].x);
     return Math.max(...xs) - Math.min(...xs) > 30;
   }));
-  check('layout: with up to 4 players the features stay mostly apart (soft rule met in 90%+ of layouts)', (() => {
-    let apart = 0;
-    for (const sd of seeds) {
-      const f = layout(sd, 2 + (sd % 3));
-      const ok = [[0, 1], [0, 2], [1, 2]].every(([i, j]) => Math.hypot(f[i].x - f[j].x, f[i].z - f[j].z) >= 0.5 * (f[i].radius + f[j].radius) - 1e-6);
+  const ratio = (f: TerrainFeature[], i: number, j: number) => Math.hypot(f[i].x - f[j].x, f[i].z - f[j].z) / (f[i].radius + f[j].radius);
+  check('layout: with 2-3 players the features stay mostly apart (at least half their combined radii apart, in 90%+ of layouts)', (() => {
+    let apart = 0, total = 0;
+    for (const n of [2, 3]) for (const sd of seeds) {
+      const f = layout(sd, n);
+      let ok = true;
+      for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) if (ratio(f, i, j) < 0.5 - 1e-6) ok = false;
       if (ok) apart++;
+      total++;
     }
-    return apart / seeds.length >= 0.9;
+    return apart / total >= 0.9;
   })());
-  check('layout: it still works when the arena is crowded (8 players) and when it is tiny', layout(5, 8).length === 3 && layout(5, 2, 30).length === 3);
+  const minRatio = (f: TerrainFeature[]) => { let m = Infinity; for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) m = Math.min(m, ratio(f, i, j)); return m; };
+  check('layout: with up to 4 players no two features are stacked on top of each other (centres at least 30% of their radii apart)',
+    [2, 3, 4].every((n) => seeds.every((sd) => minRatio(layout(sd, n)) >= 0.3 - 1e-6)));
+  // 5-8 players: the wider hills cover most of the map (footprints add up to ~80% of the arena at 8 players), so some overlap is unavoidable.
+  check('layout: at any player count two features are never (nearly) on the very same spot (centres at least 15% of their radii apart)',
+    [2, 3, 4, 5, 6, 7, 8].every((n) => seeds.every((sd) => minRatio(layout(sd, n)) >= 0.15 - 1e-6)));
+  check('layout: bigger hills in a crowded map overlap only modestly on average (under a quarter of their combined radii)', [2, 4, 8].every((n) => {
+    let overlap = 0, pairs = 0;
+    for (const sd of seeds) { const f = layout(sd, n); for (let i = 0; i < f.length; i++) for (let j = i + 1; j < f.length; j++) { overlap += Math.max(0, 1 - ratio(f, i, j)); pairs++; } }
+    return overlap / pairs < 0.25;
+  }));
 
-  // ---- the engine: a new layout each round, fixed during it ----
+  const BASE: Record<string, { radius: number; height: number }> = {
+    'big-hill': { radius: 22, height: 6 }, 'small-hill': { radius: 12, height: 2.8 }, ditch: { radius: 10, height: -2.4 },
+  };
+  check('feature size: 1 or 2 players get exactly the base sizes (big hill radius 22, small hill 12, ditch 10)',
+    [1, 2].every((n) => seeds.every((sd) => layout(sd, n).every((f) => near(f.radius, BASE[f.id].radius, 0.01) && near(f.height, BASE[f.id].height, 0.01)))) && cfg.featureRadiusPerPlayer === 2);
+  check('feature size: each additional player adds a fixed 2 units to every feature\'s radius (big hill 24, 26, ... 34 at 8 players)',
+    [3, 4, 5, 6, 7, 8].every((n) => seeds.slice(0, 100).every((sd) => layout(sd, n).every((f) => near(f.radius, BASE[f.id].radius + 2 * (n - 2), 0.01)))) && near(22 + 2 * 6, 34));
+  check('feature size: it is a fixed amount, not a percentage (the big hill, small hill and ditch all grow by the same 2 per player)',
+    [3, 4, 5, 6].every((n) => ['big-hill', 'small-hill', 'ditch'].every((id) => {
+      const grow = (m: number) => layout(1, m).find((f) => f.id === id)!.radius;
+      return near(grow(n + 1) - grow(n), 2, 0.01);
+    })));
+  check('feature size: heights and depths do not change with the player count', [2, 4, 8].every((n) =>
+    seeds.slice(0, 100).every((sd) => layout(sd, n).every((f) => near(f.height, BASE[f.id].height, 0.01)))));
+  check('feature size: even the widest, gentlest features (8 players) are still steep enough for the full hill speed effect', (() => {
+    const wide = layout(1, 8);
+    return ['big-hill', 'small-hill', 'ditch'].every((id) => {
+      const f = wide.find((x) => x.id === id)!;
+      return (Math.abs(f.height) * Math.PI) / (2 * f.radius) >= cfg.slopeFullEffect;
+    });
+  })());
+
+  // ---- the engine: a new layout each round, sized for the players, fixed during it ----
   const e = createSnowball({ random: mulberry32(3) });
   const round1 = e.init(['A', 'B'], 1000);
   const round2 = e.init(['A', 'B'], 2000);
   check('engine: each round (each init) gets a different random layout', JSON.stringify(round1.features) !== JSON.stringify(round2.features) && round1.features.length === 3);
+  const eight = createSnowball({ random: mulberry32(5) }).init(Array.from({ length: 8 }, (_, i) => `P${i}`), 1000);
+  check('engine: an 8-player round has 9 features on a radius-90 map, each 12 units wider (radius) than the base', eight.features.length === 9 && near(eight.arenaRadius, 90) && eight.features.every((f) => near(f.radius, BASE[f.id].radius + 12, 0.01)) && eight.features.some((f) => near(f.radius, 34, 0.01)));
+  check('engine: a 2-player round has exactly the base sizes', round1.features.every((f) => near(f.radius, BASE[f.id].radius, 0.01) && near(f.height, BASE[f.id].height, 0.01)));
   const before = JSON.stringify(round1.features);
   const later = run(e, steer(e, round1, 'A', 1, 1, 1000), 8).state;
-  check('engine: the hills and ditch never move during a round', JSON.stringify(later.features) === before);
+  check('engine: the hills and ditches never move during a round (and neither do the walls)', JSON.stringify(later.features) === before && later.arenaRadius === round1.arenaRadius);
   const v = e.view(later);
   check('engine: the view hands the layout to the phones', v.gameId === 'snowball' && JSON.stringify(v.terrain) === before);
   check('engine: the ground the physics uses IS that layout', (() => {
@@ -406,8 +490,8 @@ const pair = (e: E, a: Partial<Ball>, b: Partial<Ball>) =>
   place(place(fresh(e, ['A', 'B']), 'A', { x: 0, z: 0, ...a }), 'B', { x: 3, z: 0, ...b });
 const totalSnow = (s: SnowballState) => Object.values(s.balls).reduce((t, b) => t + b.snow, 0);
 const gap = (s: SnowballState) => Math.hypot(s.balls.B.x - s.balls.A.x, s.balls.B.z - s.balls.A.z) - radius(s.balls.A) - radius(s.balls.B);
-/** What a ball's snow becomes after losing `cm` centimetres of size (size = radius × 100). */
-const afterCm = (snow: number, cm: number) => (Math.sqrt(snow) - cm / 100) ** 2;
+/** What a ball's snow becomes after losing `points` of size (a ball's size is its radius × 100). */
+const afterDamage = (snow: number, points: number) => (Math.sqrt(snow) - points / 100) ** 2;
 const afterFriction = (v: number) => v * (1 - cfg.frictionRate * DT); // a coasting ball loses a little speed each tick
 
 {
@@ -465,27 +549,27 @@ const oneHit = (e: E, a: Partial<Ball>, b: Partial<Ball>, v: number, now = 2000)
 {
   const s = oneHit(hitEngine, { snow: 1 }, { snow: 1 }, 6);
   check('damage: BOTH balls take damage from a hit (not just the smaller one)', s.balls.A.snow < 1 && s.balls.B.snow < 1);
-  check('damage: equal balls each lose exactly 5 cm of size (a flat amount, not a percentage)', near(cfg.damageCm, 5) && near(s.balls.A.snow, afterCm(1, 5), 1e-9) && near(s.balls.B.snow, afterCm(1, 5), 1e-9));
+  check('damage: equal balls each lose exactly 5 points of size (a flat amount, not a percentage)', near(cfg.damage, 5) && near(s.balls.A.snow, afterDamage(1, 5), 1e-9) && near(s.balls.B.snow, afterDamage(1, 5), 1e-9));
   check('damage: both victims are flagged immune', s.balls.A.immune && s.balls.B.immune);
 
   // Flat: speed does not matter. Same pair, hit at very different speeds.
-  const lostCm = (v: number) => (1 - Math.sqrt(oneHit(hitEngine, { snow: 1 }, { snow: 1 }, v).balls.B.snow)) * 100;
-  check('flat damage: a barely-counting hit, a typical hit and a huge hit ALL take exactly 5 cm',
-    [cfg.minImpactSpeed, 2, 6, 12, 40].every((v) => near(lostCm(v), cfg.damageCm, 1e-7)));
-  check('flat damage: and it does not depend on size either (a 300 cm victim loses the same 5 cm as a 100 cm one)',
-    near((3 - Math.sqrt(oneHit(hitEngine, { snow: 9 }, { snow: 9 }, 6).balls.B.snow)) * 100, cfg.damageCm, 1e-7));
+  const lostPoints = (v: number) => (1 - Math.sqrt(oneHit(hitEngine, { snow: 1 }, { snow: 1 }, v).balls.B.snow)) * 100;
+  check('flat damage: a barely-counting hit, a typical hit and a huge hit ALL take exactly 5 points',
+    [cfg.minImpactSpeed, 2, 6, 12, 40].every((v) => near(lostPoints(v), cfg.damage, 1e-7)));
+  check('flat damage: and it does not depend on size either (a size-300 victim loses the same 5 as a size-100 one)',
+    near((3 - Math.sqrt(oneHit(hitEngine, { snow: 9 }, { snow: 9 }, 6).balls.B.snow)) * 100, cfg.damage, 1e-7));
   const gentle = oneHit(hitEngine, { snow: 1 }, { snow: 1 }, cfg.minImpactSpeed * 0.5);
   check('damage: a touch that closes in slower than minImpactSpeed is not a hit (no damage)', near(gentle.balls.A.snow, 1) && near(gentle.balls.B.snow, 1));
 }
 {
   // ---- the big ball buff ----
   const big = oneHit(hitEngine, { snow: 4 }, { snow: 1 }, 6); // A is the single biggest ball: the leader
-  check('big ball buff: the biggest ball deals 10 cm (double the regular 5 cm)', near(cfg.leaderDamageCm, 10) && near(big.balls.B.snow, afterCm(1, cfg.leaderDamageCm), 1e-9));
-  check('big ball buff: ...while the smaller ball still hits it for the regular 5 cm', near(big.balls.A.snow, afterCm(4, cfg.damageCm), 1e-9));
+  check('big ball buff: the biggest ball deals 10 (double the regular 5)', near(cfg.leaderDamage, 10) && near(big.balls.B.snow, afterDamage(1, cfg.leaderDamage), 1e-9));
+  check('big ball buff: ...while the smaller ball still hits it for the regular 5', near(big.balls.A.snow, afterDamage(4, cfg.damage), 1e-9));
   check('big ball buff: the leader flag is set on the biggest ball only', big.balls.A.leader && !big.balls.B.leader);
 
   const near2 = oneHit(hitEngine, { snow: 1.01 }, { snow: 1 }, 6); // within the 2% margin: nobody clearly leads
-  check('big ball buff: nobody gets it when the two biggest are within 2% of each other', !near2.balls.A.leader && !near2.balls.B.leader && near(near2.balls.B.snow, afterCm(1, cfg.damageCm), 1e-9));
+  check('big ball buff: nobody gets it when the two biggest are within 2% of each other', !near2.balls.A.leader && !near2.balls.B.leader && near(near2.balls.B.snow, afterDamage(1, cfg.damage), 1e-9));
   const one = engine.tick!(fresh(engine, ['A']), DT, 2000);
   check('big ball buff: a lone ball has nobody to lead', !one.balls.A.leader);
 
@@ -494,9 +578,9 @@ const oneHit = (e: E, a: Partial<Ball>, b: Partial<Ball>, v: number, now = 2000)
   three = place(place(place(three, 'A', { x: -30, z: 0, snow: 9 }), 'B', { x: 0, z: 0, snow: 4, vx: 6 }), 'C', { x: 2.98, z: 0, snow: 1 });
   three = hitEngine.tick!(three, DT, 2000);
   check('big ball buff: a ball that is bigger than its victim but is not THE biggest deals only the normal amount',
-    three.balls.A.leader && !three.balls.B.leader && near(three.balls.C.snow, afterCm(1, cfg.damageCm), 1e-9));
-  const noBuff = createSnowball({ terrain: FLAT, growthPerUnit: 0, frictionRate: 0, accelRate: 0, leaderDamageCm: 5 });
-  check('config: leaderDamageCm = damageCm turns the big ball buff off', near(oneHit(noBuff, { snow: 4 }, { snow: 1 }, 6).balls.B.snow, afterCm(1, 5), 1e-9));
+    three.balls.A.leader && !three.balls.B.leader && near(three.balls.C.snow, afterDamage(1, cfg.damage), 1e-9));
+  const noBuff = createSnowball({ terrain: FLAT, growthPerUnit: 0, frictionRate: 0, accelRate: 0, leaderDamage: 5 });
+  check('config: leaderDamage = damage turns the big ball buff off', near(oneHit(noBuff, { snow: 4 }, { snow: 1 }, 6).balls.B.snow, afterDamage(1, 5), 1e-9));
 }
 {
   // ---- immunity ----
@@ -513,7 +597,7 @@ const oneHit = (e: E, a: Partial<Ball>, b: Partial<Ball>, v: number, now = 2000)
   })());
   // Only the ball that is still immune is spared: the other is hurt normally.
   const half = hitEngine.tick!(place(place(fresh(hitEngine, ['A', 'B']), 'A', { x: 0, vx: 6, immuneUntil: 9999, immune: true }), 'B', { x: 1.98, vx: 0 }), DT, 2000);
-  check('immunity: an immune ball is spared but the other one is still damaged', near(half.balls.A.snow, 1, 1e-12) && near(half.balls.B.snow, afterCm(1, cfg.damageCm), 1e-9));
+  check('immunity: an immune ball is spared but the other one is still damaged', near(half.balls.A.snow, 1, 1e-12) && near(half.balls.B.snow, afterDamage(1, cfg.damage), 1e-9));
 }
 {
   // ---- the small ball buff: the smaller ball of a fresh hit gets the escape boost ----
@@ -590,10 +674,11 @@ const oneHit = (e: E, a: Partial<Ball>, b: Partial<Ball>, v: number, now = 2000)
     return { state, overlap: overlap / ticks, contact: contact / ticks, hits, minGapBetweenHits };
   };
   const equalPair = headOn(engine, 1);
-  check('stuck (equal balls): never overlapping, and apart almost all the time', equalPair.overlap < 0.05 && equalPair.contact < 0.2);
+  // (Faster balls spend more time touching in non-stop head-on charging: ~9% at speed 7.8, ~12% at 9, ~22% at 11. They never overlap.)
+  check('stuck (equal balls): never overlapping, and apart most of the time', equalPair.overlap < 0.05 && equalPair.contact < 0.3);
   check('stuck (equal balls): they keep colliding and separating, and both are hurt equally', equalPair.hits >= 8 && near(equalPair.state.balls.A.snow, equalPair.state.balls.B.snow, 0.05));
   const unequalPair = headOn(engine, 1.3);
-  check('stuck (leader vs smaller): never overlapping, and apart almost all the time', unequalPair.overlap < 0.05 && unequalPair.contact < 0.2);
+  check('stuck (leader vs smaller): never overlapping, and apart most of the time', unequalPair.overlap < 0.05 && unequalPair.contact < 0.3);
   check('stuck (leader vs smaller): many hits in 10 s, never closer together than the immunity window', unequalPair.hits >= 8 && unequalPair.minGapBetweenHits >= cfg.immunityMs - 1e-6);
   const { A, B } = unequalPair.state.balls;
   check('stuck (leader vs smaller): 10 s of NON-STOP head-on ramming wears both down to the minimum size, and no further',
@@ -604,7 +689,7 @@ const oneHit = (e: E, a: Partial<Ball>, b: Partial<Ball>, v: number, now = 2000)
 {
   const s = place(place(fresh(engine, ['A', 'B', 'C']), 'A', { snow: 4 }), 'B', { snow: 1 });
   check('winner: the biggest ball wins', engine.getWinner(s) === 'A');
-  check('scores: sizes in cm (radius × 100)', JSON.stringify(engine.scores(s)) === JSON.stringify({ A: 200, B: 100, C: 100 }));
+  check('scores: size = radius × 100', JSON.stringify(engine.scores(s)) === JSON.stringify({ A: 200, B: 100, C: 100 }));
   const tied = place(place(fresh(engine, ['A', 'B']), 'A', { snow: 2.25 }), 'B', { snow: 2.25 });
   check('winner: an exact tie is a draw', engine.getWinner(tied) === null);
   const visibleTie = place(place(fresh(engine, ['A', 'B']), 'A', { snow: 1 }), 'B', { snow: 1.008 });

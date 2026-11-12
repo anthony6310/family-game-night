@@ -22,6 +22,7 @@ interface Pose {
   vx: number;
   vz: number;
   immune: boolean;
+  leader: boolean; // the single biggest ball: it wears the crown
 }
 
 interface Snapshot {
@@ -35,6 +36,7 @@ interface BallVisual {
   ring: Mesh;
   shadow: Mesh;
   label: Sprite;
+  crown: Sprite; // floats above the biggest ball; hidden for everyone else
   last: { x: number; z: number } | null; // where it was drawn last frame (to work out the roll)
 }
 
@@ -75,6 +77,7 @@ export class SnowballScene {
   private rafId = 0;
   private lastFrame = performance.now();
   private disposed = false;
+  private crownMaterial!: SpriteMaterial; // one gold crown picture shared by every ball's crown sprite
   private terrain: Terrain; // this round's hills and ditch (random each round, fixed during it)
   private textureLoader = new TextureLoader().setCrossOrigin('anonymous'); // profile pictures may live on another site (Supabase)
 
@@ -135,6 +138,7 @@ export class SnowballScene {
     const sky = new Color('#cfe4fa');
     this.scene.background = sky;
     this.scene.fog = new Fog(sky, 70, 220); // melts the far ground into the sky
+    this.crownMaterial = this.track(new SpriteMaterial({ map: this.track(makeCrownTexture()), transparent: true }));
 
     // Soft sky light plus a fairly low "sun" from the west, so slopes facing it are bright and slopes facing
     // away are shaded: that's what makes snowy hills readable. No shadow maps (costly on phones); balls get a cheap blob shadow instead.
@@ -173,7 +177,8 @@ export class SnowballScene {
 
   /** A disc made of rings of vertices, each lifted to the terrain height. Steep ground and ditches get a faint cool tint. */
   private buildGroundGeometry(): RingGeometry {
-    const geometry = new RingGeometry(0, this.arenaRadius, 128, 64); // lots of vertices so the hills are smooth
+    // Lots of vertices so the hills are smooth: about one every 0.7 units, whatever the arena size (it grows with the player count).
+    const geometry = new RingGeometry(0, this.arenaRadius, Math.ceil(this.arenaRadius * 2.8), Math.ceil(this.arenaRadius * 1.4));
     geometry.rotateX(-Math.PI / 2); // from standing up (XY) to lying flat (XZ)
     const positions = geometry.attributes.position;
     const colors = new Float32Array(positions.count * 3);
@@ -207,9 +212,13 @@ export class SnowballScene {
     const labelTexture = this.track(makeLabelTexture(style.name, style.color));
     const label = new Sprite(this.track(new SpriteMaterial({ map: labelTexture, transparent: true })));
 
-    this.scene.add(ball, ring, shadow, label);
+    // A Sprite is a flat picture that always turns to face the camera (a "billboard"), which is exactly what a 2D crown needs.
+    const crown = new Sprite(this.crownMaterial);
+    crown.visible = false;
+
+    this.scene.add(ball, ring, shadow, label, crown);
     if (style.avatarUrl) this.loadAvatar(style.avatarUrl, material);
-    return { ball, material, ring, shadow, label, last: null };
+    return { ball, material, ring, shadow, label, crown, last: null };
   }
 
   /**
@@ -240,7 +249,7 @@ export class SnowballScene {
   private removeVisual(id: string) {
     const v = this.visuals.get(id);
     if (!v) return;
-    this.scene.remove(v.ball, v.ring, v.shadow, v.label);
+    this.scene.remove(v.ball, v.ring, v.shadow, v.label, v.crown);
     this.visuals.delete(id);
   }
 
@@ -327,7 +336,16 @@ export class SnowballScene {
     v.shadow.quaternion.setFromUnitVectors(Z_AXIS, normal);
     v.shadow.position.set(pose.x, ground, pose.z).addScaledVector(normal, 0.04);
     v.shadow.scale.setScalar(r);
-    v.label.position.set(pose.x, ground + r * 2 + 1, pose.z);
+    // The crown floats just above the biggest ball, bobbing gently; its name tag makes room by moving up.
+    const crownWidth = (1.8 + r * 0.9) * 0.5; // half the size it was; still grows with the ball so it stays in proportion
+    const crownHeight = crownWidth * 0.75;
+    v.crown.visible = pose.leader;
+    if (pose.leader) {
+      const bob = Math.sin(performance.now() / 280) * 0.12;
+      v.crown.position.set(pose.x, ground + r * 2 + crownHeight / 2 + 0.2 + bob, pose.z);
+      v.crown.scale.set(crownWidth, crownHeight, 1);
+    }
+    v.label.position.set(pose.x, ground + r * 2 + 1 + (pose.leader ? crownHeight + 0.3 : 0), pose.z);
     v.label.scale.set(5 + r, (5 + r) / 4, 1);
 
     // A just-hit ball flashes red for its short immunity window.
@@ -383,6 +401,38 @@ function makeSnowTexture(): Texture {
   texture.wrapS = texture.wrapT = RepeatWrapping;
   texture.colorSpace = SRGBColorSpace;
   texture.anisotropy = 4;
+  return texture;
+}
+
+/** A flat gold crown: one solid colour, no outline, gradient or shading. Three points with round tips on a solid base. */
+function makeCrownTexture(): Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 192;
+  const g = canvas.getContext('2d')!;
+  g.fillStyle = '#f5c211'; // goldish yellow
+
+  // The body: left peak, valley, centre peak, valley, right peak, then down and across the flat bottom.
+  g.beginPath();
+  g.moveTo(24, 168);
+  g.lineTo(24, 72);
+  g.lineTo(82, 116);
+  g.lineTo(128, 40);
+  g.lineTo(174, 116);
+  g.lineTo(232, 72);
+  g.lineTo(232, 168);
+  g.closePath();
+  g.fill();
+
+  // Round tips on the three peaks, in the same flat colour.
+  for (const [x, y] of [[24, 66], [128, 34], [232, 66]]) {
+    g.beginPath();
+    g.arc(x, y, 15, 0, Math.PI * 2);
+    g.fill();
+  }
+
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
   return texture;
 }
 

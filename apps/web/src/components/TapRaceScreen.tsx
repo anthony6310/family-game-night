@@ -9,10 +9,12 @@ interface Props {
   selfId: string | null;
   serverNow: () => number;
   sendAction: (action: GameAction) => void;
+  /** The round has ended and its you-won / you-lost sequence is playing: the button is dead. */
+  frozen?: boolean;
 }
 
 /** Tap Race UI: one giant button, a clock, and a live leaderboard. The SERVER does the real counting. */
-export function TapRaceScreen({ game, players, selfId, serverNow, sendAction }: Props) {
+export function TapRaceScreen({ game, players, selfId, serverNow, sendAction, frozen = false }: Props) {
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   // Optimistic local counter so the button feels instant; the leaderboard shows the server's count.
   const [myTaps, setMyTaps] = useState(0);
@@ -21,7 +23,7 @@ export function TapRaceScreen({ game, players, selfId, serverNow, sendAction }: 
   const isPlayer = selfId !== null && selfId in game.taps;
 
   function onTap() {
-    if (over || !isPlayer) return;
+    if (over || frozen || !isPlayer) return;
     setMyTaps((n) => n + 1);
     sendAction({ type: 'tap' });
   }
@@ -36,7 +38,7 @@ export function TapRaceScreen({ game, players, selfId, serverNow, sendAction }: 
     <main className="page tap-page">
       <div className="timer">{over ? 'Time!' : Math.ceil(remainingMs / 1000)}</div>
       {/* pointerdown fires the instant a finger lands (onClick waits for release) */}
-      <button className="tap-button" disabled={over || !isPlayer} onPointerDown={onTap} onContextMenu={(e) => e.preventDefault()}>
+      <button className="tap-button" disabled={over || frozen || !isPlayer} onPointerDown={onTap} onContextMenu={(e) => e.preventDefault()}>
         {isPlayer ? 'TAP!' : 'Watching'}
         {isPlayer && <span className="tap-count">{myTaps}</span>}
       </button>

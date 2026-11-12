@@ -1,5 +1,5 @@
 import { SNOWBALL_SECONDS, createTerrain, type SnowballBall, type Terrain, type TerrainFeature } from '@fgn/shared';
-import { DEFAULT_FEATURE_SPECS, generateTerrainFeatures, spawnPoints, type FeatureSpec } from './terrain';
+import { DEFAULT_FEATURE_SPECS, arenaRadiusFor, generateTerrainFeatures, spawnPoints, type FeatureSpec } from './terrain';
 import type { GameEngine } from './types';
 
 /**
@@ -8,7 +8,12 @@ import type { GameEngine } from './types';
  */
 export interface SnowballConfig {
   durationMs: number;
-  arenaRadius: number; // the circular arena, walls included
+  /**
+   * Radius of the circular arena (walls included) for `basePlayers` players. The arena grows with the player
+   * count: its AREA is proportional to the number of players (see arenaRadiusFor), and each extra player also adds one hill or ditch.
+   */
+  arenaRadius: number;
+  basePlayers: number; // the minimum number of players: the base map (one big hill, one small hill, one ditch)
   startRadius: number;
   /** Growth: radius² = startRadius² + 2 · growthPerUnit · (distance rolled), then damage takes size off. Bigger = faster growth. */
   growthPerUnit: number;
@@ -34,12 +39,12 @@ export interface SnowballConfig {
 
   // ----- damage: a flat amount of SIZE, dealt by BOTH balls -----
   /**
-   * Every counted hit takes this much off the victim's size, in centimetres (a ball's size is its radius × 100,
-   * the same number players see on screen). Not a percentage: 5 means 5 cm, whatever the speeds and sizes involved.
+   * Every counted hit takes this much off the victim's size, whatever the speeds and sizes involved. A ball's size is
+   * its radius × 100, the number players see on screen (a fresh ball is 100), so 5 means 5 of those points.
    */
-  damageCm: number;
-  /** The single biggest ball ("the leader") hits harder: this many cm instead. */
-  leaderDamageCm: number;
+  damage: number;
+  /** The single biggest ball ("the leader") hits harder: this much instead. */
+  leaderDamage: number;
   /** false = damage simply removes the victim's size. true = the attacker gains the snow the victim loses. */
   damageIsStolen: boolean;
   minImpactSpeed: number; // a touch must close in at least this fast to count as a hit
@@ -55,6 +60,11 @@ export interface SnowballConfig {
   escapeSeconds: number;
 
   // ----- terrain: uphill and downhill hand out "stacks" -----
+  /**
+   * Hill and ditch size. 1 or 2 players get the base sizes in `featureSpecs`; every additional player adds this many
+   * world units to EVERY feature's footprint radius (a fixed amount, not a percentage). Heights stay as they are.
+   */
+  featureRadiusPerPlayer: number;
   /** Optional fixed ground for tests. Normally each round gets its own random hills and ditch. */
   terrain?: Terrain;
   featureSpecs: readonly FeatureSpec[];
@@ -86,9 +96,10 @@ export interface SnowballConfig {
 export const DEFAULT_SNOWBALL_CONFIG: SnowballConfig = {
   durationMs: SNOWBALL_SECONDS * 1000,
   arenaRadius: 45,
+  basePlayers: 2,
   startRadius: 1,
   growthPerUnit: 0.02,
-  maxSpeed: 9,
+  maxSpeed: 11,
   speedFalloff: 0,
   accelRate: 3,
   accelFalloff: 0,
@@ -100,8 +111,8 @@ export const DEFAULT_SNOWBALL_CONFIG: SnowballConfig = {
   wallReboundPerRadius: 0.8,
   wallReboundMinImpact: 1.5,
 
-  damageCm: 5, // a flat 5 cm of size per hit...
-  leaderDamageCm: 10, // ...and 10 cm when the single biggest ball is the one hitting
+  damage: 5, // a flat 5 points of size per hit...
+  leaderDamage: 10, // ...and 10 when the single biggest ball is the one hitting
   damageIsStolen: false,
   minImpactSpeed: 1,
   immunityMs: 200,
@@ -113,6 +124,7 @@ export const DEFAULT_SNOWBALL_CONFIG: SnowballConfig = {
 
   terrain: undefined,
   featureSpecs: DEFAULT_FEATURE_SPECS,
+  featureRadiusPerPlayer: 2,
   random: Math.random,
   uphillMinFactor: 0.9,
   downhillMaxFactor: 1.3,
@@ -155,7 +167,9 @@ interface Ball {
 export interface SnowballState {
   startsAt: number;
   endsAt: number;
-  /** This round's hills and ditch. Chosen once in init() and never changed. */
+  /** This round's arena radius: it depends on how many players are in the round. Chosen once in init(). */
+  arenaRadius: number;
+  /** This round's hills and ditches. Chosen once in init() and never changed. */
   features: TerrainFeature[];
   terrain: Terrain; // `features` turned into height/slope functions
   balls: Record<string, Ball>;
@@ -260,18 +274,18 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
       b.vz += nz * (wantB - awayB);
     }
 
-    // 4) Damage. BOTH balls deal it, and it is FLAT: a fixed number of cm off the victim's size, whatever the
+    // 4) Damage. BOTH balls deal it, and it is FLAT: a fixed number of size points off the victim, whatever the
     //    speeds and sizes (only the leader hits harder). A ball that is still immune from an earlier hit is spared.
     if (closing < cfg.minImpactSpeed) return;
-    const dealtCm = (dealer: Ball) => (dealer.leader ? cfg.leaderDamageCm : cfg.damageCm);
+    const dealt = (dealer: Ball) => (dealer.leader ? cfg.leaderDamage : cfg.damage);
     const canBeHurt = (v: Ball) => now >= v.immuneUntil;
-    // Damage shrinks the RADIUS (size in cm / 100) but never below the minimum; this is how much snow that removes.
-    const snowLost = (victim: Ball, cm: number) => {
-      const smaller = Math.max(cfg.minRadius, radiusOf(victim) - cm / 100);
+    // Damage shrinks the RADIUS (size points / 100) but never below the minimum; this is how much snow that removes.
+    const snowLost = (victim: Ball, points: number) => {
+      const smaller = Math.max(cfg.minRadius, radiusOf(victim) - points / 100);
       return Math.max(0, victim.snow - smaller * smaller);
     };
-    const lossA = canBeHurt(a) ? snowLost(a, dealtCm(b)) : 0; // b hurts a
-    const lossB = canBeHurt(b) ? snowLost(b, dealtCm(a)) : 0; // a hurts b
+    const lossA = canBeHurt(a) ? snowLost(a, dealt(b)) : 0; // b hurts a
+    const lossB = canBeHurt(b) ? snowLost(b, dealt(a)) : 0; // a hurts b
 
     // 5) The small ball buff: the SMALLER ball of a fresh hit gets the escape boost to get away.
     const aIsSmaller = a.snow < b.snow * (1 - cfg.sizeMargin);
@@ -289,11 +303,17 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
     id: 'snowball',
 
     init(playerIds, now) {
-      // A fresh random layout for every round (one big hill, one small hill, one ditch), fixed from here on.
-      const spawns = spawnPoints(playerIds.length, cfg.arenaRadius);
+      // The map is sized for the number of players, with a fresh random layout every round: the base hill, small hill
+      // and ditch plus one extra random feature per additional player. All of it is fixed from here on.
+      const arenaRadius = arenaRadiusFor(playerIds.length, cfg.arenaRadius, cfg.basePlayers);
+      const spawns = spawnPoints(playerIds.length, arenaRadius);
+      const extraPlayers = Math.max(0, playerIds.length - cfg.basePlayers);
       const features = cfg.terrain
         ? []
-        : generateTerrainFeatures(cfg.random, { arenaRadius: cfg.arenaRadius, spawns, specs: cfg.featureSpecs });
+        : generateTerrainFeatures(cfg.random, {
+            arenaRadius, spawns, specs: cfg.featureSpecs, extraFeatures: extraPlayers,
+            radiusBonus: cfg.featureRadiusPerPlayer * extraPlayers, // wider hills and ditches as the player count grows
+          });
       const terrain = cfg.terrain ?? createTerrain(features);
 
       const balls: Record<string, Ball> = {};
@@ -309,7 +329,7 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
           immuneUntil: 0, immune: false,
         };
       });
-      return { startsAt: now, endsAt: now + cfg.durationMs, features, terrain, balls };
+      return { startsAt: now, endsAt: now + cfg.durationMs, arenaRadius, features, terrain, balls };
     },
 
     reduce(state, playerId, action, now) {
@@ -366,7 +386,7 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
       for (const b of list) {
         // Solid wall: keep the whole ball inside, and bounce off it (gently, compared with ball-ball bounces).
         const radius = radiusOf(b);
-        const limit = cfg.arenaRadius - radius;
+        const limit = state.arenaRadius - radius;
         const dist = Math.hypot(b.x, b.z);
         if (dist > limit && dist > 1e-6) {
           const nx = b.x / dist;
@@ -399,7 +419,7 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
       return leaders.length === 1 ? leaders[0][0] : null; // an exact tie is a draw
     },
 
-    // Round score = size in cm: the start ball (radius 1) scores 100.
+    // Round score = size: the ball's radius × 100, so the start ball scores 100.
     scores: (state) => Object.fromEntries(Object.entries(state.balls).map(([id, b]) => [id, Math.round(radiusOf(b) * 100)])),
 
     removePlayer(state, playerId) {
@@ -418,7 +438,7 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
         };
       }
       return {
-        gameId: 'snowball', startsAt: state.startsAt, endsAt: state.endsAt, arenaRadius: cfg.arenaRadius,
+        gameId: 'snowball', startsAt: state.startsAt, endsAt: state.endsAt, arenaRadius: state.arenaRadius,
         speedRange: {
           base: cfg.maxSpeed,
           min: cfg.maxSpeed * cfg.uphillMinFactor,

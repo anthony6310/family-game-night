@@ -24,7 +24,7 @@ const tapView = (s: RoomState | null) => (s?.game?.gameId === 'tap-race' ? (s.ga
 
 const saved: RoundRecord[] = []; // what the server asked to persist
 const httpServer = createGameServer('http://localhost:5173', {
-  countdownMs: COUNTDOWN_MS, roundMs: ROUND_MS, resultsMs: 60_000, onRound: (r) => saved.push(r), onSession: () => {},
+  countdownMs: COUNTDOWN_MS, roundMs: ROUND_MS, finishMs: 50, resultsMs: 60_000, onRound: (r) => saved.push(r), onSession: () => {},
 });
 await new Promise<void>((r) => httpServer.listen(0, r));
 const serverUrl = `http://localhost:${(httpServer.address() as AddressInfo).port}`;

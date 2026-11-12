@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { GAMES, MAX_PLAYERS, ROUND_OPTIONS, getGame } from '@fgn/shared';
 import { Avatar } from '../components/Avatar';
 import { Countdown } from '../components/Countdown';
+import { FinishOverlay } from '../components/FinishOverlay';
 import { ResultsScreen } from '../components/ResultsScreen';
 import { SessionOverScreen } from '../components/SessionOverScreen';
 import { TapRaceScreen } from '../components/TapRaceScreen';
@@ -37,18 +38,26 @@ export function LobbyPage() {
     navigate('/play');
   }
 
-  if (room.phase === 'playing' && room.game) {
-    // `key` = a fresh screen for every round.
-    if (room.game.gameId === 'snowball') {
-      return (
+  // While a round runs, and during its short you-won / you-lost sequence (the game stays on screen, frozen, under the message).
+  if ((room.phase === 'playing' || room.phase === 'finish') && room.game) {
+    const frozen = room.phase === 'finish';
+    // `key` = a fresh screen for every round (and the same screen carries on into the finish sequence).
+    const screen =
+      room.game.gameId === 'snowball' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
           <SnowballScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
-            serverNow={serverNow} sendAction={sendAction} />
+            serverNow={serverNow} sendAction={sendAction} frozen={frozen} />
         </Suspense>
+      ) : (
+        <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
+          serverNow={serverNow} sendAction={sendAction} frozen={frozen} />
       );
-    }
-    return <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
-      serverNow={serverNow} sendAction={sendAction} />;
+    return (
+      <>
+        {screen}
+        {frozen && room.result && <FinishOverlay result={room.result} selfId={selfId} />}
+      </>
+    );
   }
   if (room.phase === 'results' && room.result) {
     return <ResultsScreen room={room} selfId={selfId} error={error} serverNow={serverNow} onSkip={() => run(returnToLobby())} />;

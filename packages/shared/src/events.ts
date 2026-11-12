@@ -24,10 +24,12 @@ export interface RoomSettings {
  * 'lobby'     choosing settings and readying up
  * 'countdown' everyone is ready; the game starts at `countdownEndsAt`
  * 'playing'   a round is running
- * 'results'   the round is over; the winner is on screen (moves on by itself after a few seconds)
+ * 'finish'    the round just ended: the result is decided, input is stopped and a "you won / you lost" message
+ *             plays over the frozen game for a few seconds
+ * 'results'   the round summary screen (moves on by itself after a few seconds)
  * 'session-over' the last round (and any tie-breaker) is done; the session winner is crowned
  */
-export type RoomPhase = 'lobby' | 'countdown' | 'playing' | 'results' | 'session-over';
+export type RoomPhase = 'lobby' | 'countdown' | 'playing' | 'finish' | 'results' | 'session-over';
 
 /**
  * What a phone may send during a round. The server decides what it actually means.
@@ -108,14 +110,16 @@ export interface RoomState {
   countdownEndsAt: number | null;
   /** Rounds won so far this session, by player id (players with none are absent). */
   scores: Record<string, number>;
-  game: GameView | null; // only while phase === 'playing'
-  result: RoundResult | null; // only while phase === 'results'
+  game: GameView | null; // while phase is 'playing' or 'finish' (frozen during the finish sequence)
+  result: RoundResult | null; // while phase is 'finish' or 'results'
   /** Decided (non-tie-breaker) rounds played this session. Draws are replayed and don't count. */
   roundsPlayed: number;
   /** While a tie-breaker is pending: the tied players who may play. Everyone else spectates. */
   contenders: string[] | null;
   /** Set once the session is over (a snapshot of who won). */
   sessionWinner: Player | null;
+  /** Server clock when the finish sequence (you won / you lost) ends and the summary appears, or null. */
+  finishEndsAt: number | null;
   /** Server clock when the results screen moves on, or null. */
   resultsEndsAt: number | null;
   /** Server clock when this message was built. Phones compare it to their own clock to stay in sync. */

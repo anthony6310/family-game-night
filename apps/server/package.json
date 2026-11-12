@@ -14,7 +14,8 @@
     "test:session": "tsx --env-file=.env scripts/test-session.ts",
     "test:history": "tsx --env-file=.env scripts/test-history.ts",
     "test:snowball": "tsx scripts/test-snowball.ts",
-    "test:snowball-net": "tsx --env-file=.env scripts/test-snowball-net.ts"
+    "test:snowball-net": "tsx --env-file=.env scripts/test-snowball-net.ts",
+    "test:finish": "tsx --env-file=.env scripts/test-finish.ts"
   },
   "dependencies": {
     "@fgn/shared": "*",

@@ -3,7 +3,6 @@ import type { GameAction, Player, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './snowball/Joystick';
 import { SnowballScene, type BallStyle } from './snowball/SnowballScene';
-import { SpeedGauge } from './snowball/SpeedGauge';
 import { useSteering } from './snowball/useSteering';
 
 interface Props {
@@ -12,6 +11,8 @@ interface Props {
   selfId: string | null;
   serverNow: () => number;
   sendAction: (action: GameAction) => void;
+  /** The round has ended and its you-won / you-lost sequence is playing: no steering, no controls. */
+  frozen?: boolean;
 }
 
 /** Ring / name-tag colours. Everyone gets one by their seat at the start of the round. */
@@ -21,7 +22,7 @@ const PALETTE = ['#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899
  * The Snowball round: a full-screen three.js view, a small HUD, and steering controls.
  * Loaded on demand (see LobbyPage) so the landing page doesn't download three.js.
  */
-export default function SnowballScreen({ game, players, selfId, serverNow, sendAction }: Props) {
+export default function SnowballScreen({ game, players, selfId, serverNow, sendAction, frozen = false }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<SnowballScene | null>(null);
 
@@ -48,10 +49,9 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
     scene.current?.pushSnapshot(game.balls);
   }, [game]);
 
-  const setStick = useSteering(sendAction);
+  const setStick = useSteering(sendAction, !frozen);
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   const isPlayer = selfId !== null && selfId in game.balls;
-  const myBall = selfId !== null ? game.balls[selfId] : undefined;
 
   const standings = Object.entries(game.balls)
     .map(([id, ball]) => ({ id, size: Math.round(ball.radius * 100), style: styles[id], leader: ball.leader }))
@@ -72,12 +72,11 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
             </li>
           ))}
         </ul>
-        {myBall && <SpeedGauge ball={myBall} range={game.speedRange} />}
         {!isPlayer && <p className="snow-note">You're watching this tie-breaker.</p>}
-        {isPlayer && <p className="snow-hint">Drag to steer · or use WASD / arrow keys</p>}
+        {isPlayer && !frozen && <p className="snow-hint">Drag to steer · or use WASD / arrow keys</p>}
       </div>
 
-      {isPlayer && <Joystick onChange={setStick} />}
+      {isPlayer && !frozen && <Joystick onChange={setStick} />}
     </div>
   );
 }

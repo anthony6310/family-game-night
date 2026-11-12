@@ -45,7 +45,8 @@ const ack = (p: Player, res: Ack<JoinResult>) => { if (res.ok) { p.id = res.data
 const create = (p: Player) => new Promise<Ack<JoinResult>>((r) => p.socket.emit('room:create', (res) => r(ack(p, res))));
 const join = (p: Player, code: string) => new Promise<Ack<JoinResult>>((r) => p.socket.emit('room:join', code, (res) => r(ack(p, res))));
 const cmd = (emit: (r: (a: Ack<null>) => void) => void) => new Promise<Ack<null>>((r) => emit(r));
-const settings = (p: Player, s: object) => cmd((r) => p.socket.emit('room:settings', s, r));
+const settings = (p: Player, s: object) => cmd((r) => p.socket.emit('room:settings', s as never, r));
+const startSession = (p: Player, rounds: number) => cmd((r) => p.socket.emit('session:start', rounds, r));
 const ready = (p: Player) => cmd((r) => p.socket.emit('player:ready', true, r));
 const reset = (p: Player) => cmd((r) => p.socket.emit('room:reset', r));
 const close = (p: Player) => cmd((r) => p.socket.emit('room:close', r));
@@ -61,7 +62,8 @@ async function makeRoom(n: number, totalRounds?: number) {
   const made = await create(players[0]);
   const code = made.ok ? made.data.room.code : '';
   for (const p of players.slice(1)) await join(p, code);
-  await settings(players[0], { gameId: 'tap-race', ...(totalRounds ? { totalRounds } : {}) });
+  await startSession(players[0], totalRounds ?? 3); // step 1: lock in the rounds
+  await settings(players[0], { gameId: 'tap-race' }); // step 2: the game
   return { players, host: players[0], code };
 }
 /**
@@ -86,7 +88,7 @@ try {
   await playRound(a, S1.players, a);
   check('results move on by themselves: back to the lobby for the next round',
     a.latest!.phase === 'lobby' && a.latest!.roundsPlayed === 1 && a.latest!.scores[a.id] === 1 && a.latest!.readyIds.length === 0);
-  check('session length is locked after the first round', errorOf(await settings(a, { totalRounds: 5 })) === 'WRONG_PHASE');
+  check('the rounds stay locked in between rounds (the question is not asked again)', a.latest!.sessionConfirmed && errorOf(await startSession(a, 5)) === 'WRONG_PHASE' && a.latest!.settings.totalRounds === 3);
 
   await playRound(a, S1.players, null); // nobody taps: a draw
   check('a draw does not count as a round: it is replayed', a.latest!.roundsPlayed === 1 && a.latest!.phase === 'lobby' && rounds.length === 1);
@@ -101,10 +103,12 @@ try {
   check('all 3 decided rounds were handed off, none flagged as tie-breakers', rounds.length === 3 && rounds.every((r) => !r.isTiebreaker));
   check('cannot ready up once the session is over', errorOf(await ready(b)) === 'WRONG_PHASE');
   check('only the host can reset the room', errorOf(await reset(b)) === 'NOT_HOST');
-  check('host resets: scores wiped, settings kept', (await reset(a)).ok && await until(b, (s) =>
+  check('the session stays confirmed all the way to the end', a.latest!.sessionConfirmed);
+  check('host resets: scores wiped, back to the rounds question, game kept', (await reset(a)).ok && await until(b, (s) =>
     s.phase === 'lobby' && Object.keys(s.scores).length === 0 && s.roundsPlayed === 0 && s.sessionWinner === null
-    && s.settings.gameId === 'tap-race' && s.settings.totalRounds === 3));
-  check('after a reset the session length can be changed again', (await settings(a, { totalRounds: 5 })).ok);
+    && s.settings.gameId === 'tap-race' && s.sessionConfirmed === false));
+  check('after a reset nothing works until the rounds are confirmed again', errorOf(await ready(b)) === 'SESSION_NOT_STARTED' && errorOf(await settings(a, { gameId: 'tap-race' })) === 'SESSION_NOT_STARTED');
+  check('after a reset the host can choose a different number of rounds', (await startSession(a, 5)).ok && await until(b, (s) => s.sessionConfirmed && s.settings.totalRounds === 5));
 
   // ================= S2: 4 players, 3-way tie -> tie-breaker with a spectator =================
   const S2 = await makeRoom(4);

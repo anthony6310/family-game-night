@@ -78,3 +78,32 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .stick-base, .stick-knob { position: absolute; border-radius: 50%; transform: translate(-50%, -50%); pointer-events: none; }
 .stick-base { width: 112px; height: 112px; background: rgba(255, 255, 255, 0.28); border: 2px solid rgba(255, 255, 255, 0.7); }
 .stick-knob { width: 52px; height: 52px; background: rgba(255, 255, 255, 0.85); box-shadow: 0 2px 8px rgba(20, 33, 61, 0.4); }
+
+/* ---------- Snowball speed gauge ---------- */
+.speedo { position: absolute; left: 50%; bottom: 3.3rem; transform: translateX(-50%); width: min(84vw, 20rem); box-sizing: border-box;
+  padding: 0.45rem 0.7rem 1.15rem; background: rgba(20, 33, 61, 0.58); border-radius: 0.8rem; color: #fff; }
+.speedo-top { display: flex; align-items: baseline; justify-content: space-between; gap: 0.5rem; min-height: 1.6rem; }
+.speedo-value { font-size: 1.35rem; font-weight: bold; font-variant-numeric: tabular-nums; }
+.speedo-value small { font-size: 0.7rem; font-weight: normal; opacity: 0.8; }
+.speedo-chips { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.25rem; }
+.speedo-chip { font-size: 0.78rem; font-weight: bold; padding: 0.1rem 0.5rem; border-radius: 1rem; background: rgba(255, 255, 255, 0.18); white-space: nowrap; }
+.speedo-chip small { font-weight: normal; opacity: 0.75; }
+.speedo-chip.down { background: #1f9d55; }
+.speedo-chip.up { background: #c2570c; }
+.speedo-chip.escape { background: #2563eb; }
+.speedo-chip.crown { background: #b7791f; }
+.speedo-track { position: relative; height: 0.55rem; margin-top: 0.3rem; background: rgba(255, 255, 255, 0.22); border-radius: 1rem; }
+.speedo-fill { height: 100%; border-radius: 1rem; background: #e8f1ff; transition: width 0.1s linear; }
+.speedo.boost .speedo-fill { background: #4ade80; }
+.speedo.slow .speedo-fill { background: #fb923c; }
+.speedo-tick { position: absolute; top: -0.12rem; bottom: -0.12rem; width: 2px; margin-left: -1px; background: rgba(255, 255, 255, 0.55); }
+.speedo-target { position: absolute; top: -0.32rem; bottom: -0.32rem; width: 3px; margin-left: -1.5px; border-radius: 2px; background: #fff;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.5); transition: left 0.1s linear; }
+.speedo-scale { position: absolute; left: 0.7rem; right: 0.7rem; bottom: 0.25rem; height: 0.7rem; font-size: 0.6rem; opacity: 0.75; }
+.speedo-scale span { position: absolute; }
+.speedo-scale .to-left { transform: translateX(-100%); padding-right: 3px; }
+.speedo-scale .to-right { padding-left: 3px; }
+
+/* ---------- lobby step 1: rounds ---------- */
+.settings.step { gap: 0.75rem; }
+.step-title { margin: 0.25rem 0 0; font-size: 1.4rem; }

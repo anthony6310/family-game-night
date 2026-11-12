@@ -6,7 +6,7 @@
  */
 import type { AddressInfo } from 'node:net';
 import { io, type Socket } from 'socket.io-client';
-import type { Ack, ClientToServerEvents, JoinResult, RoomSettings, RoomState, ServerToClientEvents } from '@fgn/shared';
+import type { Ack, ClientToServerEvents, JoinResult, RoomState, ServerToClientEvents } from '@fgn/shared';
 import { createGameServer } from '../src/server';
 
 const COUNTDOWN_MS = 400;
@@ -37,8 +37,9 @@ const create = (p: Player) => new Promise<Ack<JoinResult>>((r) =>
   p.socket.emit('room:create', (res) => { if (res.ok) { p.id = res.data.playerId; p.latest = res.data.room; } r(res); }));
 const join = (p: Player, code: string) => new Promise<Ack<JoinResult>>((r) =>
   p.socket.emit('room:join', code, (res) => { if (res.ok) { p.id = res.data.playerId; p.latest = res.data.room; } r(res); }));
-const settings = (p: Player, s: Partial<RoomSettings> | Record<string, unknown>) =>
-  new Promise<Ack<null>>((r) => p.socket.emit('room:settings', s as Partial<RoomSettings>, r));
+const settings = (p: Player, s: Record<string, unknown>) =>
+  new Promise<Ack<null>>((r) => p.socket.emit('room:settings', s as never, r));
+const startSession = (p: Player, rounds: number) => new Promise<Ack<null>>((r) => p.socket.emit('session:start', rounds, r));
 const ready = (p: Player, v: boolean) => new Promise<Ack<null>>((r) => p.socket.emit('player:ready', v, r));
 const backToLobby = (p: Player) => new Promise<Ack<null>>((r) => p.socket.emit('room:return-to-lobby', r));
 const errorOf = (a: Ack<unknown>) => (a.ok ? 'none' : a.error);
@@ -49,29 +50,41 @@ async function until(p: Player, cond: (s: RoomState) => boolean, ms = 2000): Pro
   return false;
 }
 
-/** Makes a room with `n` guests (first is host) that is configured for tap-race. */
+/** Makes a room with `n` guests (first is host). `configure` also locks in 3 rounds and picks tap-race. */
 async function makeRoom(n: number, configure = true) {
   const players = await Promise.all(Array.from({ length: n }, (_, i) => guest(i === 0 ? 'Host' : `P${i}`)));
   const made = await create(players[0]);
   const code = made.ok ? made.data.room.code : '';
   for (const p of players.slice(1)) await join(p, code);
-  if (configure) await settings(players[0], { gameId: 'tap-race' });
+  if (configure) {
+    await startSession(players[0], 3); // step 1: rounds
+    await settings(players[0], { gameId: 'tap-race' }); // step 2: the game
+  }
   return { players, host: players[0], code };
 }
 
 try {
-  // ---- settings: who and what ----
+  // ---- step 1: the round count, locked in once ----
   const A = await makeRoom(2, false);
   const [host, bob] = A.players;
-  check('new room starts in lobby with no game and the first round option',
-    host.latest?.phase === 'lobby' && host.latest.settings.gameId === null && host.latest.settings.totalRounds === 3);
+  check('a new room has not been started yet (sessionConfirmed is false), in lobby with no game',
+    host.latest?.phase === 'lobby' && host.latest.sessionConfirmed === false && host.latest.settings.gameId === null);
+  check('before the rounds are confirmed the host cannot pick a game', errorOf(await settings(host, { gameId: 'tap-race' })) === 'SESSION_NOT_STARTED');
+  check('before the rounds are confirmed nobody can ready up', errorOf(await ready(host, true)) === 'SESSION_NOT_STARTED');
+  check('only the host can confirm the rounds', errorOf(await startSession(bob, 3)) === 'NOT_HOST');
+  check('a round count outside ROUND_OPTIONS is rejected', errorOf(await startSession(host, 4)) === 'INVALID_SETTING' && errorOf(await startSession(host, 9)) === 'INVALID_SETTING');
+  check('nothing has changed after those rejections', host.latest?.sessionConfirmed === false);
+  check('the host confirms 5 rounds ("Let\'s play!")', (await startSession(host, 5)).ok);
+  check('everyone sees the session is confirmed with 5 rounds', await until(bob, (s) => s.sessionConfirmed && s.settings.totalRounds === 5));
+  check('the rounds can only be confirmed ONCE per session', errorOf(await startSession(host, 7)) === 'WRONG_PHASE' && host.latest?.settings.totalRounds === 5);
+  check('the round count cannot be changed through the game settings either', errorOf(await settings(host, { totalRounds: 3 })) === 'INVALID_SETTING' && host.latest?.settings.totalRounds === 5);
+
+  // ---- step 2: the game ----
   check('non-host cannot change settings', errorOf(await settings(bob, { gameId: 'tap-race' })) === 'NOT_HOST');
   check('unknown game is rejected', errorOf(await settings(host, { gameId: 'nope' })) === 'INVALID_SETTING');
-  check('round count outside ROUND_OPTIONS is rejected', errorOf(await settings(host, { totalRounds: 4 })) === 'INVALID_SETTING');
   check('cannot ready up before a game is chosen', errorOf(await ready(host, true)) === 'NO_GAME_SELECTED');
-
-  check('host picks game + rounds', (await settings(host, { gameId: 'tap-race', totalRounds: 5 })).ok);
-  check('everyone sees the settings', await until(bob, (s) => s.settings.gameId === 'tap-race' && s.settings.totalRounds === 5));
+  check('host picks the game', (await settings(host, { gameId: 'tap-race' })).ok);
+  check('everyone sees the game', await until(bob, (s) => s.settings.gameId === 'tap-race' && s.settings.totalRounds === 5));
 
   // ---- ready + countdown ----
   await ready(host, true);
@@ -98,18 +111,18 @@ try {
   // ---- mid-game rules ----
   const late = await guest('Late');
   check('cannot join a room mid-game', errorOf(await join(late, A.code)) === 'GAME_IN_PROGRESS');
-  check('settings are locked mid-game', errorOf(await settings(host, { totalRounds: 3 })) === 'WRONG_PHASE');
+  check('settings are locked mid-game', errorOf(await settings(host, { gameId: 'snowball' })) === 'WRONG_PHASE' && errorOf(await startSession(host, 3)) === 'WRONG_PHASE');
   check('only the host can return to lobby', errorOf(await backToLobby(bob)) === 'NOT_HOST');
-  check('host returns everyone to lobby; Ready cleared, settings kept',
-    (await backToLobby(host)).ok && await until(bob, (s) => s.phase === 'lobby' && s.readyIds.length === 0 && s.settings.totalRounds === 5));
+  check('host returns everyone to lobby; Ready cleared, game and the confirmed rounds kept',
+    (await backToLobby(host)).ok && await until(bob, (s) => s.phase === 'lobby' && s.readyIds.length === 0 && s.settings.totalRounds === 5 && s.sessionConfirmed));
 
   // ---- what cancels a running countdown ----
   const B = await makeRoom(2);
   await Promise.all(B.players.map((p) => ready(p, true)));
   await until(B.host, (s) => s.phase === 'countdown');
-  await settings(B.host, { totalRounds: 7 });
-  check('host changing settings cancels the countdown and clears Ready',
-    await until(B.players[1], (s) => s.phase === 'lobby' && s.readyIds.length === 0 && s.settings.totalRounds === 7));
+  await settings(B.host, { gameId: 'snowball' });
+  check('host changing the game cancels the countdown and clears Ready',
+    await until(B.players[1], (s) => s.phase === 'lobby' && s.readyIds.length === 0 && s.settings.gameId === 'snowball'));
 
   const C = await makeRoom(2);
   await Promise.all(C.players.map((p) => ready(p, true)));

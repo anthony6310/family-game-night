@@ -16,7 +16,7 @@ A site where family members create accounts, join a shared room from their **pho
    - **Account:** email + password, **email confirmation required**. Then pick an avatar (preset list *or* upload). Profile and history persist.
    - **Guest** (*Play now*): enter a display name and go. **No profile or personal data is stored.** The only trace a guest leaves in the DB is their name on a winner record.
 3. **Play** → creates a room with an **invite code**. Others join by code, as account users or guests.
-4. **Room lobby** → everyone sees who's in. The **host (party leader)** picks the **session length** (3, 5 or 7 rounds; configurable by you in code) and a game from the menu.
+4. **Room lobby**, in two steps. **Step 1:** the **host** picks the **session length** (3, 5 or 7 rounds; configurable in code) and confirms with *Let's play!*. This happens **once per session**: the question doesn't come back until the session is over and the host chooses *Play again* (or *Start over*). **Step 2:** the host picks a game from the menu (the game can change from round to round).
 5. **Ready-up** → all players see the selected game and tap Ready. When all are ready → **countdown** → game starts.
 6. **Round ends** → winner is shown, winner gets **+1 point**. Room scoreboard updates.
 7. Repeat until the chosen number of rounds is played. The room crowns the **session winner**, and the host can **reset** or **close** the room.
@@ -133,7 +133,7 @@ Each milestone is small, testable, and leaves the app working.
 
 ### MVP 3 — Session Setup, Ready-up & Countdown
 - [x] 3.1 Shared game registry (`GAMES` info: name, min/max players) and `ROUND_OPTIONS` config. The game *engine* interface is designed in MVP 4 alongside Tap Race
-- [x] 3.2 Host picks session length (3/5/7) and a game; all players see both
+- [x] 3.2 Two-step room setup: the host first confirms the session length (3/5/7) with *Let's play!* (once per session; enforced by the server via `session:start`), and only then picks a game. Resetting after a session brings the rounds question back
 - [x] 3.3 Ready toggle per player; the server starts a synced countdown when all are ready
 - [x] 3.4 Edge cases: the countdown cancels whenever the start conditions stop holding (someone un-readies, an unready player joins, the host changes settings, or players drop below the minimum). A ready player leaving does not cancel it if enough ready players remain
 - **Done when:** countdown starts only when everyone is ready and is in sync across phones.
@@ -161,7 +161,10 @@ Each milestone is small, testable, and leaves the app working.
     - [x] Snowball engine and tests (`test:snowball`, `test:snowball-net`); all tuning numbers in one `SnowballConfig`
     - [x] three.js scene (`SnowballScene`) with keyboard steering
     - [x] Touch joystick, HUD (timer, live sizes), name tags and colours, spectator view
-    - [ ] Tuning from playtests on real phones (speed, growth, damage, camera)
+    - [x] Round 2 changes: size-relative player rebounds (stronger) and weaker wall bounces; damage scaled by impact speed; bigger arena (radius 45) with a big hill, small hill and ditch from one shared height function (`packages/shared/src/terrain.ts`); uphill slows to 90% (ramps over 1.5 s), downhill speeds to 130% (ramps over 3 s); a profile avatar is tiled over the ball as its texture (white if none)
+    - [x] Round 3 changes: base speed +30% (7.8); hills now hand out flat speed *stacks* (uphill: 10 slow stacks, floor 90%, full after 1.5 s; downhill: 15 boost stacks, ceiling 130%, full after 3 s) that share a 0.3 s lifetime, refreshed while you stay on the slope, so you return to normal speed on flat ground; size no longer slows top speed or acceleration (kept as `speedFalloff` / `accelFalloff`, both 0); permanent speed gauge on the HUD (current speed, current top speed, slow/boost chip with stack count)
+    - [x] Round 4 changes: base speed 9; flat damage in centimetres, dealt by both balls (5 cm per hit, 10 cm from the single biggest ball, immunity 0.2 s, no speed scaling and no percentages); small ball buff (the smaller ball of a hit gets +30% top speed for 2 s, stacking with hills up to 160%); random terrain every round (one big hill, one small hill, one ditch at random spots, never moving mid-round, spawn points always flat); gauge chips for 👑 Biggest, ⚡ Escape and hills
+    - [ ] Tuning from playtests on real phones (speed, growth, damage, hills, camera)
 - [ ] 6.2 Reconnection (phone sleeps or loses signal), error and empty states
 - [ ] 6.3 Deploy over HTTPS (web, Node server, Supabase prod)
 

@@ -15,8 +15,9 @@ const SnowballScreen = lazy(loadSnowballScreen);
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
   const navigate = useNavigate();
-  const { room, selfId, leaveRoom, updateSettings, setReady, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
+  const { room, selfId, leaveRoom, startSession, updateSettings, setReady, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
   const [error, setError] = useState<string | null>(null);
+  const [pickedRounds, setPickedRounds] = useState<number>(ROUND_OPTIONS[0]); // the host's choice in step 1, before confirming
 
   // As soon as the host picks Snowball, start downloading its code so the round can begin instantly.
   const pickedGame = room?.settings.gameId;
@@ -65,12 +66,12 @@ export function LobbyPage() {
   const isSpectator = selfId !== null && !participantIds.includes(selfId);
   const amReady = selfId !== null && room.readyIds.includes(selfId);
   const waitingOn = participantIds.filter((id) => !room.readyIds.includes(id)).length;
-  const sessionStarted = room.roundsPlayed > 0 || room.contenders !== null || Object.keys(room.scores).length > 0;
   const contenderNames = room.players.filter((p) => room.contenders?.includes(p.id)).map((p) => p.name).join(', ');
 
   // The status line explains exactly why the round hasn't started yet.
   let status = '';
-  if (!game) status = isHost ? 'Pick a game to get started.' : 'Waiting for the host to pick a game…';
+  if (!room.sessionConfirmed) status = '';
+  else if (!game) status = isHost ? 'Pick a game to get started.' : 'Waiting for the host to pick a game…';
   else if (participantIds.length < game.minPlayers) status = `Waiting for more players (need ${game.minPlayers}).`;
   else if (waitingOn > 0) status = `Waiting for ${waitingOn} ${waitingOn === 1 ? 'player' : 'players'} to ready up…`;
 
@@ -80,9 +81,11 @@ export function LobbyPage() {
       <h1 className="room-code">{room.code}</h1>
       <p className="muted">Share this code so others can join ({room.players.length}/{MAX_PLAYERS} players)</p>
 
-      <p className="session-line">
-        {room.contenders ? `⚔️ Tie-breaker! ${contenderNames} play for the win` : `Round ${Math.min(room.roundsPlayed + 1, total)} of ${total}`}
-      </p>
+      {room.sessionConfirmed && (
+        <p className="session-line">
+          {room.contenders ? `⚔️ Tie-breaker! ${contenderNames} play for the win` : `Round ${Math.min(room.roundsPlayed + 1, total)} of ${total}`}
+        </p>
+      )}
 
       <ul className="players">
         {room.players.map((p) => {
@@ -100,50 +103,67 @@ export function LobbyPage() {
         })}
       </ul>
 
-      {isHost ? (
-        <section className="settings">
-          <div className="choice-row">
-            {GAMES.map((g) => (
-              <button key={g.id} className={g.id === room.settings.gameId ? 'choice selected' : 'choice'}
-                onClick={() => run(updateSettings({ gameId: g.id }))}>
-                {g.name}
-              </button>
-            ))}
-          </div>
-          <div className="choice-row">
-            {ROUND_OPTIONS.map((n) => (
-              // The session length is fixed once the first round has been played.
-              <button key={n} className={n === total ? 'choice selected' : 'choice'}
-                disabled={sessionStarted && n !== total} onClick={() => run(updateSettings({ totalRounds: n }))}>
-                {n} rounds
-              </button>
-            ))}
-          </div>
-          {sessionStarted && <p className="muted">Session length is locked until you play again.</p>}
-        </section>
+      {!room.sessionConfirmed ? (
+        // STEP 1: how many rounds. Asked once per session; after "Let's play!" it isn't shown again until the session ends.
+        isHost ? (
+          <section className="settings step">
+            <h2 className="step-title">How many rounds?</h2>
+            <div className="choice-row">
+              {ROUND_OPTIONS.map((n) => (
+                <button key={n} className={n === pickedRounds ? 'choice selected' : 'choice'} onClick={() => setPickedRounds(n)}>
+                  {n} rounds
+                </button>
+              ))}
+            </div>
+            <p className="muted">You only choose this once. It stays fixed until the session is over.</p>
+            {error && <p className="error">{error}</p>}
+            <button className="primary" onClick={() => run(startSession(pickedRounds))}>Let's play!</button>
+          </section>
+        ) : (
+          <section className="settings step">
+            <h2 className="step-title">Getting ready…</h2>
+            <p className="muted">The host is choosing how many rounds to play.</p>
+          </section>
+        )
       ) : (
-        <section className="settings">
-          <p><strong>{game ? game.name : 'No game picked yet'}</strong> · {total} rounds</p>
-        </section>
-      )}
-      {game && <p className="muted">{game.description}</p>}
+        // STEP 2: the game (and then ready up). The round count is already locked in.
+        <>
+          {isHost ? (
+            <section className="settings">
+              <p className="muted">Session: {total} rounds · pick a game</p>
+              <div className="choice-row">
+                {GAMES.map((g) => (
+                  <button key={g.id} className={g.id === room.settings.gameId ? 'choice selected' : 'choice'}
+                    onClick={() => run(updateSettings({ gameId: g.id }))}>
+                    {g.name}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <section className="settings">
+              <p><strong>{game ? game.name : 'No game picked yet'}</strong> · {total} rounds</p>
+            </section>
+          )}
+          {game && <p className="muted">{game.description}</p>}
 
-      {room.phase === 'countdown' && room.countdownEndsAt !== null && (
-        <Countdown endsAt={room.countdownEndsAt} serverNow={serverNow} />
-      )}
-      {status && <p className="muted">{status}</p>}
-      {error && <p className="error">{error}</p>}
+          {room.phase === 'countdown' && room.countdownEndsAt !== null && (
+            <Countdown endsAt={room.countdownEndsAt} serverNow={serverNow} />
+          )}
+          {status && <p className="muted">{status}</p>}
+          {error && <p className="error">{error}</p>}
 
-      {isSpectator ? (
-        <p className="muted">You're watching this tie-breaker.</p>
-      ) : (
-        <button className={amReady ? '' : 'primary'} disabled={!game} onClick={() => run(setReady(!amReady))}>
-          {amReady ? 'Not ready' : "I'm ready!"}
-        </button>
+          {isSpectator ? (
+            <p className="muted">You're watching this tie-breaker.</p>
+          ) : (
+            <button className={amReady ? '' : 'primary'} disabled={!game} onClick={() => run(setReady(!amReady))}>
+              {amReady ? 'Not ready' : "I'm ready!"}
+            </button>
+          )}
+        </>
       )}
       {isHost && room.phase === 'lobby' && (
         <>
-          {sessionStarted && <button className="link" onClick={() => run(resetRoom())}>Start over (reset scores)</button>}
           <button className="link" onClick={() => run(closeRoom())}>Close room</button>
         </>
       )}

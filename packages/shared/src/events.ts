@@ -1,3 +1,4 @@
+import type { TerrainFeature } from './terrain';
 import type { GameId } from './games';
 
 /**
@@ -16,7 +17,7 @@ export interface Player {
 /** Host-controlled session settings. */
 export interface RoomSettings {
   gameId: GameId | null; // null until the host picks a game
-  totalRounds: number; // one of ROUND_OPTIONS
+  totalRounds: number; // one of ROUND_OPTIONS; fixed once the host confirms the session (see `sessionConfirmed`)
 }
 
 /**
@@ -51,6 +52,16 @@ export interface SnowballBall {
   vz: number;
   radius: number;
   immune: boolean; // briefly true after being hit (drawn as a flash)
+  /** Current top-speed multiplier, everything included: 1 = normal, below 1 = climbing, above 1 = descending / escaping. */
+  speedFactor: number;
+  /** The part of `speedFactor` that comes from the ground alone (hills and the ditch). */
+  hillFactor: number;
+  slowStacks: number; // uphill slow stacks currently active
+  boostStacks: number; // downhill speed-up stacks currently active
+  /** True for 2 s after this (smaller) ball hit a bigger one: a speed boost to get away. */
+  escape: boolean;
+  /** True for the single biggest ball: its hits do double damage. */
+  leader: boolean;
 }
 
 /** Snowball, as phones see it. Streamed ~20 times a second while the round runs. */
@@ -59,6 +70,13 @@ export interface SnowballView {
   startsAt: number;
   endsAt: number;
   arenaRadius: number;
+  /**
+   * The speeds the gauge is drawn against (world units per second): normal, slowest possible, fastest from
+   * hills alone, fastest possible with the escape boost on top, and how much that escape boost adds (a fraction).
+   */
+  speedRange: { base: number; min: number; hillMax: number; max: number; escapeBonus: number };
+  /** This round's hills and ditch. They are picked at random for each round and never move during it. */
+  terrain: TerrainFeature[];
   balls: Record<string, SnowballBall>; // playerId -> ball (players outside a tie-breaker have none)
 }
 
@@ -79,6 +97,11 @@ export interface RoomState {
   hostId: string;
   players: Player[]; // in join order
   settings: RoomSettings;
+  /**
+   * False until the host has confirmed how many rounds the session lasts ("Let's play!"). Until then the
+   * room shows only that first step. It stays true until the session ends and the host resets the room.
+   */
+  sessionConfirmed: boolean;
   readyIds: string[]; // ids of players who tapped Ready
   phase: RoomPhase;
   /** Server clock (epoch ms) when the countdown hits zero, or null. */
@@ -108,7 +131,8 @@ export type RoomError =
   | 'NOT_HOST'
   | 'INVALID_SETTING'
   | 'WRONG_PHASE'
-  | 'NO_GAME_SELECTED';
+  | 'NO_GAME_SELECTED'
+  | 'SESSION_NOT_STARTED';
 
 /** Reply shape for events that expect an answer (Socket.io "acknowledgements"). */
 export type Ack<T> = { ok: true; data: T } | { ok: false; error: RoomError };
@@ -128,8 +152,13 @@ export interface ClientToServerEvents {
   'room:create': (ack: (res: Ack<JoinResult>) => void) => void;
   'room:join': (code: string, ack: (res: Ack<JoinResult>) => void) => void;
   'room:leave': () => void;
-  /** Host only. Changing anything cancels a running countdown and clears every Ready. */
-  'room:settings': (settings: Partial<RoomSettings>, ack?: (res: Ack<null>) => void) => void;
+  /**
+   * Host only, step 1: choose how many rounds the session lasts (one of ROUND_OPTIONS) and lock it in.
+   * Allowed once per session; the game can only be picked after this.
+   */
+  'session:start': (totalRounds: number, ack?: (res: Ack<null>) => void) => void;
+  /** Host only, step 2 (after `session:start`): pick the game. Changing it cancels a countdown and clears every Ready. */
+  'room:settings': (settings: { gameId?: GameId }, ack?: (res: Ack<null>) => void) => void;
   'player:ready': (ready: boolean, ack?: (res: Ack<null>) => void) => void;
   /** Fire-and-forget (no ack) because taps are frequent. */
   'game:action': (action: GameAction) => void;

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { io, type Socket } from 'socket.io-client';
 import {
   MAX_PLAYERS,
-  type Ack, type ClientToServerEvents, type GameAction, type JoinResult, type RoomError, type RoomSettings, type RoomState,
+  type Ack, type ClientToServerEvents, type GameAction, type GameId, type JoinResult, type RoomError, type RoomState,
   type ServerToClientEvents,
 } from '@fgn/shared';
 import { useAuth } from '../auth/AuthContext';
@@ -21,6 +21,7 @@ const ERROR_TEXT: Record<RoomError, string> = {
   INVALID_SETTING: "That setting isn't allowed.",
   WRONG_PHASE: "That can't be changed right now.",
   NO_GAME_SELECTED: 'Wait for the host to pick a game.',
+  SESSION_NOT_STARTED: 'The host hasn\'t chosen the number of rounds yet.',
 };
 
 interface RoomContextValue {
@@ -32,8 +33,10 @@ interface RoomContextValue {
   createRoom: () => Promise<string | null>;
   joinRoom: (code: string) => Promise<string | null>;
   leaveRoom: () => void;
-  /** Host: pick the game and/or session length. */
-  updateSettings: (change: Partial<RoomSettings>) => Promise<string | null>;
+  /** Host, step 1: lock in how many rounds the session lasts (once per session). */
+  startSession: (totalRounds: number) => Promise<string | null>;
+  /** Host, step 2: pick the game. */
+  updateSettings: (change: { gameId?: GameId }) => Promise<string | null>;
   setReady: (ready: boolean) => Promise<string | null>;
   /** Host: end the current game and go back to the lobby. */
   returnToLobby: () => Promise<string | null>;
@@ -145,6 +148,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     selfId,
     createRoom: () => request((s, ack) => s.emit('room:create', ack)),
     joinRoom: (code) => request((s, ack) => s.emit('room:join', code, ack)),
+    startSession: (totalRounds) => command((s, ack) => s.emit('session:start', totalRounds, ack)),
     updateSettings: (change) => command((s, ack) => s.emit('room:settings', change, ack)),
     setReady: (ready) => command((s, ack) => s.emit('player:ready', ready, ack)),
     returnToLobby: () => command((s, ack) => s.emit('room:return-to-lobby', ack)),

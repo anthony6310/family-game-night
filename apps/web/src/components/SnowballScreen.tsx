@@ -3,6 +3,7 @@ import type { GameAction, Player, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './snowball/Joystick';
 import { SnowballScene, type BallStyle } from './snowball/SnowballScene';
+import { SpeedGauge } from './snowball/SpeedGauge';
 import { useSteering } from './snowball/useSteering';
 
 interface Props {
@@ -24,16 +25,16 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<SnowballScene | null>(null);
 
-  // Colours and names are fixed when the round starts (a player leaving mustn't recolour everyone).
+  // Colours, names and profile pictures are fixed when the round starts (a player leaving mustn't recolour everyone).
   const styles = useMemo<Record<string, BallStyle>>(
-    () => Object.fromEntries(players.map((p, i) => [p.id, { name: p.name, color: PALETTE[i % PALETTE.length] }])),
+    () => Object.fromEntries(players.map((p, i) => [p.id, { name: p.name, color: PALETTE[i % PALETTE.length], avatarUrl: p.avatarUrl }])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
 
   // Create the 3D scene once; tear it down (freeing GPU memory) when the round screen closes.
   useEffect(() => {
-    const s = new SnowballScene(container.current!, game.arenaRadius, styles, selfId);
+    const s = new SnowballScene(container.current!, game.arenaRadius, game.terrain, styles, selfId);
     scene.current = s;
     return () => {
       s.dispose();
@@ -50,9 +51,10 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
   const setStick = useSteering(sendAction);
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   const isPlayer = selfId !== null && selfId in game.balls;
+  const myBall = selfId !== null ? game.balls[selfId] : undefined;
 
   const standings = Object.entries(game.balls)
-    .map(([id, ball]) => ({ id, size: Math.round(ball.radius * 100), style: styles[id] }))
+    .map(([id, ball]) => ({ id, size: Math.round(ball.radius * 100), style: styles[id], leader: ball.leader }))
     .sort((a, b) => b.size - a.size);
 
   return (
@@ -62,14 +64,15 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
       <div className="snow-hud">
         <div className="snow-timer">{Math.ceil(remainingMs / 1000)}</div>
         <ul className="snow-standings">
-          {standings.map(({ id, size, style }) => (
+          {standings.map(({ id, size, style, leader }) => (
             <li key={id} className={id === selfId ? 'me' : ''}>
               <span className="dot" style={{ background: style?.color }} />
-              <span className="snow-name">{style?.name ?? '?'}</span>
+              <span className="snow-name">{leader && '👑 '}{style?.name ?? '?'}</span>
               <span className="snow-size">{size}</span>
             </li>
           ))}
         </ul>
+        {myBall && <SpeedGauge ball={myBall} range={game.speedRange} />}
         {!isPlayer && <p className="snow-note">You're watching this tie-breaker.</p>}
         {isPlayer && <p className="snow-hint">Drag to steer · or use WASD / arrow keys</p>}
       </div>

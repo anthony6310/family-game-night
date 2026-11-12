@@ -14,6 +14,7 @@ interface Room {
   hostId: string;
   players: Map<string, Player>; // a Map keeps insertion order = join order
   settings: RoomSettings;
+  sessionConfirmed: boolean; // the host has locked in the number of rounds
   ready: Set<string>;
   phase: RoomPhase;
   countdownEndsAt: number | null;
@@ -83,6 +84,7 @@ export class RoomManager {
       hostId: host.id,
       players: new Map([[host.id, host]]),
       settings: { gameId: null, totalRounds: ROUND_OPTIONS[0] },
+      sessionConfirmed: false,
       ready: new Set(),
       phase: 'lobby',
       countdownEndsAt: null,
@@ -145,30 +147,38 @@ export class RoomManager {
     return { code, room: toState(room), session };
   }
 
-  /** Host picks the game and/or session length. Any real change resets everyone's Ready. */
-  setSettings(playerId: string, change: Partial<RoomSettings>): Result {
+  /**
+   * Step 1 of a session: the host locks in how many rounds it lasts. This happens ONCE per session;
+   * after it the room moves on to picking a game, and only a reset (after the session) brings it back.
+   */
+  startSession(playerId: string, totalRounds: number): Result {
+    const room = this.roomFor(playerId);
+    if (!room) return fail('NOT_IN_ROOM');
+    if (room.hostId !== playerId) return fail('NOT_HOST');
+    if (room.phase !== 'lobby' || room.sessionConfirmed) return fail('WRONG_PHASE');
+    if (!(ROUND_OPTIONS as readonly number[]).includes(totalRounds)) return fail('INVALID_SETTING');
+    room.settings = { ...room.settings, totalRounds };
+    room.sessionConfirmed = true;
+    return ok(room);
+  }
+
+  /** Step 2: the host picks the game (any time between rounds). A real change resets everyone's Ready. */
+  setSettings(playerId: string, change: { gameId?: string | null }): Result {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.hostId !== playerId) return fail('NOT_HOST');
     if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
+    if (!room.sessionConfirmed) return fail('SESSION_NOT_STARTED');
+    // The round count is only ever set by startSession(); it can't be sneaked in here.
+    if ((change as Record<string, unknown>).totalRounds !== undefined) return fail('INVALID_SETTING');
 
-    // Validate everything first so a bad request changes nothing.
-    const next = { ...room.settings };
     if (change.gameId !== undefined) {
       if (!GAMES.some((g) => g.id === change.gameId)) return fail('INVALID_SETTING');
-      next.gameId = change.gameId;
-    }
-    if (change.totalRounds !== undefined) {
-      if (!(ROUND_OPTIONS as readonly number[]).includes(change.totalRounds)) return fail('INVALID_SETTING');
-      // The session length is fixed once the first round has been played.
-      if (change.totalRounds !== room.settings.totalRounds && this.sessionStarted(room)) return fail('WRONG_PHASE');
-      next.totalRounds = change.totalRounds;
-    }
-
-    if (next.gameId !== room.settings.gameId || next.totalRounds !== room.settings.totalRounds) {
-      room.settings = next;
-      room.ready.clear(); // everyone must agree to the NEW setup
-      this.reconcile(room); // cancels a countdown, since nobody is ready any more
+      if (change.gameId !== room.settings.gameId) {
+        room.settings = { ...room.settings, gameId: change.gameId as GameId };
+        room.ready.clear(); // everyone must agree to the NEW game
+        this.reconcile(room); // cancels a countdown, since nobody is ready any more
+      }
     }
     return ok(room);
   }
@@ -177,6 +187,7 @@ export class RoomManager {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
+    if (!room.sessionConfirmed) return fail('SESSION_NOT_STARTED');
     if (!room.settings.gameId) return fail('NO_GAME_SELECTED');
 
     if (ready) room.ready.add(playerId);
@@ -281,6 +292,7 @@ export class RoomManager {
     room.tiebreakerRounds = 0;
     room.contenders = null;
     room.sessionWinner = null;
+    room.sessionConfirmed = false; // a new session starts with the rounds question again
     this.toLobby(room);
     return ok(room);
   }
@@ -379,10 +391,6 @@ export class RoomManager {
     return getGame(room.settings.gameId)?.minPlayers ?? 1;
   }
 
-  private sessionStarted(room: Room): boolean {
-    return room.roundsPlayed > 0 || room.contenders !== null || Object.keys(room.wins).length > 0;
-  }
-
   /**
    * The one place that decides whether a countdown should be running:
    * a game is chosen, enough players take part, and EVERY participant is ready
@@ -425,6 +433,7 @@ function toState(room: Room): RoomState {
     hostId: room.hostId,
     players: [...room.players.values()],
     settings: { ...room.settings },
+    sessionConfirmed: room.sessionConfirmed,
     readyIds: [...room.ready],
     phase: room.phase,
     countdownEndsAt: room.countdownEndsAt,

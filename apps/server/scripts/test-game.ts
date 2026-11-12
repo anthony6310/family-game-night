@@ -60,7 +60,8 @@ async function startRound(n: number) {
   const made = await create(players[0]);
   const code = made.ok ? made.data.room.code : '';
   for (const p of players.slice(1)) await join(p, code);
-  await new Promise((r) => players[0].socket.emit('room:settings', { gameId: 'tap-race' }, r));
+  await new Promise((r) => players[0].socket.emit('session:start', 3, r)); // step 1: rounds
+  await new Promise((r) => players[0].socket.emit('room:settings', { gameId: 'tap-race' }, r)); // step 2: the game
   await Promise.all(players.map((p) => ready(p)));
   const running = await until(players[0], (s) => s.phase === 'playing');
   return { players, code, running };

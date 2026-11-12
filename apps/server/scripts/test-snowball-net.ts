@@ -8,6 +8,7 @@ import type { AddressInfo } from 'node:net';
 import { io, type Socket } from 'socket.io-client';
 import type { Ack, ClientToServerEvents, GameView, JoinResult, RoomState, ServerToClientEvents, SnowballView } from '@fgn/shared';
 import { createGameServer } from '../src/server';
+import { DEFAULT_SNOWBALL_CONFIG as cfg } from '../src/games/snowball';
 import type { RoundRecord } from '../src/rooms';
 
 type Client = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -54,6 +55,7 @@ try {
   const made = await create(a);
   const code = made.ok ? made.data.room.code : '';
   await join(b, code);
+  await new Promise((r) => a.socket.emit('session:start', 3, r));
   await new Promise((r) => a.socket.emit('room:settings', { gameId: 'snowball' }, r));
   await Promise.all([ready(a), ready(b)]);
   check('the round starts after the countdown', await until(a, (s) => s.phase === 'playing'));
@@ -85,7 +87,7 @@ try {
   check('the steering player\'s ball moved', dist(latest.balls[a.id], startA) > 2);
   check('the player who sent junk (and no valid input) did not move', dist(latest.balls[b.id], startB) < 1e-6);
   check('the moving ball grew', latest.balls[a.id].radius > 1.01);
-  check('speed stays within the cap despite the oversized steering vector', Math.hypot(latest.balls[a.id].vx, latest.balls[a.id].vz) <= 6.01);
+  check('speed stays within the cap (130% downhill at most) despite the oversized steering vector', Math.hypot(latest.balls[a.id].vx, latest.balls[a.id].vz) <= cfg.maxSpeed * cfg.downhillMaxFactor + 0.01);
   check('every ball stays inside the arena',
     a.views.every((v) => Object.values(v.balls).every((ball) => Math.hypot(ball.x, ball.z) + ball.radius <= v.arenaRadius + 0.01)));
 

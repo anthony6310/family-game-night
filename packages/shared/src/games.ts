@@ -26,7 +26,7 @@ export const GAMES = [
   {
     id: 'snowball',
     name: 'Snowball',
-    description: 'Roll around, grow bigger, and bump smaller balls to steal their snow. Biggest ball wins!',
+    description: 'Roll around and grow as big as you can. Every bump costs both balls size, the biggest ball hits twice as hard, and smaller balls get a speed boost to get away. Biggest ball wins!',
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
     scoreLabel: 'cm',

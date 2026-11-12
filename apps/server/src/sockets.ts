@@ -160,6 +160,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       if (typeof ack === 'function') enter(rooms.join(String(code), player), ack);
     });
     socket.on('room:leave', leave);
+    socket.on('session:start', (rounds, ack) => command(rooms.startSession(player.id, Number(rounds)), ack));
     socket.on('room:settings', (settings, ack) => {
       command(rooms.setSettings(player.id, settings && typeof settings === 'object' ? settings : {}), ack);
     });

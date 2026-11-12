@@ -67,6 +67,7 @@ try {
   const made = await new Promise<Ack<JoinResult>>((r) => account.socket.emit('room:create', (res) => r(ack(account, res))));
   code = made.ok ? made.data.room.code : '';
   await new Promise((r) => guest.socket.emit('room:join', code, (res: Ack<JoinResult>) => r(ack(guest, res))));
+  await new Promise((r) => account.socket.emit('session:start', 3, r));
   await new Promise((r) => account.socket.emit('room:settings', { gameId: 'tap-race' }, r));
 
   // Round 1: the ACCOUNT wins.

@@ -14,8 +14,10 @@ type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 const ERROR_TEXT: Record<RoomError, string> = {
   ROOM_NOT_FOUND: 'No room with that code.',
   ROOM_FULL: `That room is full (${MAX_PLAYERS} players max).`,
+  NOT_A_PLAYER: "You're watching: switch to Play to ready up.",
+  MUST_PLAY: "You're in the tie-breaker, so you have to play it.",
   ALREADY_IN_ROOM: "You're already in a room (maybe in another tab).",
-  GAME_IN_PROGRESS: 'That room is mid-game. Try again in a moment.',
+  GAME_IN_PROGRESS: 'That room is mid-game. Try again in a moment.', // (no longer sent: late joiners just watch)
   NOT_IN_ROOM: "You're not in a room.",
   NOT_HOST: 'Only the host can do that.',
   INVALID_SETTING: "That setting isn't allowed.",
@@ -32,6 +34,8 @@ interface RoomContextValue {
   /** Each returns an error message to display, or null on success. */
   createRoom: () => Promise<string | null>;
   joinRoom: (code: string) => Promise<string | null>;
+  /** Switch between playing and watching (between rounds). Points are kept either way. */
+  setWatching: (watching: boolean) => Promise<string | null>;
   leaveRoom: () => void;
   /** Host, step 1: lock in how many rounds the session lasts (once per session). */
   startSession: (totalRounds: number) => Promise<string | null>;
@@ -148,6 +152,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     selfId,
     createRoom: () => request((s, ack) => s.emit('room:create', ack)),
     joinRoom: (code) => request((s, ack) => s.emit('room:join', code, ack)),
+    setWatching: (watching) => command((s, ack) => s.emit('player:watching', watching, ack)),
     startSession: (totalRounds) => command((s, ack) => s.emit('session:start', totalRounds, ack)),
     updateSettings: (change) => command((s, ack) => s.emit('room:settings', change, ack)),
     setReady: (ready) => command((s, ack) => s.emit('player:ready', ready, ack)),

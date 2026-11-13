@@ -5,6 +5,11 @@ export const ROUND_OPTIONS = [3, 5, 7] as const;
 
 /** Maximum players allowed in one room. */
 export const MAX_PLAYERS = 8;
+/**
+ * Players can switch to "watching" at any time between rounds. Watchers keep their points but don't use one of the
+ * MAX_PLAYERS playing slots, so a room can hold this many extra people (and it bounds the room's broadcasts).
+ */
+export const MAX_SPECTATORS = 16;
 
 /** Display-name length limit (used by the UI and mirrored by a DB check constraint). */
 export const DISPLAY_NAME_MAX = 20;

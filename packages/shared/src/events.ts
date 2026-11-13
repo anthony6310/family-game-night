@@ -97,7 +97,14 @@ export interface RoundResult {
 export interface RoomState {
   code: string;
   hostId: string;
-  players: Player[]; // in join order
+  /** Everyone in the room, in join order: those playing AND those watching (see `watchingIds`). */
+  players: Player[];
+  /**
+   * Members who are watching instead of playing. They keep their points and still count when the session winner is
+   * decided, but they don't ready up, don't take one of the MAX_PLAYERS playing slots and aren't in the round.
+   * Anyone who joins mid-round, or into a full room, starts out watching.
+   */
+  watchingIds: string[];
   settings: RoomSettings;
   /**
    * False until the host has confirmed how many rounds the session lasts ("Let's play!"). Until then the
@@ -129,6 +136,8 @@ export interface RoomState {
 export type RoomError =
   | 'ROOM_NOT_FOUND'
   | 'ROOM_FULL'
+  | 'NOT_A_PLAYER' // a watcher tried to ready up
+  | 'MUST_PLAY' // a tie-breaker contender can't sit it out
   | 'ALREADY_IN_ROOM'
   | 'GAME_IN_PROGRESS'
   | 'NOT_IN_ROOM'
@@ -155,6 +164,8 @@ export interface HandshakeAuth {
 export interface ClientToServerEvents {
   'room:create': (ack: (res: Ack<JoinResult>) => void) => void;
   'room:join': (code: string, ack: (res: Ack<JoinResult>) => void) => void;
+  /** Switch between playing (false) and watching (true). Lobby/countdown only. Your points are kept either way. */
+  'player:watching': (watching: boolean, ack?: (res: Ack<null>) => void) => void;
   'room:leave': () => void;
   /**
    * Host only, step 1: choose how many rounds the session lasts (one of ROUND_OPTIONS) and lock it in.

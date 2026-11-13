@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react';
 import type { GameAction, Player, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
-import { Joystick } from './snowball/Joystick';
+import { Joystick } from './Joystick';
 import { SnowballScene, type BallStyle } from './snowball/SnowballScene';
 import { useSteering } from './snowball/useSteering';
+import { SpectatorControls } from '../spectate/SpectatorControls';
+import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
 
 interface Props {
   game: SnowballView;
@@ -53,6 +55,19 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   const isPlayer = selfId !== null && selfId in game.balls;
 
+  // Spectators (watchers, or players sitting out a tie-breaker) choose whose camera to follow, or fly a free camera.
+  const subjects = useMemo(
+    () => Object.keys(game.balls).map((id) => ({ id, name: styles[id]?.name ?? '?', color: styles[id]?.color })),
+    // The list only changes when someone joins/leaves the round, not on every snapshot.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [Object.keys(game.balls).join(',')],
+  );
+  const camera = useSpectatorCamera(subjects, !isPlayer);
+  useEffect(() => { scene.current?.setPanSource(camera.pan); }, [camera.pan]);
+  useEffect(() => {
+    if (!isPlayer) scene.current?.setCameraView({ mode: camera.mode, targetId: camera.targetId });
+  }, [isPlayer, camera.mode, camera.targetId]);
+
   const standings = Object.entries(game.balls)
     .map(([id, ball]) => ({ id, size: Math.round(ball.radius * 100), style: styles[id], leader: ball.leader }))
     .sort((a, b) => b.size - a.size);
@@ -72,11 +87,11 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
             </li>
           ))}
         </ul>
-        {!isPlayer && <p className="snow-note">You're watching this tie-breaker.</p>}
         {isPlayer && !frozen && <p className="snow-hint">Drag to steer · or use WASD / arrow keys</p>}
       </div>
 
       {isPlayer && !frozen && <Joystick onChange={setStick} />}
+      {!isPlayer && <SpectatorControls camera={camera} />}
     </div>
   );
 }

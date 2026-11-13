@@ -110,7 +110,8 @@ try {
 
   // ---- mid-game rules ----
   const late = await guest('Late');
-  check('cannot join a room mid-game', errorOf(await join(late, A.code)) === 'GAME_IN_PROGRESS');
+  const lateJoin = await join(late, A.code);
+  check('joining mid-game is allowed, but as a watcher (not a player)', lateJoin.ok && lateJoin.data.room.watchingIds.includes(lateJoin.data.playerId));
   check('settings are locked mid-game', errorOf(await settings(host, { gameId: 'snowball' })) === 'WRONG_PHASE' && errorOf(await startSession(host, 3)) === 'WRONG_PHASE');
   check('only the host can return to lobby', errorOf(await backToLobby(bob)) === 'NOT_HOST');
   check('host returns everyone to lobby; Ready cleared, game and the confirmed rounds kept',

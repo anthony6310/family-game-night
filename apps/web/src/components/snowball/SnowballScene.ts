@@ -5,6 +5,8 @@ import {
   TorusGeometry, Vector3, WebGLRenderer,
   type Texture,
 } from 'three';
+import { SpectatorRig } from '../../spectate/SpectatorRig';
+import type { CameraMode } from '../../spectate/useSpectatorCamera';
 import { createTerrain, type SnowballBall, type Terrain, type TerrainFeature } from '@fgn/shared';
 
 /** How a player's ball is labelled and marked. */
@@ -86,9 +88,10 @@ export class SnowballScene {
   private ringGeometry = new RingGeometry(1.15, 1.4, 32);
   private shadowGeometry = new CircleGeometry(1.1, 24);
 
-  // Smoothed camera state.
-  private focus = new Vector3();
-  private cameraRadius = 1;
+  // The camera is the shared, game-agnostic spectator rig: players always "follow" themselves, spectators choose.
+  private rig!: SpectatorRig;
+  private view: { mode: CameraMode; targetId: string | null };
+  private pan: { current: { x: number; z: number } } = { current: { x: 0, z: 0 } }; // the free camera's input (a React ref)
   private zoom = 1; // pulls the camera back on narrow (portrait) screens
 
   constructor(
@@ -96,14 +99,16 @@ export class SnowballScene {
     private arenaRadius: number,
     private terrainFeatures: TerrainFeature[],
     private styles: Record<string, BallStyle>,
-    private selfId: string | null,
+    selfId: string | null,
   ) {
+    this.view = { mode: 'follow', targetId: selfId };
     this.terrain = createTerrain(terrainFeatures);
     this.renderer = new WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 3x phones don't need 3x pixels
     container.appendChild(this.renderer.domElement);
     this.disposables.push(this.renderer, this.ballGeometry, this.ringGeometry, this.shadowGeometry);
 
+    this.rig = new SpectatorRig(this.camera, arenaRadius);
     this.buildWorld();
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
@@ -116,6 +121,16 @@ export class SnowballScene {
   pushSnapshot(balls: Record<string, SnowballBall>) {
     this.snapshots.push({ t: performance.now(), balls });
     if (this.snapshots.length > 10) this.snapshots.shift();
+  }
+
+  /** Spectators: which ball to follow, or the free camera. (Players never call this: they follow themselves.) */
+  setCameraView(view: { mode: CameraMode; targetId: string | null }) {
+    this.view = view;
+  }
+
+  /** The free camera's movement input: an object whose `current` is read every frame (a React ref). */
+  setPanSource(pan: { current: { x: number; z: number } }) {
+    this.pan = pan;
   }
 
   dispose() {
@@ -353,25 +368,11 @@ export class SnowballScene {
     v.material.emissiveIntensity = pose.immune ? 0.9 : 0;
   }
 
-  /** Follow your own ball from a fixed compass direction, stepping back as it grows. Spectators see the whole arena. */
+  /** Follow a ball from a fixed compass direction (stepping back as it grows), or fly the free camera. See SpectatorRig. */
   private updateCamera(dt: number, poses: Record<string, Pose> | null) {
-    const self = this.selfId && poses ? poses[this.selfId] : undefined;
-    const k = 1 - Math.exp(-4 * dt); // frame-rate independent smoothing
-
-    let height: number;
-    let back: number;
-    if (self) {
-      this.focus.lerp(new Vector3(self.x, this.terrain.height(self.x, self.z), self.z), k); // follows the ground up and down the hills
-      this.cameraRadius += (self.radius - this.cameraRadius) * k;
-      height = (6 + 3.2 * this.cameraRadius) * this.zoom;
-      back = (8 + 4.2 * this.cameraRadius) * this.zoom;
-    } else {
-      this.focus.lerp(new Vector3(0, 0, 0), k);
-      height = this.arenaRadius * 1.25 * this.zoom;
-      back = this.arenaRadius * 0.75 * this.zoom;
-    }
-    this.camera.position.set(this.focus.x, this.focus.y + height, this.focus.z + back);
-    this.camera.lookAt(this.focus.x, this.focus.y + (self ? this.cameraRadius * 0.4 : 0), this.focus.z);
+    const followed = this.view.targetId && poses ? poses[this.view.targetId] : undefined;
+    const target = followed && { x: followed.x, y: this.terrain.height(followed.x, followed.z), z: followed.z, size: followed.radius }; // follows the ground up and down the hills
+    this.rig.update(dt, this.view.mode, target, this.pan.current, this.zoom);
   }
 }
 

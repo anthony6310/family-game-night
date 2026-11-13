@@ -2,6 +2,8 @@ import { useState } from 'react';
 import type { GameAction, Player, TapRaceView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Avatar } from './Avatar';
+import { SpectatorControls } from '../spectate/SpectatorControls';
+import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
 
 interface Props {
   game: TapRaceView;
@@ -22,6 +24,11 @@ export function TapRaceScreen({ game, players, selfId, serverNow, sendAction, fr
   // In a tie-breaker, players outside the tie are spectators: they aren't in the game's tap table.
   const isPlayer = selfId !== null && selfId in game.taps;
 
+  // Watchers can "follow" a player too: there is no 3D camera here, so following spotlights that player's count.
+  const subjects = players.filter((p) => p.id in game.taps).map((p) => ({ id: p.id, name: p.name }));
+  const camera = useSpectatorCamera(subjects, !isPlayer, false);
+  const followed = players.find((p) => p.id === camera.targetId);
+
   function onTap() {
     if (over || frozen || !isPlayer) return;
     setMyTaps((n) => n + 1);
@@ -38,10 +45,18 @@ export function TapRaceScreen({ game, players, selfId, serverNow, sendAction, fr
     <main className="page tap-page">
       <div className="timer">{over ? 'Time!' : Math.ceil(remainingMs / 1000)}</div>
       {/* pointerdown fires the instant a finger lands (onClick waits for release) */}
-      <button className="tap-button" disabled={over || frozen || !isPlayer} onPointerDown={onTap} onContextMenu={(e) => e.preventDefault()}>
-        {isPlayer ? 'TAP!' : 'Watching'}
-        {isPlayer && <span className="tap-count">{myTaps}</span>}
-      </button>
+      {isPlayer ? (
+        <button className="tap-button" disabled={over || frozen} onPointerDown={onTap} onContextMenu={(e) => e.preventDefault()}>
+          TAP!
+          <span className="tap-count">{myTaps}</span>
+        </button>
+      ) : (
+        <div className="tap-spotlight">
+          {followed && <Avatar url={followed.avatarUrl} name={followed.name} size={72} />}
+          <strong>{followed?.name ?? ''}</strong>
+          <span className="tap-spotlight-count">{followed ? (game.taps[followed.id] ?? 0) : 0}</span>
+        </div>
+      )}
       <ul className="standings">
         {standings.map(({ player, taps }) => (
           <li key={player.id}>
@@ -52,6 +67,7 @@ export function TapRaceScreen({ game, players, selfId, serverNow, sendAction, fr
           </li>
         ))}
       </ul>
+      {!isPlayer && <SpectatorControls camera={camera} allowFree={false} />}
     </main>
   );
 }

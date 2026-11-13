@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto';
 import {
-  COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROUND_OPTIONS,
+  COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROUND_OPTIONS,
   SNOWBALL_SECONDS, TAP_RACE_SECONDS, getGame,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult,
@@ -13,6 +13,7 @@ interface Room {
   code: string;
   hostId: string;
   players: Map<string, Player>; // a Map keeps insertion order = join order
+  watching: Set<string>; // members (a subset of `players`) sitting rounds out: no slot, no Ready, not in the game, but their wins still count
   settings: RoomSettings;
   sessionConfirmed: boolean; // the host has locked in the number of rounds
   ready: Set<string>;
@@ -86,6 +87,7 @@ export class RoomManager {
       code: this.newCode(),
       hostId: host.id,
       players: new Map([[host.id, host]]),
+      watching: new Set(),
       settings: { gameId: null, totalRounds: ROUND_OPTIONS[0] },
       sessionConfirmed: false,
       ready: new Set(),
@@ -106,12 +108,18 @@ export class RoomManager {
     return ok(room);
   }
 
+  /**
+   * Anyone can join (until the room holds MAX_PLAYERS playing + MAX_SPECTATORS watching). Someone arriving mid-round
+   * (the finish sequence still belongs to the round) or when every playing slot is taken simply starts out WATCHING;
+   * they can switch to playing between rounds (see setWatching).
+   */
   join(rawCode: string, player: Player): Result {
     if (this.roomOfPlayer.has(player.id)) return fail('ALREADY_IN_ROOM');
     const room = this.rooms.get(rawCode.trim().toUpperCase()); // codes are case-insensitive
     if (!room) return fail('ROOM_NOT_FOUND');
-    if (room.phase === 'playing' || room.phase === 'finish') return fail('GAME_IN_PROGRESS'); // (the finish sequence still belongs to the round)
-    if (room.players.size >= MAX_PLAYERS) return fail('ROOM_FULL');
+    if (room.players.size >= MAX_PLAYERS + MAX_SPECTATORS) return fail('ROOM_FULL');
+    const midRound = room.phase === 'playing' || room.phase === 'finish';
+    if (midRound || this.activeCount(room) >= MAX_PLAYERS) room.watching.add(player.id);
     room.players.set(player.id, player);
     this.roomOfPlayer.set(player.id, room.code);
     this.reconcile(room); // the newcomer isn't ready, so a running countdown is cancelled
@@ -125,6 +133,7 @@ export class RoomManager {
     if (!code || !room) return null;
 
     room.players.delete(playerId);
+    room.watching.delete(playerId);
     room.ready.delete(playerId);
     delete room.wins[playerId];
     this.roomOfPlayer.delete(playerId);
@@ -187,9 +196,32 @@ export class RoomManager {
     return ok(room);
   }
 
+  /**
+   * Switch between playing and watching (lobby/countdown only, so a round is never disturbed). Points are kept either
+   * way, and watchers still count when the session winner is decided: sitting rounds out never costs you the win.
+   * Going to watch drops your Ready (which may let the others' countdown start); coming back is not-ready, so it
+   * pauses a countdown until you ready up again.
+   */
+  setWatching(playerId: string, watching: boolean): Result {
+    const room = this.roomFor(playerId);
+    if (!room) return fail('NOT_IN_ROOM');
+    if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
+    if (watching) {
+      if (room.contenders?.includes(playerId)) return fail('MUST_PLAY'); // the tie-breaker can't go ahead without them
+      room.watching.add(playerId);
+    } else if (room.watching.has(playerId)) {
+      if (this.activeCount(room) >= MAX_PLAYERS) return fail('ROOM_FULL'); // every playing slot is taken
+      room.watching.delete(playerId);
+    }
+    room.ready.delete(playerId);
+    this.reconcile(room);
+    return ok(room);
+  }
+
   setReady(playerId: string, ready: boolean): Result {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
+    if (room.watching.has(playerId)) return fail('NOT_A_PLAYER'); // watchers don't ready up
     if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
     if (!room.sessionConfirmed) return fail('SESSION_NOT_STARTED');
     if (!room.settings.gameId) return fail('NO_GAME_SELECTED');
@@ -219,6 +251,7 @@ export class RoomManager {
   gameAction(playerId: string, action: GameAction): Outcome | null {
     const room = this.roomFor(playerId);
     if (!room || room.phase !== 'playing' || !room.game) return null;
+    if (room.watching.has(playerId)) return null; // watchers can't act, whatever they send
     const now = Date.now();
     room.game.state = room.game.engine.reduce(room.game.state, playerId, action, now);
     // Some games end early (first to N); Tap Race just waits for its timer.
@@ -362,7 +395,7 @@ export class RoomManager {
    */
   private settleSession(room: Room): SessionRecord | undefined {
     if (room.roundsPlayed < room.settings.totalRounds) return undefined;
-    const pool = this.participants(room);
+    const pool = this.scorePool(room); // everyone counts here, watchers included
     const best = Math.max(...pool.map((id) => room.wins[id] ?? 0));
     const leaders = pool.filter((id) => (room.wins[id] ?? 0) === best);
 
@@ -378,7 +411,8 @@ export class RoomManager {
         totalRounds: room.settings.totalRounds, tiebreakerRounds: room.tiebreakerRounds,
       };
     }
-    room.contenders = leaders; // a tie: only these players play the tie-breaker
+    room.contenders = leaders; // a tie: only these players play the tie-breaker...
+    for (const id of leaders) room.watching.delete(id); // ...so a tied player who was watching is put back in (they can't skip it)
     return undefined;
   }
 
@@ -397,12 +431,25 @@ export class RoomManager {
     room.ready.clear();
   }
 
-  /** Who plays the next round: everyone, or only the tied contenders still present. */
+  /** Who plays the next round: everyone who isn't watching, or only the tied contenders still present. */
   private participants(room: Room): string[] {
+    const present = [...room.players.keys()].filter((id) => !room.watching.has(id));
+    if (!room.contenders) return present;
+    const inTie = present.filter((id) => room.contenders!.includes(id));
+    return inTie.length > 0 ? inTie : present;
+  }
+
+  /** Who is in the running for the session win: EVERYONE present (watchers keep their points), or the tied contenders. */
+  private scorePool(room: Room): string[] {
     const present = [...room.players.keys()];
     if (!room.contenders) return present;
     const inTie = present.filter((id) => room.contenders!.includes(id));
     return inTie.length > 0 ? inTie : present;
+  }
+
+  /** How many members are playing (not watching): these are the ones that use the MAX_PLAYERS slots. */
+  private activeCount(room: Room): number {
+    return room.players.size - room.watching.size;
   }
 
   private minPlayers(room: Room): number {
@@ -450,6 +497,7 @@ function toState(room: Room): RoomState {
     code: room.code,
     hostId: room.hostId,
     players: [...room.players.values()],
+    watchingIds: [...room.watching],
     settings: { ...room.settings },
     sessionConfirmed: room.sessionConfirmed,
     readyIds: [...room.ready],

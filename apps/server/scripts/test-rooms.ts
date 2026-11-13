@@ -99,13 +99,14 @@ try {
   }
   const ninth = await guest('Ninth'); sockets.push(ninth);
   const full = await join(ninth, code);
-  check('9th player is rejected with ROOM_FULL', !full.ok && full.error === 'ROOM_FULL');
+  check('9th person is let in, but as a watcher (all 8 playing slots are taken)', full.ok && full.data.room.watchingIds.includes(full.data.playerId) && full.data.room.watchingIds.length === 1);
 
   // ---- host reassignment ----
+  await new Promise((r) => setTimeout(r, 150)); // let the 9th person's join broadcast arrive first, so we catch the NEXT state
   const bobSees = nextState(bob);
   host.close(); // the host disconnects
   const after = await bobSees;
-  check('host leaving promotes the longest-present player', bobJoin.ok && after.hostId === bobJoin.data.playerId && after.players.length === 7);
+  check('host leaving promotes the longest-present player', bobJoin.ok && after.hostId === bobJoin.data.playerId && after.players.length === 8); // 7 players + the watcher
 
   // ---- cleanup of empty rooms ----
   const solo = await guest('Solo'); sockets.push(solo);

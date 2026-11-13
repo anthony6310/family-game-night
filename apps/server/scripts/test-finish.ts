@@ -90,7 +90,8 @@ try {
     && errorOf(await cmd((r) => a.socket.emit('room:settings', { gameId: 'snowball' }, r))) === 'WRONG_PHASE'
     && errorOf(await cmd((r) => a.socket.emit('room:return-to-lobby', r))) === 'WRONG_PHASE');
   const late = await guest('Late');
-  check('input stopped: nobody can join a room that is still in its finish sequence', errorOf(await join(late, code)) === 'GAME_IN_PROGRESS');
+  const lateJoin = await join(late, code);
+check('input stopped: someone joining during the finish sequence can only watch', lateJoin.ok && lateJoin.data.room.watchingIds.includes(late.id));
 
   // ---- then the summary, then the next round ----
   check('after the sequence the room shows the round summary', await until(a, (s) => s.phase === 'results', FINISH_MS + 800));

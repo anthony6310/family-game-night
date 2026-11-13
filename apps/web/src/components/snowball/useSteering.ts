@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useRef } from 'react';
 import type { GameAction } from '@fgn/shared';
+import type { Steer } from '../Joystick';
 
-export interface Steer {
-  x: number; // east
-  z: number; // south (screen "down")
-}
+export type { Steer };
 
 const KEYS: Record<string, keyof typeof DIRECTIONS> = {
   w: 'up', arrowup: 'up', s: 'down', arrowdown: 'down', a: 'left', arrowleft: 'left', d: 'right', arrowright: 'right',

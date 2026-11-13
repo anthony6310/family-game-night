@@ -16,7 +16,7 @@ const SnowballScreen = lazy(loadSnowballScreen);
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
   const navigate = useNavigate();
-  const { room, selfId, leaveRoom, startSession, updateSettings, setReady, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
+  const { room, selfId, leaveRoom, startSession, updateSettings, setReady, setWatching, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
   const [error, setError] = useState<string | null>(null);
   const [pickedRounds, setPickedRounds] = useState<number>(ROUND_OPTIONS[0]); // the host's choice in step 1, before confirming
 
@@ -71,8 +71,13 @@ export function LobbyPage() {
   const game = getGame(room.settings.gameId);
   const total = room.settings.totalRounds;
   // In a tie-breaker only the tied players take part; everyone else watches.
-  const participantIds = room.contenders ?? room.players.map((p) => p.id);
-  const isSpectator = selfId !== null && !participantIds.includes(selfId);
+  const watchingIds = room.watchingIds; // members who chose to watch (or joined mid-round / into a full room)
+  const isWatcher = selfId !== null && watchingIds.includes(selfId);
+  const playingCount = room.players.length - watchingIds.length; // these use the MAX_PLAYERS slots
+  const participantIds = (room.contenders ?? room.players.map((p) => p.id)).filter((id) => !watchingIds.includes(id));
+  const isSpectator = selfId !== null && !participantIds.includes(selfId); // a watcher, or sitting out a tie-breaker
+  const mustPlay = selfId !== null && room.contenders?.includes(selfId) === true; // tied players can't skip their tie-breaker
+  const slotsFull = playingCount >= MAX_PLAYERS;
   const amReady = selfId !== null && room.readyIds.includes(selfId);
   const waitingOn = participantIds.filter((id) => !room.readyIds.includes(id)).length;
   const contenderNames = room.players.filter((p) => room.contenders?.includes(p.id)).map((p) => p.name).join(', ');
@@ -88,7 +93,20 @@ export function LobbyPage() {
     <main className="page">
       <p className="muted">Room code</p>
       <h1 className="room-code">{room.code}</h1>
-      <p className="muted">Share this code so others can join ({room.players.length}/{MAX_PLAYERS} players)</p>
+      <p className="muted">
+        Share this code so others can join ({playingCount}/{MAX_PLAYERS} playing{watchingIds.length > 0 && ` · ${watchingIds.length} watching`})
+      </p>
+
+      {/* Play / Watch: switch whenever you like between rounds. Your points stay, and a watcher can still win the session. */}
+      <div className="mode-toggle" role="radiogroup" aria-label="Play or watch">
+        <button role="radio" aria-checked={!isWatcher} className={!isWatcher ? 'on' : ''}
+          disabled={isWatcher && slotsFull} title={isWatcher && slotsFull ? 'All playing slots are taken' : undefined}
+          onClick={() => isWatcher && run(setWatching(false))}>🎮 Play</button>
+        <button role="radio" aria-checked={isWatcher} className={isWatcher ? 'on' : ''}
+          disabled={mustPlay} title={mustPlay ? 'You are in the tie-breaker' : undefined}
+          onClick={() => !isWatcher && run(setWatching(true))}>👀 Watch</button>
+      </div>
+      {isWatcher && <p className="muted">Watching: you keep your points, and you can still win the session.</p>}
 
       {room.sessionConfirmed && (
         <p className="session-line">
@@ -98,7 +116,7 @@ export function LobbyPage() {
 
       <ul className="players">
         {room.players.map((p) => {
-          const watching = room.contenders !== null && !room.contenders.includes(p.id);
+          const watching = watchingIds.includes(p.id) || (room.contenders !== null && !room.contenders.includes(p.id));
           return (
             <li key={p.id} className={watching ? 'spectator' : ''}>
               <Avatar url={p.avatarUrl} name={p.name} size={44} />
@@ -163,7 +181,7 @@ export function LobbyPage() {
           {error && <p className="error">{error}</p>}
 
           {isSpectator ? (
-            <p className="muted">You're watching this tie-breaker.</p>
+            <p className="muted">{isWatcher ? "You're watching this one out." : "You're watching this tie-breaker."}</p>
           ) : (
             <button className={amReady ? '' : 'primary'} disabled={!game} onClick={() => run(setReady(!amReady))}>
               {amReady ? 'Not ready' : "I'm ready!"}

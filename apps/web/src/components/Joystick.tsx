@@ -1,5 +1,10 @@
 import { useRef, useState, type PointerEvent } from 'react';
-import type { Steer } from './useSteering';
+
+/** A direction on the ground (x = east, z = south), each -1..1. Used for steering a ball and for panning a camera. */
+export interface Steer {
+  x: number;
+  z: number;
+}
 
 const RADIUS = 56; // how far (px) you drag for full speed
 

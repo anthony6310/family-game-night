@@ -38,6 +38,7 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
   // Create the 3D scene once; tear it down (freeing GPU memory) when the round screen closes.
   useEffect(() => {
     const s = new SnowballScene(container.current!, game.arenaRadius, game.terrain, styles, selfId);
+    s.setMaxSpeedFactor(game.speedRange.max / game.speedRange.base);
     scene.current = s;
     return () => {
       s.dispose();

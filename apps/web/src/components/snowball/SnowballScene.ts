@@ -5,8 +5,11 @@ import {
   TorusGeometry, Vector3, WebGLRenderer,
   type Texture,
 } from 'three';
+import { audio } from '../../audio/spatialAudio';
+import { collisionCrunch, rollCrunch } from '../../audio/snowSounds';
 import { SpectatorRig } from '../../spectate/SpectatorRig';
 import type { CameraMode } from '../../spectate/useSpectatorCamera';
+import { FleckSystem, ShockRingSystem, StreakSystem } from './effects';
 import { createTerrain, type SnowballBall, type Terrain, type TerrainFeature } from '@fgn/shared';
 
 /** How a player's ball is labelled and marked. */
@@ -24,8 +27,41 @@ interface Pose {
   vx: number;
   vz: number;
   immune: boolean;
+  speedFactor: number; // 1 = base speed; above 1.2 a ball sheds wind streaks
   leader: boolean; // the single biggest ball: it wears the crown
 }
+
+/** What the effects remember about one ball between frames. */
+interface BallFx {
+  immune: boolean; // was it flashing last frame? (a hit = it just started)
+  rollTimer: number; // seconds until the next rolling crunch
+  windDebt: number; // fraction of a wind streak owed (streaks are made at a rate per second, not one per frame)
+  hopAge: number; // seconds since this ball was knocked into a hop (>= HOP_SECONDS = not hopping)
+}
+
+/** How far the colour ring under each ball floats above the ground (along the slope). Too low and the bumpy ground pokes through it; too high and it distracts. */
+const RING_LIFT = 0.084;
+
+/**
+ * The hop when two balls collide: each ball is thrown up HOP_HEIGHT units and lands again over HOP_SECONDS, in a smooth
+ * arc. It is only drawn that way: the server's physics is flat, so this changes nothing about who hits whom.
+ */
+const HOP_HEIGHT = 1;
+const HOP_SECONDS = 0.45;
+
+/**
+ * Screen shake on impact. A hit adds to `shake` (0..1); the camera is jiggled by SHAKE_FRACTION of its distance from
+ * what it looks at, scaled by shake squared (so small hits barely register and big ones kick), and shake drains away
+ * at SHAKE_DRAIN per second. Hits far from the camera count for less, like the sound (full within SHAKE_NEAR units,
+ * none beyond SHAKE_FAR).
+ */
+const SHAKE_FRACTION = 0.035;
+const SHAKE_DRAIN = 2.4;
+const SHAKE_NEAR = 8;
+const SHAKE_FAR = 40;
+
+/** Wind starts above 120% of base speed; the amount grows from there up to the top speed. */
+const WIND_START_FACTOR = 1.2;
 
 interface Snapshot {
   t: number; // when it ARRIVED (performance.now() timeline)
@@ -92,6 +128,14 @@ export class SnowballScene {
   private rig!: SpectatorRig;
   private view: { mode: CameraMode; targetId: string | null };
   private pan: { current: { x: number; z: number } } = { current: { x: 0, z: 0 } }; // the free camera's input (a React ref)
+  // Effects: snow flecks on collisions, wind streaks behind fast balls, and the crunch sounds that go with the movement.
+  private flecks = new FleckSystem();
+  private streaks = new StreakSystem();
+  private rings = new ShockRingSystem();
+  private fx = new Map<string, BallFx>();
+  private shake = 0; // 0..1: how much the camera is shaking right now
+  private readonly reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches; // people who ask their device for less motion get no shake
+  private maxSpeedFactor = 1.6; // the highest speedFactor a ball can reach (set from the server's speed range)
   private zoom = 1; // pulls the camera back on narrow (portrait) screens
 
   constructor(
@@ -110,6 +154,9 @@ export class SnowballScene {
 
     this.rig = new SpectatorRig(this.camera, arenaRadius);
     this.buildWorld();
+    this.flecks.groundAt = (x, z) => this.terrain.height(x, z); // flecks land on the real ground, hills included
+    this.scene.add(this.flecks.object, this.streaks.object, this.rings.object);
+    this.disposables.push(this.flecks, this.streaks, this.rings);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -126,6 +173,11 @@ export class SnowballScene {
   /** Spectators: which ball to follow, or the free camera. (Players never call this: they follow themselves.) */
   setCameraView(view: { mode: CameraMode; targetId: string | null }) {
     this.view = view;
+  }
+
+  /** The top speed multiplier a ball can reach (server's max speed / base speed): wind is at its fullest there. */
+  setMaxSpeedFactor(factor: number) {
+    this.maxSpeedFactor = Math.max(WIND_START_FACTOR + 0.01, factor);
   }
 
   /** The free camera's movement input: an object whose `current` is read every frame (a React ref). */
@@ -278,6 +330,7 @@ export class SnowballScene {
     const aspect = width / height;
     this.zoom = aspect < 1 ? Math.min(1.7, 1 + (1 - aspect) * 0.8) : 1; // portrait phones see less sideways: step back
     this.camera.updateProjectionMatrix();
+    this.flecks.setViewport(height * this.renderer.getPixelRatio(), this.camera.fov);
   }
 
   /** Where every ball should be drawn at time `t`, blended from the surrounding snapshots. */
@@ -318,6 +371,11 @@ export class SnowballScene {
       }
     }
     this.updateCamera(dt, poses);
+    this.applyShake(dt, time);
+    if (poses) this.updateEffects(dt, poses);
+    this.flecks.update(dt);
+    this.streaks.update(dt);
+    this.rings.update(dt);
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -346,7 +404,7 @@ export class SnowballScene {
     const g = this.terrain.gradient(pose.x, pose.z);
     const normal = new Vector3(-g.x, 1, -g.z).normalize();
     v.ring.quaternion.setFromUnitVectors(Z_AXIS, normal);
-    v.ring.position.set(pose.x, ground, pose.z).addScaledVector(normal, 0.07);
+    v.ring.position.set(pose.x, ground, pose.z).addScaledVector(normal, RING_LIFT);
     v.ring.scale.setScalar(r);
     v.shadow.quaternion.setFromUnitVectors(Z_AXIS, normal);
     v.shadow.position.set(pose.x, ground, pose.z).addScaledVector(normal, 0.04);
@@ -366,6 +424,123 @@ export class SnowballScene {
     // A just-hit ball flashes red for its short immunity window.
     v.material.emissive.set(pose.immune ? 0xff3b3b : 0x000000);
     v.material.emissiveIntensity = pose.immune ? 0.9 : 0;
+  }
+
+  /**
+   * Particles and sound for this frame. Everything is derived from the snapshots (the server doesn't send "a hit
+   * happened" events): a hit is a ball's flash starting, speed is its velocity, and "fast" is its speedFactor.
+   */
+  private updateEffects(dt: number, poses: Record<string, Pose>) {
+    audio.setListener(this.rig.focusX, this.rig.focusZ); // you hear from where the camera is looking
+    const hitPairs = new Set<string>(); // both balls of a collision flash together: react once per pair
+
+    for (const [id, pose] of Object.entries(poses)) {
+      const state = this.fx.get(id) ?? { immune: pose.immune, rollTimer: Math.random() * 0.2, windDebt: 0, hopAge: HOP_SECONDS };
+      this.fx.set(id, state);
+      const speed = Math.hypot(pose.vx, pose.vz);
+
+      // --- a collision: the flash just started and another ball is touching this one ---
+      if (pose.immune && !state.immune) {
+        const other = this.touching(id, pose, poses);
+        if (other && !hitPairs.has([id, other.id].sort().join('|'))) {
+          hitPairs.add([id, other.id].sort().join('|'));
+          this.collide(id, pose, other.id, other.pose);
+        }
+      }
+      state.immune = pose.immune;
+
+      // --- the hop: lift the ball (and what floats with it) along a smooth arc, for a moment after a collision ---
+      state.hopAge += dt;
+      if (state.hopAge < HOP_SECONDS) {
+        const u = state.hopAge / HOP_SECONDS; // 0 -> 1
+        const lift = HOP_HEIGHT * 4 * u * (1 - u); // a parabola: 0 at the start, HOP_HEIGHT at the top, 0 on landing
+        const visual = this.visuals.get(id);
+        if (visual) {
+          visual.ball.position.y += lift;
+          visual.label.position.y += lift;
+          visual.crown.position.y += lift;
+          visual.shadow.scale.multiplyScalar(1 - 0.3 * (lift / HOP_HEIGHT)); // the shadow stays on the ground and shrinks as the ball rises
+        }
+      }
+
+      // --- rolling: a soft crunch every so often, quicker and louder the faster the ball goes ---
+      if (speed > 1) {
+        state.rollTimer -= dt;
+        if (state.rollTimer <= 0) {
+          const strength = Math.min(1, speed / 12);
+          const heft = 0.75 + 0.25 * Math.min(1, pose.radius / 2); // bigger balls crunch a little louder
+          audio.play(rollCrunch, pose.x, pose.z, (0.12 + 0.28 * strength) * heft, strength);
+          state.rollTimer = (0.34 - 0.21 * strength) * (0.75 + Math.random() * 0.5);
+        }
+      }
+
+      // --- wind: above 120% of base speed, streaks are left behind; the faster, the more of them ---
+      if (pose.speedFactor > WIND_START_FACTOR && speed > 0.5) {
+        const intensity = Math.min(1, (pose.speedFactor - WIND_START_FACTOR) / (this.maxSpeedFactor - WIND_START_FACTOR));
+        state.windDebt += (10 + 50 * intensity) * dt; // ~10 a second just past 120%, ~60 at top speed
+        const [dirX, dirZ] = [-pose.vx / speed, -pose.vz / speed]; // pointing back along where the ball came from
+        while (state.windDebt >= 1) {
+          state.windDebt -= 1;
+          const side = (Math.random() * 2 - 1) * pose.radius * 0.95; // spread across the ball's width
+          const x = pose.x + dirX * pose.radius * 0.9 - dirZ * side;
+          const z = pose.z + dirZ * pose.radius * 0.9 + dirX * side;
+          const y = this.terrain.height(x, z) + pose.radius * (0.2 + Math.random() * 1.6);
+          this.streaks.emit(x, y, z, dirX, dirZ, speed * (0.07 + Math.random() * 0.05) * (0.8 + 0.5 * intensity));
+        }
+      } else state.windDebt = 0;
+    }
+    for (const id of [...this.fx.keys()]) if (!(id in poses)) this.fx.delete(id); // a player left
+  }
+
+  /** The ball (if any) that is touching `pose`: its centre is within the two radii plus a little slack. */
+  private touching(id: string, pose: Pose, poses: Record<string, Pose>): { id: string; pose: Pose } | null {
+    let best: { id: string; pose: Pose } | null = null;
+    let bestGap = Infinity;
+    for (const [otherId, other] of Object.entries(poses)) {
+      if (otherId === id) continue;
+      const gap = Math.hypot(other.x - pose.x, other.z - pose.z) - (pose.radius + other.radius);
+      if (gap < 1.2 && gap < bestGap) { best = { id: otherId, pose: other }; bestGap = gap; }
+    }
+    return best;
+  }
+
+  /** Snow sprays from the point where two balls meet, with a loud crunch. */
+  private collide(aId: string, a: Pose, bId: string, b: Pose) {
+    // Both balls hop.
+    for (const id of [aId, bId]) {
+      const state = this.fx.get(id);
+      if (state) state.hopAge = 0;
+    }
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const distance = Math.hypot(dx, dz) || 1;
+    const x = a.x + (dx / distance) * a.radius; // on a's surface, towards b: where they touch
+    const z = a.z + (dz / distance) * a.radius;
+    const y = this.terrain.height(x, z) + Math.min(a.radius, b.radius);
+    const closing = Math.hypot(a.vx - b.vx, a.vz - b.vz); // how hard they met
+    const power = Math.min(1.2, Math.max(0.35, closing / 14));
+    const scale = Math.min(3, Math.max(0.6, (a.radius + b.radius) / 2));
+    this.flecks.burst(x, y, z, dx / distance, dz / distance, power, scale);
+    // The shockwave: an upright ring that spreads across the gap between the balls from the contact point (bigger for bigger balls and harder hits).
+    // The screen shakes, more for a harder hit and less the farther it is from where the camera is looking.
+    const away = Math.hypot(x - this.rig.focusX, z - this.rig.focusZ);
+    const near = Math.min(1, Math.max(0, 1 - (away - SHAKE_NEAR) / (SHAKE_FAR - SHAKE_NEAR)));
+    this.shake = Math.min(1, this.shake + 0.55 * Math.min(1, power) * near);
+    this.rings.spawn(x, y, z, dx / distance, dz / distance, 0.448 * (3.5 + 2.5 * power * Math.sqrt(scale))); // 44.8% of the original size (made 20%, 20% then 30% smaller)
+    audio.play(collisionCrunch, x, z, 0.85 + 0.15 * Math.min(1, power), Math.min(1, power));
+  }
+
+  /** Jiggle the camera a little while `shake` lasts. Runs after the camera has been placed for the frame, so it never accumulates. */
+  private applyShake(dt: number, time: number) {
+    this.shake = Math.max(0, this.shake - SHAKE_DRAIN * dt);
+    if (this.shake === 0 || this.reduceMotion) return;
+    const t = time / 1000;
+    const distance = this.camera.position.distanceTo(new Vector3(this.rig.focusX, 0, this.rig.focusZ));
+    const amount = distance * SHAKE_FRACTION * this.shake * this.shake;
+    // Smooth, uneven wobble (a few sine waves that never line up) rather than random jumps every frame.
+    this.camera.position.x += Math.sin(t * 47 + 1) * amount;
+    this.camera.position.y += Math.sin(t * 61 + 2) * amount * 0.8;
+    this.camera.position.z += Math.sin(t * 39 + 3) * amount * 0.5;
   }
 
   /** Follow a ball from a fixed compass direction (stepping back as it grows), or fly the free camera. See SpectatorRig. */

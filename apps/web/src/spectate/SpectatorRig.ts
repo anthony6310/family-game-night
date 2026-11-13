@@ -27,6 +27,10 @@ export class SpectatorRig {
 
   constructor(private camera: PerspectiveCamera, private arenaRadius: number) {}
 
+  /** The ground point the camera is looking at right now: also where a spectator's "ears" are (see audio). */
+  get focusX() { return this.focus.x; }
+  get focusZ() { return this.focus.z; }
+
   update(dt: number, mode: CameraMode, target: FollowTarget | undefined, pan: { x: number; z: number }, zoom: number) {
     const k = 1 - Math.exp(-4 * dt); // frame-rate independent smoothing
     let wantFocus: Vector3;

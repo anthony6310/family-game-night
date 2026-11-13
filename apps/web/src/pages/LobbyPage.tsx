@@ -1,6 +1,8 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { GAMES, MAX_PLAYERS, ROUND_OPTIONS, getGame, type GameId } from '@fgn/shared';
+import { audio } from '../audio/spatialAudio';
+import { useMuted } from '../audio/soundSettings';
 import { Avatar } from '../components/Avatar';
 import { Countdown } from '../components/Countdown';
 import { FinishOverlay } from '../components/FinishOverlay';
@@ -21,6 +23,7 @@ export function LobbyPage() {
   const navigate = useNavigate();
   const { room, selfId, leaveRoom, startSession, updateSettings, setReady, setWatching, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
   const [error, setError] = useState<string | null>(null);
+  const [muted, setMuted] = useMuted(); // the sound on/off choice (remembered in this browser)
   const [pickedRounds, setPickedRounds] = useState<number>(ROUND_OPTIONS[0]); // the host's choice in step 1, before confirming
 
   // As soon as the host picks Snowball, start downloading its code so the round can begin instantly.
@@ -202,6 +205,10 @@ export function LobbyPage() {
         </>
       )}
       <button className="link" onClick={leave}>Leave room</button>
+      {/* Sound on/off, for the whole game. Tapping it also counts as the touch browsers need before they allow sound. */}
+      <button className="link" aria-pressed={muted} onClick={() => { audio.unlock(); setMuted(!muted); }}>
+        {muted ? '🔇 Sound off' : '🔊 Sound on'}
+      </button>
     </main>
   );
 }

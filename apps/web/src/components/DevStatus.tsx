@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { HealthResponse } from '@fgn/shared';
+import { SERVER_URL } from '../lib/serverUrl';
 import { checkSupabase } from '../lib/supabase';
-
-export const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? 'http://localhost:3001';
 
 type Status = 'checking' | 'online' | 'offline';
 
@@ -21,7 +20,11 @@ export function DevStatus() {
 
   return (
     <footer className="dev-status">
-      <small className={`status ${server}`}>Server: {server}</small>
+      <small className={`status ${server}`}>
+        Server: {server}
+        {/* When it can't be reached, say where we tried: the quickest clue when testing on a phone. */}
+        {server === 'offline' && <span> · tried {SERVER_URL}</span>}
+      </small>
       <small className={`status ${db}`}>Supabase: {db}</small>
     </footer>
   );

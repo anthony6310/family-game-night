@@ -6,7 +6,7 @@ import {
   type ServerToClientEvents,
 } from '@fgn/shared';
 import { useAuth } from '../auth/AuthContext';
-import { SERVER_URL } from '../components/DevStatus';
+import { SERVER_URL } from '../lib/serverUrl';
 import { supabase } from '../lib/supabase';
 
 type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;

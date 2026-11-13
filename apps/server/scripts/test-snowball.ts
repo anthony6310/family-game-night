@@ -711,7 +711,7 @@ check('init: a tie-breaker can start with just some of the players', Object.keys
     const s = steer(e, steer(e, fresh(e, ['A', 'B']), 'A', 1, 0.3, 1000), 'B', -1, 0, 1000);
     return JSON.stringify(run(e, s, 8).state);
   };
-  check('purity: the same inputs (and the same random layout) always give the same result (deterministic)', script(engine) === script(engine) && script(createSnowball({ random: mulberry32(9) })) === script(createSnowball({ random: mulberry32(9) })));
+  check('purity: the same inputs (and the same random layout) always give the same result (deterministic)', script(createSnowball({ terrain: FLAT, random: mulberry32(4) })) === script(createSnowball({ terrain: FLAT, random: mulberry32(4) })) && script(createSnowball({ random: mulberry32(9) })) === script(createSnowball({ random: mulberry32(9) })));
 }
 {
   const s = place(place(fresh(engine, ['A', 'B']), 'A', { x: 1.23456, immune: true }), 'B', { snow: 2.25 });

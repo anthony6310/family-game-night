@@ -50,6 +50,7 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
   // Feed every new server snapshot to the scene.
   useEffect(() => {
     scene.current?.pushSnapshot(game.balls);
+    scene.current?.setItems(game.items); // the pick-ups lying in the arena
   }, [game]);
 
   const setStick = useSteering(sendAction, !frozen);
@@ -70,7 +71,7 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
   }, [isPlayer, camera.mode, camera.targetId]);
 
   const standings = Object.entries(game.balls)
-    .map(([id, ball]) => ({ id, size: Math.round(ball.radius * 100), style: styles[id], leader: ball.leader }))
+    .map(([id, ball]) => ({ id, size: Math.round(ball.radius * 100), style: styles[id], leader: ball.leader, fish: ball.fish }))
     .sort((a, b) => b.size - a.size);
 
   return (
@@ -80,10 +81,11 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
       <div className="snow-hud">
         <div className="snow-timer">{Math.ceil(remainingMs / 1000)}</div>
         <ul className="snow-standings">
-          {standings.map(({ id, size, style, leader }) => (
+          {standings.map(({ id, size, style, leader, fish }) => (
             <li key={id} className={id === selfId ? 'me' : ''}>
               <span className="dot" style={{ background: style?.color }} />
               <span className="snow-name">{leader && '👑 '}{style?.name ?? '?'}</span>
+              {fish > 0 && <span className="snow-fish" title="Fish: each adds +5 damage to the next hit">🐟{fish}</span>}
               <span className="snow-size">{size}</span>
             </li>
           ))}

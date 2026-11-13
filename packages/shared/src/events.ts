@@ -46,6 +46,23 @@ export interface TapRaceView {
   taps: Record<string, number>; // playerId -> taps counted by the SERVER
 }
 
+/** The kinds of pick-up that can lie in the arena. Only fish so far; more can be added here later. */
+export type ItemKind = 'fish';
+
+/** A pick-up lying on the ground, as phones see it. A ball that rolls over it collects it. */
+export interface SnowballItem {
+  id: number; // unique within the round, so phones can tell which one was collected
+  kind: ItemKind;
+  x: number; // where it lies (or WILL lie, if it is still being thrown)
+  z: number;
+  /**
+   * Present only while the item is still in the air: a fish that came off a ball when it hit something. It was thrown
+   * from (fromX, fromZ), lands at (x, z) in `secondsLeft` more seconds (out of `totalSeconds` for the whole flight),
+   * and cannot be collected until it lands. Phones animate the flight; the server decides the landing spot.
+   */
+  thrown?: { fromX: number; fromZ: number; secondsLeft: number; totalSeconds: number };
+}
+
 /** One snowball, as phones see it. Positions are on the ground plane (x east, z south), y is up. */
 export interface SnowballBall {
   x: number;
@@ -64,6 +81,8 @@ export interface SnowballBall {
   escape: boolean;
   /** True for the single biggest ball: its hits do double damage. */
   leader: boolean;
+  /** Fish stuck to this ball (0 up to the carry limit). Each one adds extra damage to the next hit, and all are used up by it. */
+  fish: number;
 }
 
 /** Snowball, as phones see it. Streamed ~20 times a second while the round runs. */
@@ -79,6 +98,8 @@ export interface SnowballView {
   speedRange: { base: number; min: number; hillMax: number; max: number; escapeBonus: number };
   /** This round's hills and ditch. They are picked at random for each round and never move during it. */
   terrain: TerrainFeature[];
+  /** Pick-ups lying in the arena right now (they appear at the start and in waves later; a collected one is gone). */
+  items: SnowballItem[];
   balls: Record<string, SnowballBall>; // playerId -> ball (players outside a tie-breaker have none)
 }
 

@@ -1,5 +1,5 @@
 import {
-  BufferAttribute, CanvasTexture, CircleGeometry, Color, CylinderGeometry, DirectionalLight, DoubleSide, Fog,
+  BufferAttribute, CanvasTexture, CircleGeometry, Color, CylinderGeometry, DirectionalLight, DoubleSide, Fog, Group,
   HemisphereLight, IcosahedronGeometry, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshStandardMaterial,
   PerspectiveCamera, RepeatWrapping, RingGeometry, Scene, SRGBColorSpace, Sprite, SpriteMaterial, TextureLoader,
   TorusGeometry, Vector3, WebGLRenderer,
@@ -10,7 +10,8 @@ import { collisionCrunch, rollCrunch } from '../../audio/snowSounds';
 import { SpectatorRig } from '../../spectate/SpectatorRig';
 import type { CameraMode } from '../../spectate/useSpectatorCamera';
 import { FleckSystem, ShockRingSystem, StreakSystem } from './effects';
-import { createTerrain, type SnowballBall, type Terrain, type TerrainFeature } from '@fgn/shared';
+import { FishKit } from './fish';
+import { createTerrain, type SnowballBall, type SnowballItem, type Terrain, type TerrainFeature } from '@fgn/shared';
 
 /** How a player's ball is labelled and marked. */
 export interface BallStyle {
@@ -28,6 +29,7 @@ interface Pose {
   vz: number;
   immune: boolean;
   speedFactor: number; // 1 = base speed; above 1.2 a ball sheds wind streaks
+  fish: number; // how many fish are stuck to the ball
   leader: boolean; // the single biggest ball: it wears the crown
 }
 
@@ -60,6 +62,35 @@ const SHAKE_DRAIN = 2.4;
 const SHAKE_NEAR = 8;
 const SHAKE_FAR = 40;
 
+/**
+ * Where on a ball each carried fish sticks (a direction on the ball's surface, in the ball's own frame, so they turn
+ * with it as it rolls) and how it is spun about that direction, so the fish don't all point the same way.
+ */
+const FISH_SLOTS = [
+  { direction: new Vector3(0.25, 0.9, 0.35).normalize(), spin: 0.6 },
+  { direction: new Vector3(-0.85, 0.35, 0.4).normalize(), spin: 2.4 },
+  { direction: new Vector3(0.6, 0.35, 0.75).normalize(), spin: 4.1 },
+  { direction: new Vector3(-0.35, 0.85, -0.4).normalize(), spin: 1.5 },
+  { direction: new Vector3(0.85, 0.3, -0.45).normalize(), spin: 3.3 },
+  { direction: new Vector3(-0.4, 0.3, -0.85).normalize(), spin: 5.2 },
+];
+/** A fish stuck to a ball is about this long in the world (it grows a little with the ball, but far less than the ball does). */
+const FISH_ON_BALL_SIZE = 0.4;
+/** A fish floating above the ground is scaled by this (it is about 2 units long at 1). */
+const FISH_ON_GROUND_SIZE = 0.8;
+/** How far a floating fish rises and falls (units), and how fast (radians per second: 3 = a bob roughly every 2 seconds). */
+const FISH_BOB_HEIGHT = 0.32;
+const FISH_BOB_SPEED = 3;
+
+/**
+ * A fish used on a hit is thrown off the ball and lands somewhere else in the arena as a pick-up. The SERVER decides where
+ * and when it lands (the item says so); phones just draw the flight: an arc from the ball to the landing spot, tumbling,
+ * which settles into the usual upright floating pose as it lands. Units are world units.
+ */
+const THROWN_FISH_PEAK = 3.5; // height of the arc's top, above the straight line between start and landing
+const THROWN_FISH_PEAK_PER_UNIT = 0.12; // ...plus this much per unit of distance, so long throws go higher
+const THROWN_FISH_TUMBLES = 1.5; // full somersaults during the flight
+
 /** Wind starts above 120% of base speed; the amount grows from there up to the top speed. */
 const WIND_START_FACTOR = 1.2;
 
@@ -75,6 +106,9 @@ interface BallVisual {
   shadow: Mesh;
   label: Sprite;
   crown: Sprite; // floats above the biggest ball; hidden for everyone else
+  fish: Group[]; // the fish stuck to the ball (children of the ball itself, so they roll with it); one shown per fish carried
+  fishShown: number; // how many were carried last frame (a rise = a pick-up)
+  fishPopStart: number; // when the newest fish was picked up (performance.now()), for its little pop
   last: { x: number; z: number } | null; // where it was drawn last frame (to work out the roll)
 }
 
@@ -133,6 +167,16 @@ export class SnowballScene {
   private streaks = new StreakSystem();
   private rings = new ShockRingSystem();
   private fx = new Map<string, BallFx>();
+  // Pick-ups lying in the arena: what the server last said is there, and one drawing for each.
+  private itemList: SnowballItem[] = [];
+  // One drawing per item. `fish` is the model itself (turned to tumble while it is thrown); `flight` is set while a thrown
+  // item is in the air: when its flight started (phone clock), how long it lasts, and where it was thrown from.
+  private itemVisuals = new Map<number, {
+    holder: Group; fish: Group; shadow: Mesh;
+    flight: { startedAt: number; seconds: number; fromX: number; fromZ: number } | null;
+  }>();
+  private fishKit = new FishKit();
+  private itemShadowMaterial = new MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.16, depthWrite: false });
   private shake = 0; // 0..1: how much the camera is shaking right now
   private readonly reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches; // people who ask their device for less motion get no shake
   private maxSpeedFactor = 1.6; // the highest speedFactor a ball can reach (set from the server's speed range)
@@ -156,7 +200,7 @@ export class SnowballScene {
     this.buildWorld();
     this.flecks.groundAt = (x, z) => this.terrain.height(x, z); // flecks land on the real ground, hills included
     this.scene.add(this.flecks.object, this.streaks.object, this.rings.object);
-    this.disposables.push(this.flecks, this.streaks, this.rings);
+    this.disposables.push(this.flecks, this.streaks, this.rings, this.fishKit, this.itemShadowMaterial);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -168,6 +212,11 @@ export class SnowballScene {
   pushSnapshot(balls: Record<string, SnowballBall>) {
     this.snapshots.push({ t: performance.now(), balls });
     if (this.snapshots.length > 10) this.snapshots.shift();
+  }
+
+  /** The pick-ups the server says are lying in the arena right now (a fresh list with every update). */
+  setItems(items: SnowballItem[]) {
+    this.itemList = items;
   }
 
   /** Spectators: which ball to follow, or the free camera. (Players never call this: they follow themselves.) */
@@ -283,9 +332,21 @@ export class SnowballScene {
     const crown = new Sprite(this.crownMaterial);
     crown.visible = false;
 
+    // Fish that stick to the ball: made up front, hidden until picked up. They are CHILDREN of the ball, lying on its
+    // surface with their flat side outwards, so they roll with it. (The ball is scaled by its radius, so their size is corrected in updateVisual.)
+    const fish = FISH_SLOTS.map(({ direction, spin }) => {
+      const stuck = this.fishKit.create();
+      stuck.position.copy(direction).multiplyScalar(0.94); // pressed slightly into the snow
+      stuck.quaternion.setFromUnitVectors(Z_AXIS, direction);
+      stuck.rotateZ(spin);
+      stuck.visible = false;
+      ball.add(stuck);
+      return stuck;
+    });
+
     this.scene.add(ball, ring, shadow, label, crown);
     if (style.avatarUrl) this.loadAvatar(style.avatarUrl, material);
-    return { ball, material, ring, shadow, label, crown, last: null };
+    return { ball, material, ring, shadow, label, crown, fish, fishShown: 0, fishPopStart: -1e9, last: null };
   }
 
   /**
@@ -372,6 +433,7 @@ export class SnowballScene {
     }
     this.updateCamera(dt, poses);
     this.applyShake(dt, time);
+    this.updateItems(time);
     if (poses) this.updateEffects(dt, poses);
     this.flecks.update(dt);
     this.streaks.update(dt);
@@ -409,6 +471,16 @@ export class SnowballScene {
     v.shadow.quaternion.setFromUnitVectors(Z_AXIS, normal);
     v.shadow.position.set(pose.x, ground, pose.z).addScaledVector(normal, 0.04);
     v.shadow.scale.setScalar(r);
+
+    // One fish shown for each carried; the newest gives a little pop when it first sticks on.
+    if (pose.fish > v.fishShown) v.fishPopStart = performance.now();
+    v.fishShown = pose.fish;
+    const pop = Math.min(1, (performance.now() - v.fishPopStart) / 250);
+    const size = (FISH_ON_BALL_SIZE * (0.6 + 0.4 * r)) / r; // the ball is scaled by r, so shrink the fish by the same to keep it the size we want
+    v.fish.forEach((stuck, i) => {
+      stuck.visible = i < pose.fish;
+      stuck.scale.setScalar(size * (i === pose.fish - 1 ? 1 + 0.7 * (1 - pop) * (1 - pop) : 1));
+    });
     // The crown floats just above the biggest ball, bobbing gently; its name tag makes room by moving up.
     const crownWidth = (1.8 + r * 0.9) * 0.5; // half the size it was; still grows with the ball so it stays in proportion
     const crownHeight = crownWidth * 0.75;
@@ -424,6 +496,73 @@ export class SnowballScene {
     // A just-hit ball flashes red for its short immunity window.
     v.material.emissive.set(pose.immune ? 0xff3b3b : 0x000000);
     v.material.emissiveIntensity = pose.immune ? 0.9 : 0;
+  }
+
+  /**
+   * Keeps one drawing per pick-up in the arena: new ones appear, collected ones vanish with a little puff of snow, the
+   * rest bob and turn. A fish that was just thrown off a ball (the item carries `thrown`) is drawn flying in an arc from
+   * the ball to its landing spot, tumbling; when it lands it puffs a little snow and settles into the floating pose.
+   */
+  private updateItems(time: number) {
+    const t = time / 1000;
+    const present = new Set(this.itemList.map((item) => item.id));
+    for (const [id, drawn] of this.itemVisuals) {
+      if (present.has(id)) continue;
+      // Gone from the list: somebody collected it. A puff of snow where it lay.
+      this.flecks.burst(drawn.holder.position.x, drawn.holder.position.y, drawn.holder.position.z, 1, 0, 0.6, 0.7);
+      this.scene.remove(drawn.holder, drawn.shadow);
+      this.itemVisuals.delete(id);
+    }
+    for (const item of this.itemList) {
+      let drawn = this.itemVisuals.get(item.id);
+      if (!drawn) {
+        const holder = new Group();
+        const fish = this.fishKit.create(); // upright, as a fish swims: dorsal fin up, flat side facing sideways
+        holder.add(fish);
+        holder.scale.setScalar(FISH_ON_GROUND_SIZE);
+        const shadow = new Mesh(this.shadowGeometry, this.itemShadowMaterial);
+        // First time we hear of it: if it is still in the air, start its flight part-way through (it may have been thrown a moment ago).
+        const flight = item.thrown
+          ? { startedAt: time - (item.thrown.totalSeconds - item.thrown.secondsLeft) * 1000, seconds: item.thrown.totalSeconds, fromX: item.thrown.fromX, fromZ: item.thrown.fromZ }
+          : null;
+        drawn = { holder, fish, shadow, flight };
+        this.itemVisuals.set(item.id, drawn);
+        this.scene.add(holder, shadow);
+      }
+      const ground = this.terrain.height(item.x, item.z);
+      const restingY = ground + 0.75;
+      const bob = Math.sin(t * FISH_BOB_SPEED + item.id * 1.7) * FISH_BOB_HEIGHT; // floats up and down, so it catches the eye
+
+      let x = item.x;
+      let z = item.z;
+      let y = restingY + bob;
+      let shadowScale = 0.9 - bob * 0.8; // the shadow shrinks as the fish floats up and grows as it sinks
+      if (drawn.flight) {
+        const u = (time - drawn.flight.startedAt) / (drawn.flight.seconds * 1000); // 0 when thrown, 1 when it lands
+        if (u >= 1) {
+          drawn.flight = null; // landed
+          drawn.fish.rotation.z = 0;
+          this.flecks.burst(item.x, restingY - 0.4, item.z, 1, 0, 0.35, 0.5); // a little snow thrown up where it lands
+        } else {
+          const distance = Math.hypot(item.x - drawn.flight.fromX, item.z - drawn.flight.fromZ);
+          const startY = this.terrain.height(drawn.flight.fromX, drawn.flight.fromZ) + 1.2; // about where it was stuck on the ball
+          const peak = THROWN_FISH_PEAK + distance * THROWN_FISH_PEAK_PER_UNIT;
+          x = drawn.flight.fromX + (item.x - drawn.flight.fromX) * u;
+          z = drawn.flight.fromZ + (item.z - drawn.flight.fromZ) * u;
+          y = startY + (restingY - startY) * u + 4 * peak * u * (1 - u); // a straight line plus an arch on top: a parabola
+          drawn.fish.rotation.z = (1 - u) * THROWN_FISH_TUMBLES * Math.PI * 2; // somersaults that come out level exactly as it lands
+          shadowScale = 0.9 * u;
+        }
+      }
+      drawn.holder.position.set(x, y, z);
+      drawn.holder.rotation.y = t * 0.9 + item.id; // and slowly turns
+      const groundHere = this.terrain.height(x, z);
+      const g = this.terrain.gradient(x, z);
+      const normal = new Vector3(-g.x, 1, -g.z).normalize();
+      drawn.shadow.quaternion.setFromUnitVectors(Z_AXIS, normal);
+      drawn.shadow.position.set(x, groundHere, z).addScaledVector(normal, 0.05);
+      drawn.shadow.scale.setScalar(shadowScale);
+    }
   }
 
   /**

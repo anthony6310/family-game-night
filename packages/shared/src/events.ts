@@ -102,8 +102,57 @@ export interface SnowballView {
   balls: Record<string, SnowballBall>; // playerId -> ball (players outside a tie-breaker have none)
 }
 
+/** One skater in Penguin Lasso, as phones see it. Positions are on the ice (x east, z south). */
+export interface SkaterView {
+  x: number;
+  z: number;
+  vx: number;
+  vz: number;
+  /** The skate trail, oldest point first (it ends at the skater). It is the lasso: it is limited in length, so the old end keeps vanishing. */
+  trail: [number, number][];
+  /** Penguins in the skater's bag: caught, but NOT points yet. Skating home to the igloo cashes them in. */
+  carried: number;
+  banked: number; // penguins cashed in at the igloo so far this round: the score
+}
+
+/** A penguin. One that was just caught stays in the list for a moment (with `caughtBy`) so phones can show it being collected. */
+export interface PenguinView {
+  id: number;
+  x: number;
+  z: number;
+  /** Which way it is facing (radians, 0 = east, counter-clockwise seen from above is z-down so +angle turns towards south). */
+  heading: number;
+  /** True while it is walking (so phones can waddle it); false while it stands still. */
+  walking: boolean;
+  caughtBy?: string; // set for ~1.2 s after a catch (it goes into that skater's bag)
+}
+
+/** A loop that was just closed (kept ~0.8 s) so phones can flash the area it enclosed. */
+export interface LoopView {
+  id: number;
+  playerId: string;
+  points: [number, number][]; // the corners of the enclosed area
+}
+
+/** Penguin Lasso, as phones see it. Streamed ~20 times a second while the round runs. */
+export interface PenguinLassoView {
+  gameId: 'penguin-lasso';
+  startsAt: number;
+  endsAt: number;
+  arenaRadius: number;
+  /** The most trail a skater can have out at once, in world units (phones fade the trail along this length). */
+  trailMax: number;
+  /** Each player's igloo (their home base). Skating within `cashRadius` of your own igloo cashes in your bag. */
+  igloos: Record<string, { x: number; z: number }>;
+  iglooRadius: number; // the igloo's own size (solid: skaters can't skate through it)
+  cashRadius: number;
+  skaters: Record<string, SkaterView>;
+  penguins: PenguinView[];
+  loops: LoopView[];
+}
+
 /** What phones are told about a running round: one shape per game, told apart by `gameId`. */
-export type GameView = TapRaceView | SnowballView;
+export type GameView = TapRaceView | SnowballView | PenguinLassoView;
 
 /** Outcome of a finished round. `winnerId` is null for a draw. */
 export interface RoundResult {

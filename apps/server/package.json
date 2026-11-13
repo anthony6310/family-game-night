@@ -19,6 +19,7 @@
     "test:network": "tsx --env-file=.env scripts/test-network.ts",
     "test:spectators": "tsx --env-file=.env scripts/test-spectators.ts",
     "test:fish": "tsx scripts/test-fish.ts",
+    "test:penguin": "tsx scripts/test-penguin.ts",
     "test:finish-length": "tsx scripts/test-finish-length.ts"
   },
   "dependencies": {

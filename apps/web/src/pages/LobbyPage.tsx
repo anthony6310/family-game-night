@@ -13,6 +13,8 @@ const loadSnowballScreen = () => import('../components/SnowballScreen');
 const SnowballScreen = lazy(loadSnowballScreen);
 const loadTapRaceScreen = () => import('../components/TapRaceScreen'); // Tap Race is 3D now too
 const TapRaceScreen = lazy(loadTapRaceScreen);
+const loadPenguinScreen = () => import('../components/PenguinScreen');
+const PenguinScreen = lazy(loadPenguinScreen);
 
 /** A picture of each game for the game picker, taken from the real game (files in public/games). A game with no picture yet shows a plain tile. */
 const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-race.png', snowball: '/games/snowball.png' };
@@ -28,6 +30,7 @@ export function LobbyPage() {
   useEffect(() => {
     if (pickedGame === 'snowball') void loadSnowballScreen();
     if (pickedGame === 'tap-race') void loadTapRaceScreen();
+    if (pickedGame === 'penguin-lasso') void loadPenguinScreen();
   }, [pickedGame]);
 
   // No room (refresh, lost connection, or the host closed it): back to the hub.
@@ -52,6 +55,11 @@ export function LobbyPage() {
           <SnowballScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
             serverNow={serverNow} sendAction={sendAction} frozen={frozen} />
         </Suspense>
+      ) : room.game.gameId === 'penguin-lasso' ? (
+        <Suspense fallback={<p className="center">Loading…</p>}>
+          <PenguinScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
+            serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+        </Suspense>
       ) : (
         <Suspense fallback={<p className="center">Loading…</p>}>
           <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
@@ -61,8 +69,8 @@ export function LobbyPage() {
     return (
       <>
         {screen}
-        {/* Snowball's ending is the you-won / you-lost message; Tap Race stages its own (own button, then the winner), inside its screen. */}
-        {frozen && room.result && room.game.gameId !== 'tap-race' && <FinishOverlay result={room.result} selfId={selfId} />}
+        {/* Snowball's ending is the you-won / you-lost message; Tap Race and Penguin Lasso stage the shared winner moment (own view, then the winner) inside their screens. */}
+        {frozen && room.result && room.game.gameId === 'snowball' && <FinishOverlay result={room.result} selfId={selfId} />}
       </>
     );
   }

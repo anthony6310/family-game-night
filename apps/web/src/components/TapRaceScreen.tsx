@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { TAP_RACE_WINNER_SECONDS, type GameAction, type Player, type RoundResult, type TapRaceView } from '@fgn/shared';
+import { type GameAction, type Player, type RoundResult, type TapRaceView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { PLAYER_COLORS } from './playerColors';
 import { TapRaceScene, type ButtonStyle } from './taprace/TapRaceScene';
+import { WinnerBanner, isWinnerMoment } from './WinnerMoment';
 import { SpectatorControls } from '../spectate/SpectatorControls';
 import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
 
@@ -27,7 +28,7 @@ interface Props {
  *
  * The ending is this screen's own (not the generic you-won / you-lost message): for the first part of the finish sequence
  * you just keep looking at your own button (no result yet), then the camera glides to the winner's button and a banner
- * names them for the last TAP_RACE_WINNER_SECONDS.
+ * names them for the last WINNER_SECONDS (shared by every winner-pan game: see WinnerMoment).
  */
 export default function TapRaceScreen({ game, players, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
   const container = useRef<HTMLDivElement>(null);
@@ -73,9 +74,9 @@ export default function TapRaceScreen({ game, players, selfId, serverNow, sendAc
   const subjects = useMemo(() => styles.map((s) => ({ id: s.id, name: s.name, color: s.color })), [styles]);
   const camera = useSpectatorCamera(subjects, !isPlayer);
   useEffect(() => { scene.current?.setPanSource(camera.pan); }, [camera.pan]);
-  // The winner's moment: the last TAP_RACE_WINNER_SECONDS of the finish sequence. The camera goes to the winner's button for
+  // The winner's moment (shared with other games: see WinnerMoment). The camera goes to the winner's button for
   // EVERYONE (players and spectators alike); on a draw nobody wins, so it pulls back to show the whole board.
-  const winnerMoment = frozen && result !== null && finishEndsAt !== null && finishEndsAt - serverNow() <= TAP_RACE_WINNER_SECONDS * 1000;
+  const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow);
   const winnerId = result?.winnerId ?? null;
   useEffect(() => {
     if (winnerMoment) scene.current?.setCameraView({ mode: 'follow', targetId: winnerId });
@@ -113,18 +114,7 @@ export default function TapRaceScreen({ game, players, selfId, serverNow, sendAc
         {isPlayer && !frozen && !over && best <= 1 && <p className="snow-hint">Tap as fast as you can!</p>}
       </div>
 
-      {winnerMoment && result && (
-        <div className="winner-banner" role="status">
-          {result.winner ? (
-            <>
-              <span>The winner is</span>
-              <strong>{result.winner.name}</strong>
-            </>
-          ) : (
-            <strong>It's a draw!</strong>
-          )}
-        </div>
-      )}
+      {winnerMoment && result && <WinnerBanner result={result} />}
 
       {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>

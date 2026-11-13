@@ -1,10 +1,11 @@
 import { randomInt } from 'node:crypto';
 import {
   COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
-  SNOWBALL_SECONDS, TAP_RACE_SECONDS, getGame,
+  PENGUIN_SECONDS, SNOWBALL_SECONDS, TAP_RACE_SECONDS, getGame,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult,
 } from '@fgn/shared';
+import { createPenguinLasso } from './games/penguinLasso';
 import { createSnowball } from './games/snowball';
 import { createTapRace } from './games/tapRace';
 import type { GameEngine } from './games/types';
@@ -75,6 +76,7 @@ export class RoomManager {
     this.engines = {
       'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000),
       snowball: createSnowball({ durationMs: options.snowballMs ?? SNOWBALL_SECONDS * 1000 }),
+      'penguin-lasso': createPenguinLasso({ durationMs: options.snowballMs ?? PENGUIN_SECONDS * 1000 }),
     };
   }
 

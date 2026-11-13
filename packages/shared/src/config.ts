@@ -32,15 +32,23 @@ export const TAP_RACE_SECONDS = 15;
 export const FINISH_SECONDS = 3;
 
 /**
- * Tap Race ends differently: each player first sees their own button for TAP_RACE_OWN_BUTTON_SECONDS (no result yet), then
- * the camera pans to the winner and names them for TAP_RACE_WINNER_SECONDS. The two together are that game's finish sequence.
+ * The shared "winner moment" ending (an ongoing rule, see GAME_RULES.md #2): when a round ends, each player first keeps
+ * looking at their own view for OWN_VIEW_SECONDS (no result yet), then the camera pans to the winner and a banner names
+ * them for WINNER_SECONDS. The two together are that game's finish sequence.
  */
-export const TAP_RACE_OWN_BUTTON_SECONDS = 1.5;
-export const TAP_RACE_WINNER_SECONDS = 2;
-export const TAP_RACE_FINISH_SECONDS = TAP_RACE_OWN_BUTTON_SECONDS + TAP_RACE_WINNER_SECONDS;
+export const OWN_VIEW_SECONDS = 1.5;
+export const WINNER_SECONDS = 2;
+export const WINNER_FINISH_SECONDS = OWN_VIEW_SECONDS + WINNER_SECONDS;
+// Tap Race's original names for the same thing (kept so older code and tests still read naturally).
+export const TAP_RACE_OWN_BUTTON_SECONDS = OWN_VIEW_SECONDS;
+export const TAP_RACE_WINNER_SECONDS = WINNER_SECONDS;
+export const TAP_RACE_FINISH_SECONDS = WINNER_FINISH_SECONDS;
 
 /** How long the round summary screen stays up before the room moves on by itself. */
 export const RESULTS_SECONDS = 4;
 
 /** How long a Snowball round lasts. */
 export const SNOWBALL_SECONDS = 60;
+
+/** How long a Penguin Lasso round lasts. */
+export const PENGUIN_SECONDS = 60;

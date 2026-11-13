@@ -1,4 +1,4 @@
-import { MAX_PLAYERS, TAP_RACE_FINISH_SECONDS } from './config';
+import { MAX_PLAYERS, WINNER_FINISH_SECONDS } from './config';
 
 /**
  * Static info about each game, used by the lobby menu and by the server's start rules.
@@ -24,7 +24,7 @@ export const GAMES = [
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
     scoreLabel: 'taps',
-    finishSeconds: TAP_RACE_FINISH_SECONDS, // own button, then the winner
+    finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
   },
   {
     id: 'snowball',
@@ -33,6 +33,15 @@ export const GAMES = [
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
     scoreLabel: '',
+  },
+  {
+    id: 'penguin-lasso',
+    name: 'Penguin Lasso',
+    description: 'Skate around the ice looking for penguins. Your skate trail is your lasso: skate a closed loop around a penguin to put it in your bag. The trail is short and fades as you go, so close your loops fast. Then skate back to your igloo to cash the penguins in: only cashed-in penguins count. Most penguins wins!',
+    minPlayers: 2,
+    maxPlayers: MAX_PLAYERS,
+    scoreLabel: 'penguins',
+    finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
   },
 ] as const satisfies readonly GameInfo[];
 

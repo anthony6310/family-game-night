@@ -55,7 +55,6 @@ try {
   const made = await create(a);
   const code = made.ok ? made.data.room.code : '';
   await join(b, code);
-  await new Promise((r) => a.socket.emit('session:start', 3, r));
   await new Promise((r) => a.socket.emit('room:settings', { gameId: 'snowball' }, r));
   await Promise.all([ready(a), ready(b)]);
   check('the round starts after the countdown', await until(a, (s) => s.phase === 'playing'));
@@ -111,7 +110,6 @@ try {
     const made2 = await create(players[0]);
     const code2 = made2.ok ? made2.data.room.code : '';
     for (const p of players.slice(1)) await join(p, code2);
-    await new Promise((r) => players[0].socket.emit('session:start', 3, r));
     await new Promise((r) => players[0].socket.emit('room:settings', { gameId: 'snowball' }, r));
     await Promise.all(players.map(ready));
     await until(players[0], (s) => s.phase === 'playing');

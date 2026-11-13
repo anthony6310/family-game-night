@@ -65,11 +65,11 @@ try {
   const made = await new Promise<Ack<JoinResult>>((r) => account.socket.emit('room:create', (res) => r(ack(account, res))));
   code = made.ok ? made.data.room.code : '';
   await new Promise((r) => guest.socket.emit('room:join', code, (res: Ack<JoinResult>) => r(ack(guest, res))));
-  await new Promise((r) => account.socket.emit('session:start', 3, r));
   await new Promise((r) => account.socket.emit('room:settings', { gameId: 'tap-race' }, r));
 
-  // 3 rounds: the account wins them all, then the session is saved.
+  // 3 rounds: the account wins them all, then the host ends the session and it is saved.
   for (let i = 0; i < 3; i++) await playRound([account, guest], account);
+  account.socket.emit('session:end', () => {});
   check('the room reaches session-over', await until(account, (s) => s.phase === 'session-over'));
   await sleep(600); // saving is fire-and-forget: give the inserts a moment
 
@@ -80,10 +80,6 @@ try {
     rows?.[0].winner_wins === 3 && rows[0].total_rounds === 3 && rows[0].tiebreaker_rounds === 0 && Boolean(rows[0].finished_at));
   const { data: roundRows } = await admin.from('game_results').select('is_tiebreaker').eq('room_code', code);
   check('the 3 rounds were saved too, none flagged as tie-breakers', roundRows?.length === 3 && roundRows.every((r) => r.is_tiebreaker === false));
-
-  // The CHECK constraint keeps total_rounds odd, matching the "no even sessions" rule.
-  const even = await admin.from('session_results').insert({ room_code: 'EVEN', winner_name: 'x', is_guest: true, winner_wins: 1, total_rounds: 4 });
-  check('the database itself rejects an even session length', even.error !== null);
 
   // ---- who may read / write ----
   const anon = createClient(url, pub, opts);

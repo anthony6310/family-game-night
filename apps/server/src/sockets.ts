@@ -140,7 +140,10 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       socket.data.roomCode = undefined;
       if (!result) return;
       if (result.room) publishOutcome({ room: result.room, session: result.session });
-      else clearTimers(result.code); // room emptied: drop its timers
+      else {
+        clearTimers(result.code); // room emptied: drop its timers
+        if (result.session) onSession(result.session); // ...and save the winner if the host never ended the session
+      }
     };
 
     // Joins this socket to the Socket.io room and replies with who "I" am.
@@ -166,7 +169,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     });
     socket.on('player:watching', (watching, ack) => command(rooms.setWatching(player.id, watching === true), ack));
     socket.on('room:leave', leave);
-    socket.on('session:start', (rounds, ack) => command(rooms.startSession(player.id, Number(rounds)), ack));
+    socket.on('session:end', (ack) => command(rooms.endSession(player.id), ack));
     socket.on('room:settings', (settings, ack) => {
       command(rooms.setSettings(player.id, settings && typeof settings === 'object' ? settings : {}), ack);
     });
@@ -177,6 +180,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       const result = rooms.close(player.id);
       if (!result.ok) return typeof ack === 'function' && ack(result);
       clearTimers(result.code);
+      if (result.session) onSession(result.session);
       io.to(result.code).emit('room:closed');
       // Take every member's socket out of the Socket.io group and forget their room.
       for (const member of await io.in(result.code).fetchSockets()) {

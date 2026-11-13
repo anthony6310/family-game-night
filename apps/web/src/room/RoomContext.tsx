@@ -15,7 +15,6 @@ const ERROR_TEXT: Record<RoomError, string> = {
   ROOM_NOT_FOUND: 'No room with that code.',
   ROOM_FULL: `That room is full (${MAX_PLAYERS} players max).`,
   NOT_A_PLAYER: "You're watching: switch to Play to ready up.",
-  MUST_PLAY: "You're in the tie-breaker, so you have to play it.",
   ALREADY_IN_ROOM: "You're already in a room (maybe in another tab).",
   GAME_IN_PROGRESS: 'That room is mid-game. Try again in a moment.', // (no longer sent: late joiners just watch)
   NOT_IN_ROOM: "You're not in a room.",
@@ -23,7 +22,6 @@ const ERROR_TEXT: Record<RoomError, string> = {
   INVALID_SETTING: "That setting isn't allowed.",
   WRONG_PHASE: "That can't be changed right now.",
   NO_GAME_SELECTED: 'Wait for the host to pick a game.',
-  SESSION_NOT_STARTED: 'The host hasn\'t chosen the number of rounds yet.',
 };
 
 interface RoomContextValue {
@@ -38,7 +36,7 @@ interface RoomContextValue {
   setWatching: (watching: boolean) => Promise<string | null>;
   leaveRoom: () => void;
   /** Host, step 1: lock in how many rounds the session lasts (once per session). */
-  startSession: (totalRounds: number) => Promise<string | null>;
+  endSession: () => Promise<string | null>;
   /** Host, step 2: pick the game. */
   updateSettings: (change: { gameId?: GameId }) => Promise<string | null>;
   setReady: (ready: boolean) => Promise<string | null>;
@@ -153,7 +151,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     createRoom: () => request((s, ack) => s.emit('room:create', ack)),
     joinRoom: (code) => request((s, ack) => s.emit('room:join', code, ack)),
     setWatching: (watching) => command((s, ack) => s.emit('player:watching', watching, ack)),
-    startSession: (totalRounds) => command((s, ack) => s.emit('session:start', totalRounds, ack)),
+    endSession: () => command((s, ack) => s.emit('session:end', ack)),
     updateSettings: (change) => command((s, ack) => s.emit('room:settings', change, ack)),
     setReady: (ready) => command((s, ack) => s.emit('player:ready', ready, ack)),
     returnToLobby: () => command((s, ack) => s.emit('room:return-to-lobby', ack)),

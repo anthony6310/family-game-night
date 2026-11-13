@@ -63,7 +63,6 @@ try {
   const made = await create(a);
   const code = made.ok ? made.data.room.code : '';
   await join(b, code);
-  await cmd((r) => a.socket.emit('session:start', 3, r));
   await cmd((r) => a.socket.emit('room:settings', { gameId: 'tap-race' }, r));
   await Promise.all([a, b].map((p) => cmd((r) => p.socket.emit('player:ready', true, r))));
   await until(a, (s) => s.phase === 'playing');

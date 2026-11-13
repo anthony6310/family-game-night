@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto';
 import {
-  COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH, ROUND_OPTIONS,
+  COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
   SNOWBALL_SECONDS, TAP_RACE_SECONDS, getGame,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult,
@@ -13,20 +13,19 @@ interface Room {
   code: string;
   hostId: string;
   players: Map<string, Player>; // a Map keeps insertion order = join order
+  roster: Map<string, Player>; // EVERYONE who has joined this session, kept after they leave, so a departed player's wins can still crown them
   watching: Set<string>; // members (a subset of `players`) sitting rounds out: no slot, no Ready, not in the game, but their wins still count
   settings: RoomSettings;
-  sessionConfirmed: boolean; // the host has locked in the number of rounds
   ready: Set<string>;
   phase: RoomPhase;
   countdownEndsAt: number | null;
-  wins: Record<string, number>; // rounds won this session, by player id
+  wins: Record<string, number>; // rounds won this session, by player id (kept when a player leaves)
+  sessionSaved: boolean; // this session's winner has already been handed out for saving (never save twice)
   game: { engine: GameEngine; state: unknown; lastTickAt: number } | null; // set while phase is 'playing' or 'finish' (frozen in 'finish')
   result: RoundResult | null; // set while phase is 'finish' or 'results'
   finishEndsAt: number | null; // when the "you won / you lost" sequence ends
   resultsEndsAt: number | null;
-  roundsPlayed: number; // decided, non-tie-breaker rounds
-  tiebreakerRounds: number; // decided tie-breaker rounds
-  contenders: string[] | null; // non-null = tie-breaker stage: only these players play
+  roundsPlayed: number; // decided rounds
   sessionWinner: Player | null;
 }
 
@@ -35,7 +34,6 @@ export interface RoundRecord {
   roomCode: string;
   gameType: GameId;
   winner: Player;
-  isTiebreaker: boolean;
 }
 
 /** A finished session, for the caller to persist. */
@@ -43,8 +41,7 @@ export interface SessionRecord {
   roomCode: string;
   winner: Player;
   winnerWins: number;
-  totalRounds: number;
-  tiebreakerRounds: number;
+  roundsPlayed: number;
 }
 
 /** What a change produced: the new room state, plus records to persist if anything was decided. */
@@ -87,20 +84,19 @@ export class RoomManager {
       code: this.newCode(),
       hostId: host.id,
       players: new Map([[host.id, host]]),
+      roster: new Map([[host.id, host]]),
       watching: new Set(),
-      settings: { gameId: null, totalRounds: ROUND_OPTIONS[0] },
-      sessionConfirmed: false,
+      settings: { gameId: null },
       ready: new Set(),
       phase: 'lobby',
       countdownEndsAt: null,
       wins: {},
+      sessionSaved: false,
       game: null,
       result: null,
       finishEndsAt: null,
       resultsEndsAt: null,
       roundsPlayed: 0,
-      tiebreakerRounds: 0,
-      contenders: null,
       sessionWinner: null,
     };
     this.rooms.set(room.code, room);
@@ -121,6 +117,7 @@ export class RoomManager {
     const midRound = room.phase === 'playing' || room.phase === 'finish';
     if (midRound || this.activeCount(room) >= MAX_PLAYERS) room.watching.add(player.id);
     room.players.set(player.id, player);
+    room.roster.set(player.id, player);
     this.roomOfPlayer.set(player.id, room.code);
     this.reconcile(room); // the newcomer isn't ready, so a running countdown is cancelled
     return ok(room);
@@ -135,14 +132,16 @@ export class RoomManager {
     room.players.delete(playerId);
     room.watching.delete(playerId);
     room.ready.delete(playerId);
-    delete room.wins[playerId];
+    // NOTE: their wins (and roster entry) stay, so they can still be named the session winner.
     this.roomOfPlayer.delete(playerId);
 
     if (room.players.size === 0) {
+      // Nobody is left: the room closes. If the host never ended the session properly, save its winner now.
+      const session = this.saveWinner(room);
       this.rooms.delete(code);
-      return { code, room: null };
+      return { code, room: null, session };
     }
-    // Host left: promote whoever has been here longest (first in the Map).
+    // Host left: promote whoever has been here longest (first in the Map), so the room always has a host.
     if (room.hostId === playerId) room.hostId = room.players.keys().next().value!;
 
     // Mid-round: the leaver forfeits. If too few players remain for the game, call the round off.
@@ -150,40 +149,32 @@ export class RoomManager {
       room.game.state = room.game.engine.removePlayer(room.game.state, playerId);
       if (this.participants(room).length < this.minPlayers(room)) this.abortRound(room);
     }
-
-    // Between rounds of a decided-or-tied session, a leaver can settle it (e.g. the other tied player left).
-    let session: SessionRecord | undefined;
-    if ((room.phase === 'lobby' || room.phase === 'countdown') && room.roundsPlayed >= room.settings.totalRounds) {
-      session = this.settleSession(room);
-    }
     this.reconcile(room);
-    return { code, room: toState(room), session };
+    return { code, room: toState(room) };
   }
 
   /**
-   * Step 1 of a session: the host locks in how many rounds it lasts. This happens ONCE per session;
-   * after it the room moves on to picking a game, and only a reset (after the session) brings it back.
+   * Host ends the session (from the lobby): the player with the most wins, counting everyone who ever played
+   * (even people who have since left), is crowned and saved. The room stays open on the winner screen.
    */
-  startSession(playerId: string, totalRounds: number): Result {
+  endSession(playerId: string): Result {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.hostId !== playerId) return fail('NOT_HOST');
-    if (room.phase !== 'lobby' || room.sessionConfirmed) return fail('WRONG_PHASE');
-    if (!(ROUND_OPTIONS as readonly number[]).includes(totalRounds)) return fail('INVALID_SETTING');
-    room.settings = { ...room.settings, totalRounds };
-    room.sessionConfirmed = true;
-    return ok(room);
+    if (room.phase !== 'lobby') return fail('WRONG_PHASE'); // not mid-round or mid-countdown
+    const session = this.saveWinner(room);
+    room.phase = 'session-over';
+    room.ready.clear();
+    room.countdownEndsAt = null;
+    return { ok: true, room: toState(room), session };
   }
 
-  /** Step 2: the host picks the game (any time between rounds). A real change resets everyone's Ready. */
+  /** The host picks the game (any time between rounds). A real change resets everyone's Ready. */
   setSettings(playerId: string, change: { gameId?: string | null }): Result {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.hostId !== playerId) return fail('NOT_HOST');
     if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
-    if (!room.sessionConfirmed) return fail('SESSION_NOT_STARTED');
-    // The round count is only ever set by startSession(); it can't be sneaked in here.
-    if ((change as Record<string, unknown>).totalRounds !== undefined) return fail('INVALID_SETTING');
 
     if (change.gameId !== undefined) {
       if (!GAMES.some((g) => g.id === change.gameId)) return fail('INVALID_SETTING');
@@ -207,8 +198,7 @@ export class RoomManager {
     if (!room) return fail('NOT_IN_ROOM');
     if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
     if (watching) {
-      if (room.contenders?.includes(playerId)) return fail('MUST_PLAY'); // the tie-breaker can't go ahead without them
-      room.watching.add(playerId);
+        room.watching.add(playerId);
     } else if (room.watching.has(playerId)) {
       if (this.activeCount(room) >= MAX_PLAYERS) return fail('ROOM_FULL'); // every playing slot is taken
       room.watching.delete(playerId);
@@ -223,7 +213,6 @@ export class RoomManager {
     if (!room) return fail('NOT_IN_ROOM');
     if (room.watching.has(playerId)) return fail('NOT_A_PLAYER'); // watchers don't ready up
     if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
-    if (!room.sessionConfirmed) return fail('SESSION_NOT_STARTED');
     if (!room.settings.gameId) return fail('NO_GAME_SELECTED');
 
     if (ready) room.ready.add(playerId);
@@ -337,23 +326,23 @@ export class RoomManager {
     if (room.phase !== 'lobby' && room.phase !== 'session-over') return fail('WRONG_PHASE');
     room.wins = {};
     room.roundsPlayed = 0;
-    room.tiebreakerRounds = 0;
-    room.contenders = null;
     room.sessionWinner = null;
-    room.sessionConfirmed = false; // a new session starts with the rounds question again
+    room.sessionSaved = false;
+    room.roster = new Map(room.players); // the new session starts with whoever is here now
     this.toLobby(room);
     return ok(room);
   }
 
   /** Host closes the room. Returns the code so the caller can disband the Socket.io group. */
-  close(playerId: string): { ok: true; code: string } | { ok: false; error: RoomError } {
+  close(playerId: string): { ok: true; code: string; session?: SessionRecord } | { ok: false; error: RoomError } {
     const room = this.roomFor(playerId);
     if (!room) return { ok: false, error: 'NOT_IN_ROOM' };
     if (room.hostId !== playerId) return { ok: false, error: 'NOT_HOST' };
     if (room.phase !== 'lobby' && room.phase !== 'session-over') return { ok: false, error: 'WRONG_PHASE' };
+    const session = this.saveWinner(room); // closing straight from the lobby still saves the session
     for (const id of room.players.keys()) this.roomOfPlayer.delete(id);
     this.rooms.delete(room.code);
-    return { ok: true, code: room.code };
+    return { ok: true, code: room.code, session };
   }
 
   // ---------- internals ----------
@@ -361,15 +350,12 @@ export class RoomManager {
   private endRound(room: Room): Outcome {
     const { engine, state } = room.game!;
     const winnerId = engine.getWinner(state);
-    const isTiebreaker = room.contenders !== null;
     if (winnerId) {
       room.wins[winnerId] = (room.wins[winnerId] ?? 0) + 1;
-      // A draw counts as "not played": the round is simply replayed.
-      if (isTiebreaker) room.tiebreakerRounds++;
-      else room.roundsPlayed++;
+      room.roundsPlayed++; // a draw counts as "not played"
     }
     const winner = winnerId ? (room.players.get(winnerId) ?? null) : null;
-    room.result = { winnerId, winner, isTiebreaker, scores: engine.scores(state) };
+    room.result = { winnerId, winner, scores: engine.scores(state) };
     // The result is decided NOW, but players first get the short "you won / you lost" sequence over the frozen game
     // (input is ignored in this phase). `game` stays so phones can keep drawing the final moment; the summary comes next.
     room.phase = 'finish';
@@ -377,43 +363,33 @@ export class RoomManager {
     room.resultsEndsAt = null;
     return {
       room: toState(room),
-      round: winner ? { roomCode: room.code, gameType: room.settings.gameId!, winner, isTiebreaker } : undefined,
+      round: winner ? { roomCode: room.code, gameType: room.settings.gameId!, winner } : undefined,
     };
   }
 
-  /** Leaves the results screen: next round (lobby), tie-breaker stage (lobby), or session over. */
+  /** Leaves the results screen: back to the lobby for the next round. The session carries on until the host ends it. */
   private advanceAfterResults(room: Room): Outcome {
     this.toLobby(room);
-    const session = this.settleSession(room);
-    return { room: toState(room), session };
+    return { room: toState(room) };
   }
 
   /**
-   * Decides whether the session is finished. Once the scheduled rounds are done, look at the
-   * players still in the running (everyone, or only the tied contenders): a single leader is crowned,
-   * several leaders become the contenders for a tie-breaker round.
+   * Crowns the session's winner: whoever has the most wins among EVERYONE who played this session, including players
+   * who have left. A tie goes to whoever joined first. Returns the record to persist (once per session), or nothing
+   * if nobody won a round.
    */
-  private settleSession(room: Room): SessionRecord | undefined {
-    if (room.roundsPlayed < room.settings.totalRounds) return undefined;
-    const pool = this.scorePool(room); // everyone counts here, watchers included
-    const best = Math.max(...pool.map((id) => room.wins[id] ?? 0));
-    const leaders = pool.filter((id) => (room.wins[id] ?? 0) === best);
-
-    if (leaders.length === 1) {
-      const winner = room.players.get(leaders[0])!;
-      room.sessionWinner = winner;
-      room.contenders = null;
-      room.phase = 'session-over';
-      room.ready.clear();
-      room.countdownEndsAt = null;
-      return {
-        roomCode: room.code, winner, winnerWins: best,
-        totalRounds: room.settings.totalRounds, tiebreakerRounds: room.tiebreakerRounds,
-      };
+  private saveWinner(room: Room): SessionRecord | undefined {
+    if (room.sessionSaved) return undefined;
+    let winner: Player | null = null;
+    let best = 0;
+    for (const [id, player] of room.roster) {
+      const wins = room.wins[id] ?? 0;
+      if (wins > best) { best = wins; winner = player; }
     }
-    room.contenders = leaders; // a tie: only these players play the tie-breaker...
-    for (const id of leaders) room.watching.delete(id); // ...so a tied player who was watching is put back in (they can't skip it)
-    return undefined;
+    room.sessionSaved = true;
+    room.sessionWinner = winner;
+    if (!winner) return undefined;
+    return { roomCode: room.code, winner, winnerWins: best, roundsPlayed: room.roundsPlayed };
   }
 
   private abortRound(room: Room) {
@@ -436,20 +412,9 @@ export class RoomManager {
     return this.finishMsOverride ?? (getGame(room.settings.gameId)?.finishSeconds ?? FINISH_SECONDS) * 1000;
   }
 
-  /** Who plays the next round: everyone who isn't watching, or only the tied contenders still present. */
+  /** Who plays the next round: everyone who isn't watching. */
   private participants(room: Room): string[] {
-    const present = [...room.players.keys()].filter((id) => !room.watching.has(id));
-    if (!room.contenders) return present;
-    const inTie = present.filter((id) => room.contenders!.includes(id));
-    return inTie.length > 0 ? inTie : present;
-  }
-
-  /** Who is in the running for the session win: EVERYONE present (watchers keep their points), or the tied contenders. */
-  private scorePool(room: Room): string[] {
-    const present = [...room.players.keys()];
-    if (!room.contenders) return present;
-    const inTie = present.filter((id) => room.contenders!.includes(id));
-    return inTie.length > 0 ? inTie : present;
+    return [...room.players.keys()].filter((id) => !room.watching.has(id));
   }
 
   /** How many members are playing (not watching): these are the ones that use the MAX_PLAYERS slots. */
@@ -504,7 +469,6 @@ function toState(room: Room): RoomState {
     players: [...room.players.values()],
     watchingIds: [...room.watching],
     settings: { ...room.settings },
-    sessionConfirmed: room.sessionConfirmed,
     readyIds: [...room.ready],
     phase: room.phase,
     countdownEndsAt: room.countdownEndsAt,
@@ -512,7 +476,6 @@ function toState(room: Room): RoomState {
     game: room.game ? room.game.engine.view(room.game.state) : null,
     result: room.result,
     roundsPlayed: room.roundsPlayed,
-    contenders: room.contenders ? [...room.contenders] : null,
     sessionWinner: room.sessionWinner,
     finishEndsAt: room.finishEndsAt,
     resultsEndsAt: room.resultsEndsAt,

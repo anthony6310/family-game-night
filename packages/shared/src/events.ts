@@ -17,7 +17,6 @@ export interface Player {
 /** Host-controlled session settings. */
 export interface RoomSettings {
   gameId: GameId | null; // null until the host picks a game
-  totalRounds: number; // one of ROUND_OPTIONS; fixed once the host confirms the session (see `sessionConfirmed`)
 }
 
 /**
@@ -27,7 +26,7 @@ export interface RoomSettings {
  * 'finish'    the round just ended: the result is decided, input is stopped and a "you won / you lost" message
  *             plays over the frozen game for a few seconds
  * 'results'   the round summary screen (moves on by itself after a few seconds)
- * 'session-over' the last round (and any tie-breaker) is done; the session winner is crowned
+ * 'session-over' the host ended the session (or the room emptied): the player with the most wins is crowned
  */
 export type RoomPhase = 'lobby' | 'countdown' | 'playing' | 'finish' | 'results' | 'session-over';
 
@@ -110,7 +109,6 @@ export type GameView = TapRaceView | SnowballView;
 export interface RoundResult {
   winnerId: string | null;
   winner: Player | null; // snapshot, so the screen still works if the winner leaves
-  isTiebreaker: boolean;
   scores: Record<string, number>; // playerId -> that round's score (taps)
 }
 
@@ -127,23 +125,19 @@ export interface RoomState {
    */
   watchingIds: string[];
   settings: RoomSettings;
-  /**
-   * False until the host has confirmed how many rounds the session lasts ("Let's play!"). Until then the
-   * room shows only that first step. It stays true until the session ends and the host resets the room.
-   */
-  sessionConfirmed: boolean;
   readyIds: string[]; // ids of players who tapped Ready
   phase: RoomPhase;
   /** Server clock (epoch ms) when the countdown hits zero, or null. */
   countdownEndsAt: number | null;
-  /** Rounds won so far this session, by player id (players with none are absent). */
+  /**
+   * Rounds won so far this session, by player id (players with none are absent). Includes people who have since
+   * left: the server keeps their wins so they can still be named the winner.
+   */
   scores: Record<string, number>;
   game: GameView | null; // while phase is 'playing' or 'finish' (frozen during the finish sequence)
   result: RoundResult | null; // while phase is 'finish' or 'results'
-  /** Decided (non-tie-breaker) rounds played this session. Draws are replayed and don't count. */
+  /** Decided rounds played this session. Draws are replayed and don't count. */
   roundsPlayed: number;
-  /** While a tie-breaker is pending: the tied players who may play. Everyone else spectates. */
-  contenders: string[] | null;
   /** Set once the session is over (a snapshot of who won). */
   sessionWinner: Player | null;
   /** Server clock when the finish sequence (you won / you lost) ends and the summary appears, or null. */
@@ -158,15 +152,13 @@ export type RoomError =
   | 'ROOM_NOT_FOUND'
   | 'ROOM_FULL'
   | 'NOT_A_PLAYER' // a watcher tried to ready up
-  | 'MUST_PLAY' // a tie-breaker contender can't sit it out
   | 'ALREADY_IN_ROOM'
   | 'GAME_IN_PROGRESS'
   | 'NOT_IN_ROOM'
   | 'NOT_HOST'
   | 'INVALID_SETTING'
   | 'WRONG_PHASE'
-  | 'NO_GAME_SELECTED'
-  | 'SESSION_NOT_STARTED';
+  | 'NO_GAME_SELECTED';
 
 /** Reply shape for events that expect an answer (Socket.io "acknowledgements"). */
 export type Ack<T> = { ok: true; data: T } | { ok: false; error: RoomError };
@@ -188,19 +180,16 @@ export interface ClientToServerEvents {
   /** Switch between playing (false) and watching (true). Lobby/countdown only. Your points are kept either way. */
   'player:watching': (watching: boolean, ack?: (res: Ack<null>) => void) => void;
   'room:leave': () => void;
-  /**
-   * Host only, step 1: choose how many rounds the session lasts (one of ROUND_OPTIONS) and lock it in.
-   * Allowed once per session; the game can only be picked after this.
-   */
-  'session:start': (totalRounds: number, ack?: (res: Ack<null>) => void) => void;
-  /** Host only, step 2 (after `session:start`): pick the game. Changing it cancels a countdown and clears every Ready. */
+  /** Host only, in the lobby: end the session. The player with the most wins is crowned and saved. */
+  'session:end': (ack?: (res: Ack<null>) => void) => void;
+  /** Host only: pick the game. Changing it cancels a countdown and clears every Ready. */
   'room:settings': (settings: { gameId?: GameId }, ack?: (res: Ack<null>) => void) => void;
   'player:ready': (ready: boolean, ack?: (res: Ack<null>) => void) => void;
   /** Fire-and-forget (no ack) because taps are frequent. */
   'game:action': (action: GameAction) => void;
   /** Host only, lobby or session-over: wipe the scores and start a fresh session in the same room. */
   'room:reset': (ack?: (res: Ack<null>) => void) => void;
-  /** Host only, lobby or session-over: close the room and send everyone out. */
+  /** Host only, lobby or session-over: close the room and send everyone out (a still-open session is ended and saved first). */
   'room:close': (ack?: (res: Ack<null>) => void) => void;
   /** Host only; ends the round early, or skips the results screen. */
   'room:return-to-lobby': (ack?: (res: Ack<null>) => void) => void;

@@ -51,7 +51,6 @@ try {
   check('a player can switch to watching, and everyone sees it', (await watching(c, true)).ok && await until(a, (s) => isWatching(s, c.id)));
   check('a watcher is still a member of the room (listed in players)', a.latest!.players.some((p) => p.id === c.id));
   check('a watcher can\'t ready up', err(await ready(c)) === 'NOT_A_PLAYER');
-  await cmd((r) => a.socket.emit('session:start', 3, r));
   await cmd((r) => a.socket.emit('room:settings', { gameId: 'tap-race' }, r));
 
   // ---- a round plays without the watcher ----
@@ -85,7 +84,6 @@ try {
   const x = await guest('X'); const y = await guest('Y'); const z = await guest('Z');
   const m2 = await create(x); const code2 = m2.ok ? m2.data.room.code : '';
   await join(y, code2); await join(z, code2);
-  await cmd((r) => x.socket.emit('session:start', 3, r));
   await cmd((r) => x.socket.emit('room:settings', { gameId: 'tap-race' }, r));
   async function round(players: P[], winner: P | null) {
     await Promise.all(players.map(ready));
@@ -95,23 +93,10 @@ try {
     await until(x, (s) => s.phase === 'lobby' || s.phase === 'session-over', 4000);
   }
   await round([x, y, z], y);              // Y: 1
-  await watching(y, true);                // Y sits the rest out ...
-  await round([x, z], x);                 // X: 1
-  await round([x, z], z);                 // Z: 1 -> three rounds done, X, Y, Z tied at 1 each
-  check('a 3-way tie after the scheduled rounds starts a tie-breaker', x.latest!.contenders?.length === 3);
-  check('the tied player who was watching is put back in (they can\'t skip it)', !isWatching(x.latest, y.id));
-  check('...and can\'t switch to watching during their tie-breaker', err(await watching(y, true)) === 'MUST_PLAY');
-  await round([x, y, z], y);              // tie-breaker: Y (who sat out a round) wins
-  check('the player who sat a round out can still win the session', await until(x, (s) => s.phase === 'session-over' && s.sessionWinner?.id === y.id));
-
-  // ---- a watcher with the most points wins even though they are watching at the end ----
-  await cmd((r) => x.socket.emit('room:reset', r));
-  await cmd((r) => x.socket.emit('session:start', 3, r));
-  await cmd((r) => x.socket.emit('room:settings', { gameId: 'tap-race' }, r));
-  await round([x, y, z], y);              // Y: 1
   await round([x, y, z], y);              // Y: 2
   await watching(y, true);                // Y leads and then goes to watch
-  await round([x, z], x);                 // X: 1 -> 3 rounds done
+  await round([x, z], x);                 // X: 1
+  await cmd((r) => x.socket.emit('session:end', r));
   check('a watcher who leads at the end is crowned', await until(x, (s) => s.phase === 'session-over' && s.sessionWinner?.id === y.id && isWatching(s, y.id)));
 
   // ---- slots: watchers don't use one ----

@@ -13,6 +13,7 @@ interface Props {
 /** The end of a session: the champion, the final standings, and the host's reset / close choice. */
 export function SessionOverScreen({ room, selfId, error, onReset, onClose, onLeave }: Props) {
   const champion = room.sessionWinner;
+  // Include people who already left: their wins still count.
   const standings = [...room.players].sort((a, b) => (room.scores[b.id] ?? 0) - (room.scores[a.id] ?? 0));
   const isHost = room.hostId === selfId;
 

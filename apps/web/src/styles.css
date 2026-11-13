@@ -143,3 +143,7 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .winner-banner strong { font-size: clamp(2rem, 11vw, 3.6rem); line-height: 1.05; color: #ffd84a; max-width: 100%; overflow-wrap: anywhere;
   -webkit-text-stroke: 0.06em #14142a; paint-order: stroke fill; text-shadow: 0 4px 14px rgba(0, 0, 0, 0.6); }
 @keyframes winner-pop { from { opacity: 0; transform: scale(0.6) translateY(0.6rem); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
+/* Sound on/off: a small round icon pinned to the top-right of every screen (above the game's touch layers). */
+.sound-btn { position: fixed; top: 0.6rem; right: 0.6rem; z-index: 50; width: 2.4rem; height: 2.4rem; padding: 0; border-radius: 50%;
+  font-size: 1.15rem; line-height: 1; display: grid; place-items: center; background: rgba(38, 38, 74, 0.85); color: #fff; }

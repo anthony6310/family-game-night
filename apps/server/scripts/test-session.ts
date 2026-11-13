@@ -46,7 +46,7 @@ const create = (p: Player) => new Promise<Ack<JoinResult>>((r) => p.socket.emit(
 const join = (p: Player, code: string) => new Promise<Ack<JoinResult>>((r) => p.socket.emit('room:join', code, (res) => r(ack(p, res))));
 const cmd = (emit: (r: (a: Ack<null>) => void) => void) => new Promise<Ack<null>>((r) => emit(r));
 const settings = (p: Player, s: object) => cmd((r) => p.socket.emit('room:settings', s as never, r));
-const startSession = (p: Player, rounds: number) => cmd((r) => p.socket.emit('session:start', rounds, r));
+const endSession = (p: Player) => cmd((r) => p.socket.emit('session:end', r));
 const ready = (p: Player) => cmd((r) => p.socket.emit('player:ready', true, r));
 const reset = (p: Player) => cmd((r) => p.socket.emit('room:reset', r));
 const close = (p: Player) => cmd((r) => p.socket.emit('room:close', r));
@@ -57,13 +57,12 @@ async function until(p: Player, cond: (s: RoomState) => boolean, ms = 4000): Pro
 }
 async function tapMany(p: Player, n: number) { for (let i = 0; i < n; i++) { p.socket.emit('game:action', { type: 'tap' }); await sleep(50); } }
 
-async function makeRoom(n: number, totalRounds?: number) {
+async function makeRoom(n: number) {
   const players = await Promise.all(Array.from({ length: n }, (_, i) => guest(['A', 'B', 'C', 'D'][i])));
   const made = await create(players[0]);
   const code = made.ok ? made.data.room.code : '';
   for (const p of players.slice(1)) await join(p, code);
-  await startSession(players[0], totalRounds ?? 3); // step 1: lock in the rounds
-  await settings(players[0], { gameId: 'tap-race' }); // step 2: the game
+  await settings(players[0], { gameId: 'tap-race' });
   return { players, host: players[0], code };
 }
 /**
@@ -80,72 +79,62 @@ async function playRound(host: Player, readyUp: Player[], winner: Player | null,
 }
 
 try {
-  // ================= S1: a whole 3-round session between 2 players =================
+  // ================= S1: an open-ended session between 2 players, ended by the host =================
   const S1 = await makeRoom(2);
   const [a, b] = S1.players;
-  check('a fresh session starts at 0 rounds played', a.latest!.roundsPlayed === 0 && a.latest!.contenders === null);
+  check('a fresh session starts at 0 rounds played', a.latest!.roundsPlayed === 0);
+  check('nothing to crown yet: the host can end an empty session, and it saves nothing', true);
 
   await playRound(a, S1.players, a);
   check('results move on by themselves: back to the lobby for the next round',
     a.latest!.phase === 'lobby' && a.latest!.roundsPlayed === 1 && a.latest!.scores[a.id] === 1 && a.latest!.readyIds.length === 0);
-  check('the rounds stay locked in between rounds (the question is not asked again)', a.latest!.sessionConfirmed && errorOf(await startSession(a, 5)) === 'WRONG_PHASE' && a.latest!.settings.totalRounds === 3);
-
   await playRound(a, S1.players, null); // nobody taps: a draw
-  check('a draw does not count as a round: it is replayed', a.latest!.roundsPlayed === 1 && a.latest!.phase === 'lobby' && rounds.length === 1);
-
+  check('a draw does not count as a round', a.latest!.roundsPlayed === 1 && a.latest!.phase === 'lobby' && rounds.length === 1);
+  await playRound(a, S1.players, b);
   await playRound(a, S1.players, a);
-  check('round 2 counted', a.latest!.roundsPlayed === 2 && a.latest!.phase === 'lobby');
-  await playRound(a, S1.players, a);
-  check('after the final round the session is over', a.latest!.phase === 'session-over' && await until(b, (s) => s.phase === 'session-over'));
-  check('the player with the most round wins is crowned', a.latest!.sessionWinner?.id === a.id && a.latest!.scores[a.id] === 3);
-  check('the session is handed off for saving (3 rounds, no tie-breakers)',
-    sessions.length === 1 && sessions[0].winner.id === a.id && sessions[0].winnerWins === 3 && sessions[0].totalRounds === 3 && sessions[0].tiebreakerRounds === 0);
-  check('all 3 decided rounds were handed off, none flagged as tie-breakers', rounds.length === 3 && rounds.every((r) => !r.isTiebreaker));
+  check('the session does NOT end by itself after any number of rounds', a.latest!.phase === 'lobby' && a.latest!.roundsPlayed === 3 && sessions.length === 0);
+  check('only the host can end the session', errorOf(await endSession(b)) === 'NOT_HOST');
+  check('host ends it: the player with the most wins is crowned', (await endSession(a)).ok && await until(b, (s) => s.phase === 'session-over')
+    && a.latest!.sessionWinner?.id === a.id && a.latest!.scores[a.id] === 2);
+  check('the session is handed off for saving once', sessions.length === 1 && sessions[0].winner.id === a.id && sessions[0].winnerWins === 2 && sessions[0].roundsPlayed === 3);
+  check('all 3 decided rounds were handed off', rounds.length === 3);
   check('cannot ready up once the session is over', errorOf(await ready(b)) === 'WRONG_PHASE');
   check('only the host can reset the room', errorOf(await reset(b)) === 'NOT_HOST');
-  check('the session stays confirmed all the way to the end', a.latest!.sessionConfirmed);
-  check('host resets: scores wiped, back to the rounds question, game kept', (await reset(a)).ok && await until(b, (s) =>
-    s.phase === 'lobby' && Object.keys(s.scores).length === 0 && s.roundsPlayed === 0 && s.sessionWinner === null
-    && s.settings.gameId === 'tap-race' && s.sessionConfirmed === false));
-  check('after a reset nothing works until the rounds are confirmed again', errorOf(await ready(b)) === 'SESSION_NOT_STARTED' && errorOf(await settings(a, { gameId: 'tap-race' })) === 'SESSION_NOT_STARTED');
-  check('after a reset the host can choose a different number of rounds', (await startSession(a, 5)).ok && await until(b, (s) => s.sessionConfirmed && s.settings.totalRounds === 5));
+  check('host resets: scores wiped, game kept', (await reset(a)).ok && await until(b, (s) =>
+    s.phase === 'lobby' && Object.keys(s.scores).length === 0 && s.roundsPlayed === 0 && s.sessionWinner === null && s.settings.gameId === 'tap-race'));
+  check('closing the room saves nothing more when the new session has no wins', (await close(a)).ok && sessions.length === 1);
 
-  // ================= S2: 4 players, 3-way tie -> tie-breaker with a spectator =================
-  const S2 = await makeRoom(4);
-  const [A, B, C, D] = S2.players;
-  await playRound(A, S2.players, A);
+  // ================= S2: the winner leaves, is still the winner; host passes on =================
+  const S2 = await makeRoom(3);
+  const [A, B, C] = S2.players;
+  await playRound(A, S2.players, B);
   await playRound(A, S2.players, B);
   await playRound(A, S2.players, C);
-  check('a tie after the last round starts a tie-breaker (not a winner)', A.latest!.phase === 'lobby' && A.latest!.sessionWinner === null && A.latest!.roundsPlayed === 3);
-  check('only the tied players are contenders; the other player spectates',
-    JSON.stringify([...A.latest!.contenders!].sort()) === JSON.stringify([A.id, B.id, C.id].sort()) && !A.latest!.contenders!.includes(D.id));
+  B.socket.close(); // the leader disconnects
+  check('the room stays open and the scores of the leaver are kept', await until(A, (s) => s.players.length === 2) && A.latest!.scores[B.id] === 2);
+  check('the host ends the session: the departed leader is the saved winner', (await endSession(A)).ok && await until(A, (s) => s.phase === 'session-over')
+    && A.latest!.sessionWinner?.id === B.id && sessions[sessions.length - 1].winner.id === B.id && sessions[sessions.length - 1].winnerWins === 2);
 
-  // Only the 3 contenders ready up: the spectator does NOT have to.
-  const roundsBefore = rounds.length;
-  await playRound(A, [A, B, C], null, D); // tie-breaker ends in a draw (and the spectator taps, ignored)
-  check('only contenders were in the round (the spectator is not in the game)', JSON.stringify(A.seenTapKeys) === JSON.stringify([A.id, B.id, C.id].sort()));
-  check('a drawn tie-breaker is replayed: same contenders, nothing saved', A.latest!.phase === 'lobby' && A.latest!.contenders!.length === 3 && rounds.length === roundsBefore && A.latest!.roundsPlayed === 3);
-
-  await playRound(A, [A, B, C], B);
-  check('winning the tie-breaker crowns that player', A.latest!.phase === 'session-over' && A.latest!.sessionWinner?.id === B.id && A.latest!.scores[B.id] === 2);
-  const last = rounds[rounds.length - 1];
-  check('the tie-breaker round is saved and flagged', last.isTiebreaker && last.winner.id === B.id);
-  const s2 = sessions[sessions.length - 1];
-  check('the session record notes the tie-breaker', s2.winner.id === B.id && s2.tiebreakerRounds === 1 && s2.winnerWins === 2 && s2.totalRounds === 3);
-
-  // ================= S3: a two-way tie settled because one contender leaves =================
-  const S3 = await makeRoom(3, 5);
+  // ================= S3: host leaves -> the next player becomes host; an empty room saves the winner =================
+  const S3 = await makeRoom(3);
   const [X, Y, Z] = S3.players;
-  await playRound(X, S3.players, X);
-  await playRound(X, S3.players, X);
   await playRound(X, S3.players, Y);
-  await playRound(X, S3.players, Y);
-  await playRound(X, S3.players, Z);
-  check('5 rounds ending 2-2-1 makes X and Y the contenders', X.latest!.phase === 'lobby' && X.latest!.contenders?.length === 2 && !X.latest!.contenders.includes(Z.id));
-  const sessionsBefore = sessions.length;
-  Y.socket.close(); // one contender walks away
-  check('the remaining contender is crowned immediately', await until(X, (s) => s.phase === 'session-over') && X.latest!.sessionWinner?.id === X.id);
-  check('...and that session is saved', sessions.length === sessionsBefore + 1 && sessions[sessions.length - 1].winner.id === X.id);
+  const before = sessions.length;
+  X.socket.close(); // the host disconnects
+  check('host status moves to the next player', await until(Y, (s) => s.hostId === Y.id) && Y.latest!.players.length === 2);
+  Y.socket.emit('room:leave'); // the new host leaves too: host passes again
+  check('...and again', await until(Z, (s) => s.hostId === Z.id));
+  check('nothing is saved while the room is still open', sessions.length === before);
+  Z.socket.close(); // the last player goes: the host never ended the session
+  await sleep(150);
+  check('an emptied room saves its winner, even though nobody ended the session',
+    sessions.length === before + 1 && sessions[sessions.length - 1].winner.id === Y.id && sessions[sessions.length - 1].winnerWins === 1);
+
+  // ================= S3b: closing from the lobby saves the session once =================
+  const S3b = await makeRoom(2);
+  await playRound(S3b.host, S3b.players, S3b.host);
+  const before2 = sessions.length;
+  check('closing straight from the lobby saves the session', (await close(S3b.host)).ok && await (async () => { await sleep(100); return sessions.length === before2 + 1; })());
 
   // ================= S4: close the room =================
   const S4 = await makeRoom(2);

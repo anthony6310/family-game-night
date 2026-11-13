@@ -1,6 +1,7 @@
 import { Route, Routes } from 'react-router-dom';
 import { RequireAccount, RequirePlayer } from './auth/guards';
 import { DevStatus } from './components/DevStatus';
+import { SoundButton } from './components/SoundButton';
 import { GuestPage } from './pages/GuestPage';
 import { HistoryPage } from './pages/HistoryPage';
 import { LandingPage } from './pages/LandingPage';
@@ -22,6 +23,7 @@ export function App() {
         <Route path="/room" element={<RequirePlayer><LobbyPage /></RequirePlayer>} />
         <Route path="*" element={<LandingPage />} />
       </Routes>
+      <SoundButton />
       <DevStatus />
     </>
   );

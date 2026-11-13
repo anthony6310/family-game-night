@@ -17,7 +17,7 @@ interface Track {
 
 // "Snowy days": C – Am – F – G, 4 beats a bar, a simple bouncing bass with a tinkly tune on top.
 const SNOWY_DAYS: Track = {
-  bpm: 104,
+  bpm: 150,
   bars: [
     { bass: 0, chord: [12, 16, 19] }, // C
     { bass: -3, chord: [12, 16, 19] }, // Am (bass A, chord notes still close to C: keeps it soft)

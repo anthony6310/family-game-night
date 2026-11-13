@@ -1,8 +1,5 @@
 // Game-wide settings shared by client and server. Change them here only.
 
-/** Session lengths the host can choose from. Keep every value odd. */
-export const ROUND_OPTIONS = [3, 5, 7] as const;
-
 /** Maximum players allowed in one room. */
 export const MAX_PLAYERS = 8;
 /**

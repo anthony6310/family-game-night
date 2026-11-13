@@ -24,21 +24,16 @@ export function ResultsScreen({ room, selfId, error, serverNow, onSkip }: Props)
 
   return (
     <main className="page">
-      {result.isTiebreaker && <p className="badge">Tie-breaker</p>}
       {winner ? (
         <>
           <Avatar url={winner.avatarUrl} name={winner.name} size={96} />
           <h1>🏆 {winner.name} wins!</h1>
-          <p className="muted">
-            {result.isTiebreaker ? 'Wins the tie-breaker' : winner.id === selfId ? "That's you! +1 point" : '+1 point'}
-          </p>
+          <p className="muted">{winner.id === selfId ? "That's you! +1 point" : '+1 point'}</p>
         </>
       ) : (
         <>
           <h1>It's a draw!</h1>
-          <p className="muted">
-            {result.isTiebreaker ? 'Still tied. The tie-breaker is replayed.' : "No point. This round doesn't count, so it's replayed."}
-          </p>
+          <p className="muted">No point. This round doesn't count, so it's replayed.</p>
         </>
       )}
 

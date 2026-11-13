@@ -18,7 +18,6 @@ function finishLength(game: GameId, options: { finishMs?: number } = {}): number
   if (!made.ok) throw new Error('create failed');
   const code = made.room.code;
   rooms.join(code, player('b'));
-  rooms.startSession('a', 3);
   rooms.setSettings('a', { gameId: game });
   rooms.setReady('a', true);
   const ready = rooms.setReady('b', true);

@@ -300,7 +300,8 @@ export class TapRaceScene {
       button.press = Math.max(0, button.press - dt * 7);
       button.top.position.y = REST_HEIGHT - PRESS_DEPTH * button.press;
       // The number grows as taps add up: it eases towards its size for the current count, with a little extra pop on each press.
-      button.faceScale += (faceScaleFor(button.count) - button.faceScale) * (1 - Math.exp(-14 * dt));
+      const wanted = button.id === this.selfId && button.count === 0 ? HINT_SCALE : faceScaleFor(button.count);
+      button.faceScale += (wanted - button.faceScale) * (1 - Math.exp(-14 * dt));
       const faceSize = button.faceScale * (1 + 0.16 * button.press);
       button.face.scale.set(faceSize, faceSize, 1);
     }
@@ -318,12 +319,15 @@ export class TapRaceScene {
 // ---------- helpers ----------
 
 /**
- * How big the number on a button is (1 = fills the face), by its tap count: small at the start (about 45%), growing with
- * every tap, quickly at first and then more slowly, until it fills the button (at around 100 taps).
+ * How big the number on a button is (1 = fills the face), by its tap count: it starts small (30%) and grows noticeably with
+ * every tap, quickly at first and then more slowly, until it fills the button (at around 50 taps).
  */
 export function faceScaleFor(count: number): number {
-  return 0.45 + 0.55 * (1 - Math.exp(-count / 40));
+  return 0.3 + 0.7 * (1 - Math.exp(-count / 22));
 }
+
+/** The "TAP!" prompt on your own button before your first tap is bigger than the smallest number, so it can be read. */
+const HINT_SCALE = 0.62;
 
 /** Positions of `count` buttons in a grid (up to MAX_COLUMNS across, rows centred), centred on the origin; and how far the board reaches from the middle. */
 export function layout(count: number): { positions: { x: number; z: number }[]; reach: number } {

@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { GAMES, MAX_PLAYERS, ROUND_OPTIONS, getGame } from '@fgn/shared';
+import { GAMES, MAX_PLAYERS, ROUND_OPTIONS, getGame, type GameId } from '@fgn/shared';
 import { Avatar } from '../components/Avatar';
 import { Countdown } from '../components/Countdown';
 import { FinishOverlay } from '../components/FinishOverlay';
@@ -12,6 +12,9 @@ import { useRoom } from '../room/RoomContext';
 // three.js is big, so the Snowball screen is its own download, fetched only when needed.
 const loadSnowballScreen = () => import('../components/SnowballScreen');
 const SnowballScreen = lazy(loadSnowballScreen);
+
+/** A picture of each game for the game picker, taken from the real game (files in public/games). A game with no picture yet shows a plain tile. */
+const GAME_IMAGES: Partial<Record<GameId, string>> = { snowball: '/games/snowball.png' };
 
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
@@ -97,16 +100,6 @@ export function LobbyPage() {
         Share this code so others can join ({playingCount}/{MAX_PLAYERS} playing{watchingIds.length > 0 && ` · ${watchingIds.length} watching`})
       </p>
 
-      {/* Play / Watch: switch whenever you like between rounds. Your points stay, and a watcher can still win the session. */}
-      <div className="mode-toggle" role="radiogroup" aria-label="Play or watch">
-        <button role="radio" aria-checked={!isWatcher} className={!isWatcher ? 'on' : ''}
-          disabled={isWatcher && slotsFull} title={isWatcher && slotsFull ? 'All playing slots are taken' : undefined}
-          onClick={() => isWatcher && run(setWatching(false))}>🎮 Play</button>
-        <button role="radio" aria-checked={isWatcher} className={isWatcher ? 'on' : ''}
-          disabled={mustPlay} title={mustPlay ? 'You are in the tie-breaker' : undefined}
-          onClick={() => !isWatcher && run(setWatching(true))}>👀 Watch</button>
-      </div>
-      {isWatcher && <p className="muted">Watching: you keep your points, and you can still win the session.</p>}
 
       {room.sessionConfirmed && (
         <p className="session-line">
@@ -158,11 +151,14 @@ export function LobbyPage() {
           {isHost ? (
             <section className="settings">
               <p className="muted">Session: {total} rounds · pick a game</p>
-              <div className="choice-row">
+              {/* Every tile is the same size: a 16:10 picture area (empty until a game has a picture) with the name under it. */}
+              <div className="game-grid" role="radiogroup" aria-label="Game">
                 {GAMES.map((g) => (
-                  <button key={g.id} className={g.id === room.settings.gameId ? 'choice selected' : 'choice'}
+                  <button key={g.id} role="radio" aria-checked={g.id === room.settings.gameId}
+                    className={g.id === room.settings.gameId ? 'game-tile selected' : 'game-tile'}
                     onClick={() => run(updateSettings({ gameId: g.id }))}>
-                    {g.name}
+                    <span className="game-art">{GAME_IMAGES[g.id] && <img src={GAME_IMAGES[g.id]} alt="" draggable={false} />}</span>
+                    <span className="game-name">{g.name}</span>
                   </button>
                 ))}
               </div>
@@ -189,6 +185,17 @@ export function LobbyPage() {
           )}
         </>
       )}
+      {/* Play / Watch: switch whenever you like between rounds. Your points stay, and a watcher can still win the session. */}
+      <div className="mode-toggle" role="radiogroup" aria-label="Play or watch">
+        <button role="radio" aria-checked={!isWatcher} className={!isWatcher ? 'on' : ''}
+          disabled={isWatcher && slotsFull} title={isWatcher && slotsFull ? 'All playing slots are taken' : undefined}
+          onClick={() => isWatcher && run(setWatching(false))}>🎮 Play</button>
+        <button role="radio" aria-checked={isWatcher} className={isWatcher ? 'on' : ''}
+          disabled={mustPlay} title={mustPlay ? 'You are in the tie-breaker' : undefined}
+          onClick={() => !isWatcher && run(setWatching(true))}>👀 Watch</button>
+      </div>
+      {isWatcher && <p className="muted">Watching: you keep your points, and you can still win the session.</p>}
+
       {isHost && room.phase === 'lobby' && (
         <>
           <button className="link" onClick={() => run(closeRoom())}>Close room</button>

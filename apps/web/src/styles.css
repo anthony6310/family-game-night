@@ -125,3 +125,13 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .tap-page .spectate-bar { position: fixed; background: linear-gradient(to top, #1a1a2e, rgba(26, 26, 46, 0)); }
 .tap-spotlight { display: flex; flex-direction: column; align-items: center; gap: 0.3rem; padding: 1.5rem; }
 .tap-spotlight-count { font-size: 4rem; font-weight: bold; line-height: 1; }
+
+/* ---------- game picker ---------- */
+/* Uniform tiles: a 16:10 picture area with the name in a bar under it, whether or not the game has a picture yet. */
+.game-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; width: 100%; }
+.game-tile { display: flex; flex-direction: column; width: 100%; padding: 0; overflow: hidden; background: #26264a; color: #fff;
+  border: 3px solid transparent; border-radius: 0.8rem; }
+.game-tile.selected { border-color: #ff5d8f; }
+.game-art { display: block; width: 100%; aspect-ratio: 16 / 10; background: #31315c; }
+.game-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.game-name { padding: 0.45rem 0.4rem; font-size: 0.95rem; font-weight: bold; }

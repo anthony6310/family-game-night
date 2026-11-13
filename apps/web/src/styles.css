@@ -77,21 +77,6 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .settings.step { gap: 0.75rem; }
 .step-title { margin: 0.25rem 0 0; font-size: 1.4rem; }
 
-/* ---------- end-of-round "you won / you lost" sequence ---------- */
-.finish-overlay { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center;
-  background: rgba(10, 20, 50, 0.5); touch-action: none; user-select: none; -webkit-user-select: none; }
-.finish-pop { animation: finish-pop 0.35s ease-out; }
-.finish-bob { animation: finish-bob 1.1s ease-in-out infinite; }
-.finish-svg { display: block; width: min(94vw, 38rem); height: auto; overflow: visible; }
-.finish-main { font-family: system-ui, sans-serif; font-weight: 900; letter-spacing: 0.02em; stroke-width: 12; stroke-linejoin: round; paint-order: stroke; }
-.finish-sub { font-family: system-ui, sans-serif; font-weight: 800; fill: #fff; stroke: #1b2a52; stroke-width: 7; stroke-linejoin: round; paint-order: stroke; }
-.finish-svg.won .finish-main { fill: #ffd54a; stroke: #8a5a00; }
-.finish-svg.lost .finish-main { fill: #cfe2ff; stroke: #1e2f55; }
-.finish-svg.draw .finish-main, .finish-svg.watching .finish-main { fill: #ffffff; stroke: #1e2f55; }
-@keyframes finish-bob { 0%, 100% { transform: translateY(-14px); } 50% { transform: translateY(14px); } }
-@keyframes finish-pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
-@media (prefers-reduced-motion: reduce) { .finish-bob, .finish-pop { animation: none; } }
-
 /* ---------- playing / watching ---------- */
 /* A two-option radio-style switch (Play | Watch). `.small` is the compact version used on the spectator bar. */
 .mode-toggle { display: flex; width: min(100%, 20rem); background: #26264a; border-radius: 999px; padding: 0.25rem; gap: 0.25rem; }

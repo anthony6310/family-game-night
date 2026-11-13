@@ -3,7 +3,7 @@ import { type GameAction, type Player, type RoundResult, type TapRaceView } from
 import { useRemainingMs } from './Countdown';
 import { PLAYER_COLORS } from './playerColors';
 import { TapRaceScene, type ButtonStyle } from './taprace/TapRaceScene';
-import { WinnerBanner, isWinnerMoment } from './WinnerMoment';
+import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
 import { SpectatorControls } from '../spectate/SpectatorControls';
 import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
 
@@ -77,6 +77,7 @@ export default function TapRaceScreen({ game, players, selfId, serverNow, sendAc
   // The winner's moment (shared with other games: see WinnerMoment). The camera goes to the winner's button for
   // EVERYONE (players and spectators alike); on a draw nobody wins, so it pulls back to show the whole board.
   const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow);
+  useWinnerSounds(frozen, result, finishEndsAt, serverNow); // drumroll, then the fanfare as the camera reaches the winner
   const winnerId = result?.winnerId ?? null;
   useEffect(() => {
     if (winnerMoment) scene.current?.setCameraView({ mode: 'follow', targetId: winnerId });

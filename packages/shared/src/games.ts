@@ -33,6 +33,7 @@ export const GAMES = [
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
     scoreLabel: '',
+    finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
   },
   {
     id: 'penguin-lasso',

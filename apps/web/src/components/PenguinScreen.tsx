@@ -5,7 +5,7 @@ import { Joystick } from './Joystick';
 import { PLAYER_COLORS } from './playerColors';
 import { PenguinScene, type SkaterStyle } from './penguin/PenguinScene';
 import { useSteering } from './snowball/useSteering';
-import { WinnerBanner, isWinnerMoment } from './WinnerMoment';
+import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
 import { SpectatorControls } from '../spectate/SpectatorControls';
 import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
 
@@ -72,6 +72,7 @@ export default function PenguinScreen({ game, players, selfId, serverNow, sendAc
   useEffect(() => { scene.current?.setPanSource(camera.pan); }, [camera.pan]);
   // The winner moment: the camera goes to the winner for EVERYONE (on a draw nobody wins, so it pulls back to the middle).
   const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow);
+  useWinnerSounds(frozen, result, finishEndsAt, serverNow); // drumroll, then the fanfare as the camera reaches the winner
   const winnerId = result?.winnerId ?? null;
   useEffect(() => {
     if (winnerMoment) scene.current?.setCameraView({ mode: 'follow', targetId: winnerId });

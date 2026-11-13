@@ -3,7 +3,6 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { GAMES, MAX_PLAYERS, getGame, type GameId } from '@fgn/shared';
 import { Avatar } from '../components/Avatar';
 import { Countdown } from '../components/Countdown';
-import { FinishOverlay } from '../components/FinishOverlay';
 import { ResultsScreen } from '../components/ResultsScreen';
 import { SessionOverScreen } from '../components/SessionOverScreen';
 import { useRoom } from '../room/RoomContext';
@@ -53,7 +52,7 @@ export function LobbyPage() {
       room.game.gameId === 'snowball' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
           <SnowballScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
-            serverNow={serverNow} sendAction={sendAction} frozen={frozen} />
+            serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'penguin-lasso' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
@@ -66,13 +65,7 @@ export function LobbyPage() {
             serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       );
-    return (
-      <>
-        {screen}
-        {/* Snowball's ending is the you-won / you-lost message; Tap Race and Penguin Lasso stage the shared winner moment (own view, then the winner) inside their screens. */}
-        {frozen && room.result && room.game.gameId === 'snowball' && <FinishOverlay result={room.result} selfId={selfId} />}
-      </>
-    );
+    return screen; // every game stages the shared winner moment inside its own screen (see GAME_RULES.md #2)
   }
   if (room.phase === 'results' && room.result) {
     return <ResultsScreen room={room} selfId={selfId} error={error} serverNow={serverNow} onSkip={() => run(returnToLobby())} />;

@@ -1,9 +1,9 @@
 /**
  * How long each game's end-of-round sequence lasts, with the real defaults (no test overrides):
  *   npm run test:finish-length -w @fgn/server
- * Tap Race: 1.5 s on your own button + 2 s naming the winner = 3.5 s. Snowball: the usual 3 s.
+ * Tap Race: 1.5 s on your own button + 3 s naming the winner = 4.5 s. Snowball: the usual 3 s.
  */
-import { FINISH_SECONDS, TAP_RACE_FINISH_SECONDS, TAP_RACE_OWN_BUTTON_SECONDS, TAP_RACE_WINNER_SECONDS, type GameId, type Player } from '@fgn/shared';
+import { TAP_RACE_FINISH_SECONDS, TAP_RACE_OWN_BUTTON_SECONDS, TAP_RACE_WINNER_SECONDS, type GameId, type Player } from '@fgn/shared';
 import { RoomManager } from '../src/rooms';
 
 let failures = 0;
@@ -30,11 +30,13 @@ function finishLength(game: GameId, options: { finishMs?: number } = {}): number
   return ended.room.finishEndsAt - ended.room.serverTime;
 }
 
-check('config: Tap Race finish = 1.5 s own button + 2 s winner = 3.5 s', TAP_RACE_OWN_BUTTON_SECONDS === 1.5 && TAP_RACE_WINNER_SECONDS === 2 && TAP_RACE_FINISH_SECONDS === 3.5);
+check('config: Tap Race finish = 1.5 s own button + 3 s winner = 4.5 s', TAP_RACE_OWN_BUTTON_SECONDS === 1.5 && TAP_RACE_WINNER_SECONDS === 3 && TAP_RACE_FINISH_SECONDS === 4.5);
 const tap = finishLength('tap-race');
-check(`Tap Race: its finish sequence lasts 3.5 s (got ${tap} ms)`, Math.abs(tap - 3500) <= 30);
+check(`Tap Race: its finish sequence lasts 4.5 s (got ${tap} ms)`, Math.abs(tap - 4500) <= 30);
 const snow = finishLength('snowball');
-check(`Snowball: its finish sequence is still the usual ${FINISH_SECONDS} s (got ${snow} ms)`, Math.abs(snow - FINISH_SECONDS * 1000) <= 30);
+check(`Snowball: it now ends with the same winner sequence, 4.5 s (got ${snow} ms)`, Math.abs(snow - 4500) <= 30);
+const lasso = finishLength('penguin-lasso');
+check(`Penguin Lasso: the same 4.5 s winner sequence (got ${lasso} ms)`, Math.abs(lasso - 4500) <= 30);
 const forced = finishLength('tap-race', { finishMs: 500 });
 check(`a test override still applies to every game (got ${forced} ms)`, Math.abs(forced - 500) <= 30);
 

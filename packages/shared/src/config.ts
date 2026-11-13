@@ -37,7 +37,7 @@ export const FINISH_SECONDS = 3;
  * them for WINNER_SECONDS. The two together are that game's finish sequence.
  */
 export const OWN_VIEW_SECONDS = 1.5;
-export const WINNER_SECONDS = 2;
+export const WINNER_SECONDS = 3;
 export const WINNER_FINISH_SECONDS = OWN_VIEW_SECONDS + WINNER_SECONDS;
 // Tap Race's original names for the same thing (kept so older code and tests still read naturally).
 export const TAP_RACE_OWN_BUTTON_SECONDS = OWN_VIEW_SECONDS;

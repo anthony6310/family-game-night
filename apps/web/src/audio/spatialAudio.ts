@@ -19,6 +19,8 @@ export interface Mixer {
   setListener(x: number, z: number): void;
   /** Play `sound` at a world position. `gain` is its overall loudness (1 = full). Silently skipped when out of earshot. */
   play(sound: SoundFn, x: number, z: number, gain: number, strength?: number, at?: number): void;
+  /** Play `sound` with no place in the world: the same volume and balance for everyone (the clock, the drumroll, the fanfare). */
+  playFlat(sound: SoundFn, gain: number, strength?: number, at?: number): void;
 }
 
 /** Builds a mixer on any audio context (a real one in the game, an offline one in tests). */
@@ -50,6 +52,13 @@ export function createMixer(ctx: BaseAudioContext): Mixer {
       const panner = ctx.createStereoPanner();
       panner.pan.value = pan;
       level.connect(panner).connect(master);
+      sound(ctx, level, at, strength);
+    },
+
+    playFlat(sound, gain, strength = 1, at = ctx.currentTime) {
+      const level = ctx.createGain();
+      level.gain.value = gain;
+      level.connect(master);
       sound(ctx, level, at, strength);
     },
   };
@@ -90,5 +99,10 @@ export const audio = {
   play(sound: SoundFn, x: number, z: number, gain: number, strength = 1) {
     if (!mixer || !ctx || ctx.state !== 'running' || isMuted()) return;
     mixer.play(sound, x, z, gain, strength);
+  },
+  /** A sound that belongs to everyone equally (no place, no fading): used for the winner sequence. `delaySeconds` schedules it ahead on the audio clock. */
+  playFlat(sound: SoundFn, gain: number, delaySeconds = 0, strength = 1) {
+    if (!mixer || !ctx || ctx.state !== 'running' || isMuted()) return;
+    mixer.playFlat(sound, gain, strength, ctx.currentTime + delaySeconds);
   },
 };

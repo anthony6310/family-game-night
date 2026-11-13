@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef } from 'react';
-import type { GameAction, Player, SnowballView } from '@fgn/shared';
+import type { GameAction, Player, RoundResult, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './Joystick';
 import { PLAYER_COLORS } from './playerColors';
 import { SnowballScene, type BallStyle } from './snowball/SnowballScene';
 import { useSteering } from './snowball/useSteering';
+import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
 import { SpectatorControls } from '../spectate/SpectatorControls';
 import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
 
@@ -16,6 +17,9 @@ interface Props {
   sendAction: (action: GameAction) => void;
   /** The round has ended and its you-won / you-lost sequence is playing: no steering, no controls. */
   frozen?: boolean;
+  /** The decided result and the server time the finish sequence ends: while `frozen`, they drive the shared winner moment (see WinnerMoment). */
+  result?: RoundResult | null;
+  finishEndsAt?: number | null;
 }
 
 
@@ -23,7 +27,7 @@ interface Props {
  * The Snowball round: a full-screen three.js view, a small HUD, and steering controls.
  * Loaded on demand (see LobbyPage) so the landing page doesn't download three.js.
  */
-export default function SnowballScreen({ game, players, selfId, serverNow, sendAction, frozen = false }: Props) {
+export default function SnowballScreen({ game, players, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<SnowballScene | null>(null);
 
@@ -68,9 +72,14 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
   );
   const camera = useSpectatorCamera(subjects, !isPlayer);
   useEffect(() => { scene.current?.setPanSource(camera.pan); }, [camera.pan]);
+  // The winner moment (shared with the other games): the camera goes to the winner for EVERYONE, with a banner and the drumroll + fanfare.
+  const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow);
+  const winnerId = result?.winnerId ?? null;
+  useWinnerSounds(frozen, result, finishEndsAt, serverNow);
   useEffect(() => {
-    if (!isPlayer) scene.current?.setCameraView({ mode: camera.mode, targetId: camera.targetId });
-  }, [isPlayer, camera.mode, camera.targetId]);
+    if (winnerMoment) scene.current?.setCameraView({ mode: 'follow', targetId: winnerId });
+    else if (!isPlayer) scene.current?.setCameraView({ mode: camera.mode, targetId: camera.targetId });
+  }, [winnerMoment, winnerId, isPlayer, camera.mode, camera.targetId]);
 
   const standings = Object.entries(game.balls)
     .map(([id, ball]) => ({ id, size: Math.round(ball.radius * 100), style: styles[id], leader: ball.leader, fish: ball.fish }))
@@ -95,8 +104,10 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
         {isPlayer && !frozen && <p className="snow-hint">Drag to steer · or use WASD / arrow keys</p>}
       </div>
 
+      {winnerMoment && result && <WinnerBanner result={result} />}
+
       {isPlayer && !frozen && <Joystick onChange={setStick} />}
-      {!isPlayer && <SpectatorControls camera={camera} />}
+      {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );
 }

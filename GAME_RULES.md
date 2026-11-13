@@ -12,7 +12,7 @@ To add a rule: give it the next number, say what it is, say why, and name the co
 **Rule.** Any game with a round clock uses the same countdown, with no per-game variations:
 
 - For each of the **last 5 seconds** there is a clock **tick** (alternating tick / tock), starting at the moment the on-screen timer shows that number (5, 4, 3, 2, 1).
-- The ticks get **louder each second**: about 30% of full volume at 5 seconds left, rising to full volume at the last second.
+- The ticks get **louder each second**: about 50% of full volume at 5 seconds left, rising to full volume at the last second.
 - When time reaches zero, a **whistle** blows.
 - It is heard at the **same volume by everyone**, spectators included (it belongs to the whole round, not to a place on the board).
 - It follows the player's **sound on/off** setting like every other sound.
@@ -33,28 +33,34 @@ Games that have it so far: **Tap Race**, **Snowball** and **Penguin Lasso**.
 
 ## 2. Every round ends with the winner moment (the camera pans to the winner)
 
-**Rule.** When a round ends, the game does not jump straight to a result. Every game that uses this ending does the same two steps, in the same order, with the same timing:
+**Rule.** When a round ends, the game does not jump straight to a result. **Every game** does the same two steps, in the same order, with the same timing, and the same sounds:
 
-1. **Your own view, no result (1.5 s).** Input stops, and each player keeps looking at their own view (their own button, their own skater). Nobody is told who won yet.
-2. **The winner (2 s).** The camera glides to the **winner** for **everyone** (players and spectators alike), and a banner reads **"The winner is [name]"**. On a draw it reads **"It's a draw!"** and the camera pulls back to the middle.
+1. **Your own view, no result (1.5 s).** Input stops, and each player keeps looking at their own view (their own button, their own ball, their own skater). Nobody is told who won yet.
+2. **The winner (3 s).** The camera glides to the **winner** for **everyone** (players and spectators alike), and a banner reads **"The winner is [name]"**. On a draw it reads **"It's a draw!"** and the camera pulls back to the middle.
 
-Then the normal results screen follows. Together the two steps are the game's finish sequence, **3.5 s**.
+Then the normal results screen follows. Together the two steps are the game's finish sequence, **4.5 s**.
 
-**Why.** It builds a little suspense, and it means every game ends in a way players already know.
+**The sound.** The same in every game:
+
+- A **drumroll** starts the instant the round freezes. It begins quiet and slow and keeps getting louder and quicker.
+- As the camera reaches the winner it **crescendos** and lands on a **victory fanfare**: a cymbal crash and a deep boom, a quick rising brass call (C, E, G), a big held C major chord, and a shimmer of bells climbing over the top. It is bright, major-key and rising, so it sounds like winning.
+- On a **draw** there is no fanfare: the drumroll resolves into a soft, friendly two-note chime.
+- Everyone hears it at the **same volume** (it belongs to the whole round, not to a place on the board). It follows the **sound on/off** setting, and it only plays when you actually see the round end (arriving during the sequence is silent).
+
+**Why.** It builds a little suspense, and every game ends in a way players already know.
 
 **How it is done.**
 
-- The timings are shared settings in `packages/shared/src/config.ts`: `OWN_VIEW_SECONDS` (1.5), `WINNER_SECONDS` (2) and `WINNER_FINISH_SECONDS` (their sum).
+- The timings are shared settings in `packages/shared/src/config.ts`: `OWN_VIEW_SECONDS` (1.5), `WINNER_SECONDS` (3) and `WINNER_FINISH_SECONDS` (their sum).
 - The game's entry in `packages/shared/src/games.ts` sets `finishSeconds: WINNER_FINISH_SECONDS`, which makes the server wait that long before the results screen.
-- On screen, one shared piece of code, `apps/web/src/components/WinnerMoment.tsx`, does the rest: `isWinnerMoment(...)` says when step 2 has started and `<WinnerBanner>` draws the banner.
+- On screen, one shared piece of code, `apps/web/src/components/WinnerMoment.tsx`, does the rest: `isWinnerMoment(...)` says when step 2 has started, `<WinnerBanner>` draws the banner, and `useWinnerSounds(...)` plays the drumroll and fanfare.
+- The sounds themselves (`drumrollFor`, `victoryFanfare`, `drawChime`) are in `apps/web/src/audio/gameSounds.ts`, made live by the browser's audio engine (no sound files). They are scheduled ahead on the audio clock when the round freezes, so the fanfare lands right as the banner appears.
 
 **Adding it to a new game's screen:**
 
 1. Take the `result` and `finishEndsAt` props (LobbyPage passes them in).
-2. `const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow)`.
+2. `const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow)` and call `useWinnerSounds(frozen, result, finishEndsAt, serverNow)`.
 3. While `winnerMoment` is true, point the scene's camera at `result.winnerId` for everyone, and render `<WinnerBanner result={result} />`.
-4. In `LobbyPage`, skip the generic `FinishOverlay` for that game.
+4. Set `finishSeconds: WINNER_FINISH_SECONDS` on the game in `games.ts`.
 
-Games that have it so far: **Tap Race** and **Penguin Lasso**.
-
-**Not yet:** **Snowball** still ends with the older you-won / you-lost message (`FinishOverlay`). It should be moved over to this rule.
+Games that have it so far: **Tap Race**, **Snowball** and **Penguin Lasso** (all of them). The older generic "you won / you lost" overlay has been removed.

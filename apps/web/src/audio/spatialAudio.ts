@@ -1,5 +1,6 @@
 import { isMuted } from './soundSettings';
 import type { SoundFn } from './snowSounds';
+import { startMusic } from './music';
 
 /**
  * "Spatial" sound: every sound has a place in the world, and you hear it as if you stood at the listener's place.
@@ -69,6 +70,7 @@ function unlock() {
       const Ctx = window.AudioContext ?? (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       ctx = new Ctx();
       mixer = createMixer(ctx);
+      startMusic(ctx); // background music loops from the first tap on
     }
     if (ctx.state !== 'running') void ctx.resume();
   } catch {

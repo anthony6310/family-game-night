@@ -67,14 +67,14 @@ export class RoomManager {
   private roomOfPlayer = new Map<string, string>(); // playerId -> room code
   private countdownMs: number;
   private resultsMs: number;
-  private finishMs: number;
+  private finishMsOverride: number | undefined; // set by tests: every game's finish sequence lasts this long
   private engines: Record<GameId, GameEngine>;
 
   /** Durations are injectable so tests can run fast. */
   constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number } = {}) {
     this.countdownMs = options.countdownMs ?? COUNTDOWN_SECONDS * 1000;
     this.resultsMs = options.resultsMs ?? RESULTS_SECONDS * 1000;
-    this.finishMs = options.finishMs ?? FINISH_SECONDS * 1000;
+    this.finishMsOverride = options.finishMs;
     this.engines = {
       'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000),
       snowball: createSnowball({ durationMs: options.snowballMs ?? SNOWBALL_SECONDS * 1000 }),
@@ -373,7 +373,7 @@ export class RoomManager {
     // The result is decided NOW, but players first get the short "you won / you lost" sequence over the frozen game
     // (input is ignored in this phase). `game` stays so phones can keep drawing the final moment; the summary comes next.
     room.phase = 'finish';
-    room.finishEndsAt = Date.now() + this.finishMs;
+    room.finishEndsAt = Date.now() + this.finishMsFor(room);
     room.resultsEndsAt = null;
     return {
       room: toState(room),
@@ -429,6 +429,11 @@ export class RoomManager {
     room.resultsEndsAt = null;
     room.countdownEndsAt = null;
     room.ready.clear();
+  }
+
+  /** How long this room's end-of-round sequence lasts: the game's own length if it has one (Tap Race), else the usual one. */
+  private finishMsFor(room: Room): number {
+    return this.finishMsOverride ?? (getGame(room.settings.gameId)?.finishSeconds ?? FINISH_SECONDS) * 1000;
   }
 
   /** Who plays the next round: everyone who isn't watching, or only the tied contenders still present. */

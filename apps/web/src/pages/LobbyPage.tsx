@@ -8,15 +8,16 @@ import { Countdown } from '../components/Countdown';
 import { FinishOverlay } from '../components/FinishOverlay';
 import { ResultsScreen } from '../components/ResultsScreen';
 import { SessionOverScreen } from '../components/SessionOverScreen';
-import { TapRaceScreen } from '../components/TapRaceScreen';
 import { useRoom } from '../room/RoomContext';
 
-// three.js is big, so the Snowball screen is its own download, fetched only when needed.
+// three.js is big, so the 3D game screens are their own downloads, fetched only when needed.
 const loadSnowballScreen = () => import('../components/SnowballScreen');
 const SnowballScreen = lazy(loadSnowballScreen);
+const loadTapRaceScreen = () => import('../components/TapRaceScreen'); // Tap Race is 3D now too
+const TapRaceScreen = lazy(loadTapRaceScreen);
 
 /** A picture of each game for the game picker, taken from the real game (files in public/games). A game with no picture yet shows a plain tile. */
-const GAME_IMAGES: Partial<Record<GameId, string>> = { snowball: '/games/snowball.png' };
+const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-race.png', snowball: '/games/snowball.png' };
 
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
@@ -26,10 +27,11 @@ export function LobbyPage() {
   const [muted, setMuted] = useMuted(); // the sound on/off choice (remembered in this browser)
   const [pickedRounds, setPickedRounds] = useState<number>(ROUND_OPTIONS[0]); // the host's choice in step 1, before confirming
 
-  // As soon as the host picks Snowball, start downloading its code so the round can begin instantly.
+  // As soon as the host picks a game, start downloading its code so the round can begin instantly.
   const pickedGame = room?.settings.gameId;
   useEffect(() => {
     if (pickedGame === 'snowball') void loadSnowballScreen();
+    if (pickedGame === 'tap-race') void loadTapRaceScreen();
   }, [pickedGame]);
 
   // No room (refresh, lost connection, or the host closed it): back to the hub.
@@ -44,7 +46,7 @@ export function LobbyPage() {
     navigate('/play');
   }
 
-  // While a round runs, and during its short you-won / you-lost sequence (the game stays on screen, frozen, under the message).
+  // While a round runs, and during its short finish sequence (the game stays on screen, frozen, under the message).
   if ((room.phase === 'playing' || room.phase === 'finish') && room.game) {
     const frozen = room.phase === 'finish';
     // `key` = a fresh screen for every round (and the same screen carries on into the finish sequence).
@@ -55,13 +57,16 @@ export function LobbyPage() {
             serverNow={serverNow} sendAction={sendAction} frozen={frozen} />
         </Suspense>
       ) : (
-        <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
-          serverNow={serverNow} sendAction={sendAction} frozen={frozen} />
+        <Suspense fallback={<p className="center">Loading…</p>}>
+          <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
+            serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+        </Suspense>
       );
     return (
       <>
         {screen}
-        {frozen && room.result && <FinishOverlay result={room.result} selfId={selfId} />}
+        {/* Snowball's ending is the you-won / you-lost message; Tap Race stages its own (own button, then the winner), inside its screen. */}
+        {frozen && room.result && room.game.gameId !== 'tap-race' && <FinishOverlay result={room.result} selfId={selfId} />}
       </>
     );
   }

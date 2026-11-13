@@ -26,13 +26,21 @@ export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const COUNTDOWN_SECONDS = 3;
 
 /** How long a Tap Race round lasts. */
-export const TAP_RACE_SECONDS = 10;
+export const TAP_RACE_SECONDS = 15;
 
 /**
  * How long the "you won / you lost" sequence lasts when a round ends: input is stopped and a message plays over the
  * frozen game, before the round summary screen appears.
  */
 export const FINISH_SECONDS = 3;
+
+/**
+ * Tap Race ends differently: each player first sees their own button for TAP_RACE_OWN_BUTTON_SECONDS (no result yet), then
+ * the camera pans to the winner and names them for TAP_RACE_WINNER_SECONDS. The two together are that game's finish sequence.
+ */
+export const TAP_RACE_OWN_BUTTON_SECONDS = 1.5;
+export const TAP_RACE_WINNER_SECONDS = 2;
+export const TAP_RACE_FINISH_SECONDS = TAP_RACE_OWN_BUTTON_SECONDS + TAP_RACE_WINNER_SECONDS;
 
 /** How long the round summary screen stays up before the room moves on by itself. */
 export const RESULTS_SECONDS = 4;

@@ -1,4 +1,4 @@
-import { MAX_PLAYERS } from './config';
+import { MAX_PLAYERS, TAP_RACE_FINISH_SECONDS } from './config';
 
 /**
  * Static info about each game, used by the lobby menu and by the server's start rules.
@@ -12,6 +12,8 @@ export interface GameInfo {
   maxPlayers: number;
   /** Word shown after each player's round score on the results screen (empty = just the number). */
   scoreLabel: string;
+  /** How long this game's end-of-round sequence lasts, if not the usual FINISH_SECONDS. */
+  finishSeconds?: number;
 }
 
 export const GAMES = [
@@ -22,6 +24,7 @@ export const GAMES = [
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
     scoreLabel: 'taps',
+    finishSeconds: TAP_RACE_FINISH_SECONDS, // own button, then the winner
   },
   {
     id: 'snowball',

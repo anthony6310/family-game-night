@@ -12,11 +12,17 @@ export interface FollowTarget {
 /**
  * The camera behind every 3D spectator view, with no knowledge of any specific game. A game owns a
  * PerspectiveCamera and each frame calls `update()` with what the spectator chose:
- *   follow: the same chase view the followed player has (it steps back as their `size` grows)
+ *   follow: the same view the followed player has (by default a chase view that steps back as their `size` grows)
  *   free:   a steeper, higher camera the spectator pans around with `pan` (a direction, -1..1 on x east / z south)
  * Switching modes or players glides: position, height and distance are all smoothed. A new 3D game only has to
  * create a rig and pass `arenaRadius` (how far the free camera may roam); it gets the same spectating for free.
  */
+/** How a game wants its "follow" camera placed: how high above the followed thing, and how far back (south) of it, for a given size. */
+export type FollowView = (size: number) => { height: number; back: number };
+
+/** Snowball's chase view: it steps back as the ball grows. It is the default. */
+const CHASE_VIEW: FollowView = (size) => ({ height: 6 + 3.2 * size, back: 8 + 4.2 * size });
+
 export class SpectatorRig {
   private focus = new Vector3(); // the point on the ground the camera looks at (smoothed)
   private free = new Vector3(); // where the free camera WANTS to look (moved by the pan input)
@@ -25,7 +31,8 @@ export class SpectatorRig {
   private size = 1;
   private mode: CameraMode = 'follow';
 
-  constructor(private camera: PerspectiveCamera, private arenaRadius: number) {}
+  /** `followView` lets a game choose how its follow camera sits (Tap Race looks almost straight down at the button); the default is the Snowball chase view. */
+  constructor(private camera: PerspectiveCamera, private arenaRadius: number, private followView: FollowView = CHASE_VIEW) {}
 
   /** The ground point the camera is looking at right now: also where a spectator's "ears" are (see audio). */
   get focusX() { return this.focus.x; }
@@ -52,8 +59,9 @@ export class SpectatorRig {
     } else if (target) {
       wantFocus = new Vector3(target.x, target.y, target.z);
       wantSize = target.size;
-      wantHeight = (6 + 3.2 * target.size) * zoom; // the same chase view a player gets
-      wantBack = (8 + 4.2 * target.size) * zoom;
+      const view = this.followView(target.size); // the same view a player gets
+      wantHeight = view.height * zoom;
+      wantBack = view.back * zoom;
     } else {
       wantFocus = new Vector3(0, 0, 0); // nobody to follow: look at the middle of the arena
       wantHeight = this.arenaRadius * 1.25 * zoom;

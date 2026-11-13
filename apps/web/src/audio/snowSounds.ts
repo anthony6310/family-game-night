@@ -25,8 +25,8 @@ function noise(ctx: BaseAudioContext): AudioBuffer {
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
 
-/** A tiny burst of noise through one filter with a sharp attack and a fast fade: one "crunch" grain. */
-function grain(
+/** A tiny burst of noise through one filter (exported: other sound sets, like the typewriter click, are built from the same grains) with a sharp attack and a fast fade: one "crunch" grain. */
+export function grain(
   ctx: BaseAudioContext, out: AudioNode, t: number,
   { type, freq, q, gain, duration }: { type: BiquadFilterType; freq: number; q: number; gain: number; duration: number },
 ) {

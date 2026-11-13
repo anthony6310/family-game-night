@@ -6,7 +6,8 @@ import {
   type Texture,
 } from 'three';
 import { audio } from '../../audio/spatialAudio';
-import { collisionCrunch, rollCrunch } from '../../audio/snowSounds';
+import { createRoundClock } from '../../audio/roundClock';
+import { collisionCrunch, rollCrunch, type SoundFn } from '../../audio/snowSounds';
 import { SpectatorRig } from '../../spectate/SpectatorRig';
 import type { CameraMode } from '../../spectate/useSpectatorCamera';
 import { FleckSystem, ShockRingSystem, StreakSystem } from './effects';
@@ -177,6 +178,8 @@ export class SnowballScene {
   }>();
   private fishKit = new FishKit();
   private itemShadowMaterial = new MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.16, depthWrite: false });
+  // The countdown every game shares (see GAME_RULES.md): ticks for the last 5 seconds, then the whistle. Heard the same everywhere.
+  private clock = createRoundClock((sound, gain) => this.playHere(sound, gain));
   private shake = 0; // 0..1: how much the camera is shaking right now
   private readonly reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches; // people who ask their device for less motion get no shake
   private maxSpeedFactor = 1.6; // the highest speedFactor a ball can reach (set from the server's speed range)
@@ -212,6 +215,16 @@ export class SnowballScene {
   pushSnapshot(balls: Record<string, SnowballBall>) {
     this.snapshots.push({ t: performance.now(), balls });
     if (this.snapshots.length > 10) this.snapshots.shift();
+  }
+
+  /** How many seconds of the round are left (call it whenever the clock updates): the last 5 seconds tick, and the whistle blows at zero. */
+  setSecondsLeft(secondsLeft: number) {
+    this.clock.update(secondsLeft);
+  }
+
+  /** Plays a sound that belongs to the whole round rather than a place in the arena (the clock): at the listener, so it is the same volume everywhere. */
+  private playHere(sound: SoundFn, gain: number) {
+    audio.play(sound, this.rig.focusX, this.rig.focusZ, gain, 1);
   }
 
   /** The pick-ups the server says are lying in the arena right now (a fresh list with every update). */

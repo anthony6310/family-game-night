@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { GameAction, Player, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './Joystick';
+import { PLAYER_COLORS } from './playerColors';
 import { SnowballScene, type BallStyle } from './snowball/SnowballScene';
 import { useSteering } from './snowball/useSteering';
 import { SpectatorControls } from '../spectate/SpectatorControls';
@@ -17,8 +18,6 @@ interface Props {
   frozen?: boolean;
 }
 
-/** Ring / name-tag colours. Everyone gets one by their seat at the start of the round. */
-const PALETTE = ['#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#f97316'];
 
 /**
  * The Snowball round: a full-screen three.js view, a small HUD, and steering controls.
@@ -30,7 +29,7 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
 
   // Colours, names and profile pictures are fixed when the round starts (a player leaving mustn't recolour everyone).
   const styles = useMemo<Record<string, BallStyle>>(
-    () => Object.fromEntries(players.map((p, i) => [p.id, { name: p.name, color: PALETTE[i % PALETTE.length], avatarUrl: p.avatarUrl }])),
+    () => Object.fromEntries(players.map((p, i) => [p.id, { name: p.name, color: PLAYER_COLORS[i % PLAYER_COLORS.length], avatarUrl: p.avatarUrl }])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -55,6 +54,9 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
 
   const setStick = useSteering(sendAction, !frozen);
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
+  useEffect(() => {
+    scene.current?.setSecondsLeft(remainingMs / 1000); // the last 5 seconds tick, then the whistle: the same countdown as every game
+  }, [remainingMs]);
   const isPlayer = selfId !== null && selfId in game.balls;
 
   // Spectators (watchers, or players sitting out a tie-breaker) choose whose camera to follow, or fly a free camera.

@@ -115,7 +115,7 @@ export default function TapRaceScreen({ game, players, selfId, serverNow, sendAc
         {isPlayer && !frozen && !over && best <= 1 && <p className="snow-hint">Tap as fast as you can!</p>}
       </div>
 
-      {winnerMoment && result && <WinnerBanner result={result} />}
+      {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
       {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>

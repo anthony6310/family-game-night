@@ -1,9 +1,10 @@
 import { randomInt } from 'node:crypto';
 import {
+  MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
   COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
   PENGUIN_SECONDS, SNOWBALL_SECONDS, TAP_RACE_SECONDS, getGame,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
-  type RoundResult,
+  type RoundResult, type Bet, type BetResult, type Underdog,
 } from '@fgn/shared';
 import { createPenguinLasso } from './games/penguinLasso';
 import { createSnowball } from './games/snowball';
@@ -17,9 +18,12 @@ interface Room {
   roster: Map<string, Player>; // EVERYONE who has joined this session, kept after they leave, so a departed player's wins can still crown them
   watching: Set<string>; // members (a subset of `players`) sitting rounds out: no slot, no Ready, not in the game, but their wins still count
   settings: RoomSettings;
+  bets: Record<string, Bet>; // spectators' bets on who wins the coming round (stakes are locked in when it starts)
   ready: Set<string>;
   phase: RoomPhase;
   countdownEndsAt: number | null;
+  underdog: Underdog | null; // this round's underdog (decided when the countdown ends), if there is one
+  underdogEndsAt: number | null; // when the underdog announcement ends
   wins: Record<string, number>; // rounds won this session, by player id (kept when a player leaves)
   sessionSaved: boolean; // this session's winner has already been handed out for saving (never save twice)
   game: { engine: GameEngine; state: unknown; lastTickAt: number } | null; // set while phase is 'playing' or 'finish' (frozen in 'finish')
@@ -89,9 +93,12 @@ export class RoomManager {
       roster: new Map([[host.id, host]]),
       watching: new Set(),
       settings: { gameId: null },
+      bets: {},
       ready: new Set(),
       phase: 'lobby',
       countdownEndsAt: null,
+      underdog: null,
+      underdogEndsAt: null,
       wins: {},
       sessionSaved: false,
       game: null,
@@ -107,8 +114,9 @@ export class RoomManager {
   }
 
   /**
-   * Anyone can join (until the room holds MAX_PLAYERS playing + MAX_SPECTATORS watching). Someone arriving mid-round
-   * (the finish sequence still belongs to the round) or when every playing slot is taken simply starts out WATCHING;
+   * Anyone can join (until the room holds MAX_PLAYERS seats + MAX_SPECTATORS spectator-only people). Only the first
+   * MAX_PLAYERS people to join have a seat (the option to play); anyone after that is spectator-only (see spectatorOnly).
+   * Someone arriving mid-round (the finish sequence still belongs to the round) simply starts out WATCHING; with a seat,
    * they can switch to playing between rounds (see setWatching).
    */
   join(rawCode: string, player: Player): Result {
@@ -116,8 +124,8 @@ export class RoomManager {
     const room = this.rooms.get(rawCode.trim().toUpperCase()); // codes are case-insensitive
     if (!room) return fail('ROOM_NOT_FOUND');
     if (room.players.size >= MAX_PLAYERS + MAX_SPECTATORS) return fail('ROOM_FULL');
-    const midRound = room.phase === 'playing' || room.phase === 'finish';
-    if (midRound || this.activeCount(room) >= MAX_PLAYERS) room.watching.add(player.id);
+    const midRound = room.phase === 'underdog' || room.phase === 'playing' || room.phase === 'finish';
+    if (midRound || room.players.size >= MAX_PLAYERS) room.watching.add(player.id); // (size = how many are already in: their place in line)
     room.players.set(player.id, player);
     room.roster.set(player.id, player);
     this.roomOfPlayer.set(player.id, room.code);
@@ -134,6 +142,7 @@ export class RoomManager {
     room.players.delete(playerId);
     room.watching.delete(playerId);
     room.ready.delete(playerId);
+    delete room.bets[playerId]; // a leaver's bet is void
     // NOTE: their wins (and roster entry) stay, so they can still be named the session winner.
     this.roomOfPlayer.delete(playerId);
 
@@ -146,6 +155,9 @@ export class RoomManager {
     // Host left: promote whoever has been here longest (first in the Map), so the room always has a host.
     if (room.hostId === playerId) room.hostId = room.players.keys().next().value!;
 
+    if (room.underdog?.playerId === playerId) room.underdog = null; // the underdog left: there is nobody to win the bonus
+    // Between the countdown and the start (the underdog announcement): too few players left means the round is called off.
+    if (room.phase === 'underdog' && this.participants(room).length < this.minPlayers(room)) this.abortRound(room);
     // Mid-round: the leaver forfeits. If too few players remain for the game, call the round off.
     if (room.phase === 'playing' && room.game) {
       room.game.state = room.game.engine.removePlayer(room.game.state, playerId);
@@ -202,8 +214,31 @@ export class RoomManager {
     if (watching) {
         room.watching.add(playerId);
     } else if (room.watching.has(playerId)) {
-      if (this.activeCount(room) >= MAX_PLAYERS) return fail('ROOM_FULL'); // every playing slot is taken
+      if (this.spectatorOnly(room).includes(playerId)) return fail('NO_SEAT'); // only the first MAX_PLAYERS people may play
       room.watching.delete(playerId);
+    }
+    room.ready.delete(playerId);
+    this.reconcile(room);
+    return ok(room);
+  }
+
+  /**
+   * A spectator bets on a player to win the coming round, optionally putting up `stake` of their own victory points on top.
+   * Lobby/countdown only. Changing a bet drops your Ready (you ready up again with the bet you want), which may cancel a
+   * countdown. `targetId` null takes the bet back.
+   */
+  setBet(playerId: string, targetId: string | null, stake: number): Result {
+    const room = this.roomFor(playerId);
+    if (!room) return fail('NOT_IN_ROOM');
+    if (!room.watching.has(playerId)) return fail('NOT_A_SPECTATOR'); // players don't bet: they play
+    if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
+    if (targetId === null) {
+      delete room.bets[playerId];
+    } else {
+      if (!this.participants(room).includes(targetId)) return fail('INVALID_BET'); // must be someone who is playing
+      // A stake is whole points, no more than you have, and either nothing (a free bet) or at least MIN_STAKE.
+      if (!Number.isInteger(stake) || stake < 0 || stake > this.points(room, playerId) || (stake > 0 && stake < MIN_STAKE)) return fail('INVALID_BET');
+      room.bets[playerId] = { targetId, stake };
     }
     room.ready.delete(playerId);
     this.reconcile(room);
@@ -213,7 +248,6 @@ export class RoomManager {
   setReady(playerId: string, ready: boolean): Result {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
-    if (room.watching.has(playerId)) return fail('NOT_A_PLAYER'); // watchers don't ready up
     if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
     if (!room.settings.gameId) return fail('NO_GAME_SELECTED');
 
@@ -230,12 +264,37 @@ export class RoomManager {
   finishCountdown(code: string, expectedEndsAt: number): RoomState | null {
     const room = this.rooms.get(code);
     if (!room || room.phase !== 'countdown' || room.countdownEndsAt !== expectedEndsAt) return null;
+    room.countdownEndsAt = null;
+    for (const [id, bet] of Object.entries(room.bets)) {
+      bet.stake = Math.min(bet.stake, this.points(room, id)); // the stakes are locked in now (never more than they have)
+      if (bet.stake < MIN_STAKE) bet.stake = 0; // (and a stake below the minimum is just a free bet)
+    }
+    // Is there an underdog? If so, everyone is shown them for a few seconds before the round begins.
+    room.underdog = this.findUnderdog(room);
+    if (room.underdog) {
+      room.phase = 'underdog';
+      room.underdogEndsAt = Date.now() + UNDERDOG_SECONDS * 1000;
+      return toState(room);
+    }
+    this.startRound(room);
+    return toState(room);
+  }
+
+  /** The underdog announcement is over: the round starts now. Same stale-timer guard as the countdown. */
+  finishUnderdog(code: string, expectedEndsAt: number): RoomState | null {
+    const room = this.rooms.get(code);
+    if (!room || room.phase !== 'underdog' || room.underdogEndsAt !== expectedEndsAt) return null;
+    this.startRound(room);
+    return toState(room);
+  }
+
+  private startRound(room: Room) {
     const engine = this.engines[room.settings.gameId!];
     room.phase = 'playing';
     room.countdownEndsAt = null;
+    room.underdogEndsAt = null;
     const now = Date.now();
     room.game = { engine, state: engine.init(this.participants(room), now), lastTickAt: now };
-    return toState(room);
   }
 
   /** A phone sent an in-game action (e.g. a tap). Returns null if it was ignored entirely. */
@@ -312,7 +371,7 @@ export class RoomManager {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.hostId !== playerId) return fail('NOT_HOST');
-    if (room.phase === 'playing') {
+    if (room.phase === 'playing' || room.phase === 'underdog') {
       this.abortRound(room);
       return ok(room);
     }
@@ -351,14 +410,28 @@ export class RoomManager {
 
   private endRound(room: Room): Outcome {
     const { engine, state } = room.game!;
-    const winnerId = engine.getWinner(state);
-    if (winnerId) {
-      room.wins[winnerId] = (room.wins[winnerId] ?? 0) + 1;
-      room.roundsPlayed++; // a draw counts as "not played"
+    const scores = engine.scores(state);
+    let winnerId = engine.getWinner(state);
+    // A draw: nobody won... unless the underdog is among the players tied for first, in which case the underdog wins it.
+    let byDraw = false;
+    if (winnerId === null && room.underdog && room.players.has(room.underdog.playerId)) {
+      const top = Math.max(...Object.values(scores));
+      const tied = Object.keys(scores).filter((id) => scores[id] === top);
+      if (tied.length >= 2 && tied.includes(room.underdog.playerId)) { winnerId = room.underdog.playerId; byDraw = true; }
+    }
+    room.roundsPlayed++; // every round counts, draws included (nobody is forced to replay: the players can just pick the game again)
+    if (winnerId) room.wins[winnerId] = (room.wins[winnerId] ?? 0) + 1;
+    // The underdog collects their bonus whenever they win (outright or by the draw), on top of the usual point.
+    let underdog: RoundResult['underdog'] = null;
+    if (winnerId && room.underdog && winnerId === room.underdog.playerId) {
+      room.wins[winnerId] += room.underdog.bonus;
+      underdog = { ...room.underdog, byDraw };
     }
     const winner = winnerId ? (room.players.get(winnerId) ?? null) : null;
-    room.result = { winnerId, winner, scores: engine.scores(state) };
-    // The result is decided NOW, but players first get the short "you won / you lost" sequence over the frozen game
+    const bets = this.settleBets(room, winnerId);
+    room.underdog = null;
+    room.result = { winnerId, winner, scores, bets, winningBettors: bets.filter((b) => b.delta > 0).map((b) => ({ bettorId: b.bettorId, delta: b.delta })), underdog };
+    // The result is decided NOW, but players first get the short winner sequence over the frozen game
     // (input is ignored in this phase). `game` stays so phones can keep drawing the final moment; the summary comes next.
     room.phase = 'finish';
     room.finishEndsAt = Date.now() + this.finishMsFor(room);
@@ -406,6 +479,9 @@ export class RoomManager {
     room.finishEndsAt = null;
     room.resultsEndsAt = null;
     room.countdownEndsAt = null;
+    room.bets = {}; // bets are for one round only
+    room.underdog = null;
+    room.underdogEndsAt = null;
     room.ready.clear();
   }
 
@@ -419,9 +495,57 @@ export class RoomManager {
     return [...room.players.keys()].filter((id) => !room.watching.has(id));
   }
 
-  /** How many members are playing (not watching): these are the ones that use the MAX_PLAYERS slots. */
-  private activeCount(room: Room): number {
-    return room.players.size - room.watching.size;
+  /** Victory points (rounds won this session, plus bet winnings) a member has right now. */
+  private points(room: Room, id: string): number {
+    return room.wins[id] ?? 0;
+  }
+
+  /** Members who can only watch: everyone beyond the first MAX_PLAYERS to join (join order). When one of the first leaves, the next one moves up and gets a seat. */
+  private spectatorOnly(room: Room): string[] {
+    return [...room.players.keys()].slice(MAX_PLAYERS);
+  }
+
+  /**
+   * Pays out the round's bets and clears them. A free bet (no stake) wins 1 point and can't lose any; a staked bet wins exactly its
+   * stake, or loses exactly its stake. A draw (nobody won) counts as a loss for every bet: that is just part of the risk. The one
+   * way a bet is void (nothing changes) is when the player it was on has left the room. Spectators who left are skipped.
+   */
+  private settleBets(room: Room, winnerId: string | null): BetResult[] {
+    const results: BetResult[] = [];
+    for (const [bettorId, bet] of Object.entries(room.bets)) {
+      if (!room.players.has(bettorId)) continue;
+      const void_ = !room.players.has(bet.targetId);
+      const delta = void_ ? 0 : bet.targetId === winnerId ? Math.max(1, bet.stake) : 0 - bet.stake;
+      if (delta !== 0) room.wins[bettorId] = Math.max(0, this.points(room, bettorId) + delta);
+      results.push({ bettorId, targetId: bet.targetId, stake: bet.stake, delta });
+    }
+    room.bets = {};
+    return results;
+  }
+
+  /**
+   * Is there an underdog for the round about to start? Only with at least UNDERDOG_MIN_PLAYERS players, and only when exactly one
+   * of them has no bets on them while every other player has at least one (any bet counts, free ones too). The bonus they can
+   * win is 1 point per person who bet (all of those bets are against them), and it is fixed now, whoever leaves later.
+   */
+  private findUnderdog(room: Room): Underdog | null {
+    const players = this.participants(room);
+    if (players.length < UNDERDOG_MIN_PLAYERS) return null;
+    const backers = (id: string) => Object.entries(room.bets).filter(([bettor, bet]) => bet.targetId === id && room.players.has(bettor)).length;
+    const unbacked = players.filter((id) => backers(id) === 0);
+    if (unbacked.length !== 1) return null;
+    const bonus = Object.values(room.bets).length;
+    return bonus > 0 ? { playerId: unbacked[0], bonus } : null;
+  }
+
+  /** Drops bets that can no longer stand: the bettor is no longer a spectator, or their player stopped playing / left. Their Ready goes too (they must choose again). */
+  private cleanBets(room: Room) {
+    const playing = this.participants(room);
+    for (const [bettorId, bet] of Object.entries(room.bets)) {
+      if (room.watching.has(bettorId) && playing.includes(bet.targetId)) continue;
+      delete room.bets[bettorId];
+      room.ready.delete(bettorId);
+    }
   }
 
   private minPlayers(room: Room): number {
@@ -434,9 +558,11 @@ export class RoomManager {
    * (spectators of a tie-breaker don't need to be).
    */
   private reconcile(room: Room) {
+    if (room.phase === 'lobby' || room.phase === 'countdown') this.cleanBets(room);
     const game = getGame(room.settings.gameId);
     const ids = this.participants(room);
-    const everyoneReady = ids.every((id) => room.ready.has(id));
+    // EVERYONE has to be ready: the players, and the spectators too (they are choosing their bets).
+    const everyoneReady = [...room.players.keys()].every((id) => room.ready.has(id));
     const canStart = Boolean(game) && ids.length >= game!.minPlayers && everyoneReady;
 
     if (room.phase === 'lobby' && canStart) {
@@ -470,6 +596,10 @@ function toState(room: Room): RoomState {
     hostId: room.hostId,
     players: [...room.players.values()],
     watchingIds: [...room.watching],
+    spectatorOnlyIds: [...room.players.keys()].slice(MAX_PLAYERS),
+    bets: { ...room.bets }, // (everyone's, for the server's own use: `personalize` cuts it down to the recipient's before it is sent)
+    underdog: room.underdog,
+    underdogEndsAt: room.underdogEndsAt,
     settings: { ...room.settings },
     readyIds: [...room.ready],
     phase: room.phase,
@@ -482,5 +612,18 @@ function toState(room: Room): RoomState {
     finishEndsAt: room.finishEndsAt,
     resultsEndsAt: room.resultsEndsAt,
     serverTime: Date.now(), // stamped at send time; phones use it to correct for clock differences
+  };
+}
+
+/**
+ * Bets are private. The room state is built with everyone's bets in it, and this cuts it down to what ONE person may see before
+ * it is sent: their own bet, and their own bet's result. (The winning bettors and the underdog are public by design.)
+ */
+export function personalize(state: RoomState, playerId: string): RoomState {
+  const mine = state.bets[playerId];
+  return {
+    ...state,
+    bets: mine ? { [playerId]: mine } : {},
+    result: state.result ? { ...state.result, bets: state.result.bets.filter((b) => b.bettorId === playerId) } : null,
   };
 }

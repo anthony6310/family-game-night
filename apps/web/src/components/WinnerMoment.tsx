@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { WINNER_SECONDS, type RoundResult } from '@fgn/shared';
+import { WINNER_SECONDS, type Player, type RoundResult } from '@fgn/shared';
 import { audio } from '../audio/spatialAudio';
 import { drawChime, drumrollFor, victoryFanfare } from '../audio/gameSounds';
 
@@ -13,19 +13,74 @@ export function isWinnerMoment(frozen: boolean, result: RoundResult | null, fini
   return frozen && result !== null && finishEndsAt !== null && finishEndsAt - serverNow() <= WINNER_SECONDS * 1000;
 }
 
-/** "The winner is X" (or "It's a draw!"), big and centred near the top of the game view. */
-export function WinnerBanner({ result }: { result: RoundResult }) {
+/**
+ * How big a victory-point number is drawn, as a multiple of its normal size: the more points won, the bigger it looks (the same
+ * idea as Tap Race's count growing with every tap). 1 point is normal size, it grows quickly at first (6 points is about 1.9x)
+ * and levels off towards about 2.4x, so a huge win is big without taking over the screen.
+ */
+export function vpScale(points: number): number {
+  return 1 + 1.4 * (1 - Math.exp(-(Math.max(1, points) - 1) / 6));
+}
+
+const MAX_BETTORS_SHOWN = 10; // a big room could have many winning bettors: show the biggest wins and count the rest
+
+/**
+ * "The winner is X +1" (or "It's a draw!"), big and centred near the top of the game view.
+ * - If the underdog won (outright, or because they were tied for first in a draw) a line under the name says so and shows the
+ *   bonus they collected, drawn bigger the more it is.
+ * - If spectators bet on the winner, the heading becomes "The winners are" and the winning bettors are listed underneath in a
+ *   smaller font, each with what they won (1 for a free bet, or the points they put up), the number growing with the amount.
+ *   (Nobody's bets are shown otherwise: only who won, and how much.)
+ * With neither (for instance a game with no spectators) it stays "The winner is". `players` is where the bettors' names come from.
+ */
+export function WinnerBanner({ result, players }: { result: RoundResult; players: Player[] }) {
+  // A dark see-through layer over the game (about 40%), so the text is easy to read while the game still shows through behind it.
+  const backdrop = <div className="winner-backdrop" aria-hidden="true" />;
+  if (!result.winner) {
+    return (
+      <>
+        {backdrop}
+        <div className="winner-banner" role="status">
+          <strong>It's a draw!</strong>
+        </div>
+      </>
+    );
+  }
+  const names = new Map(players.map((p) => [p.id, p.name]));
+  const winningBettors = result.winningBettors
+    .filter((b) => b.delta > 0 && names.has(b.bettorId))
+    .sort((a, b) => b.delta - a.delta);
+  const shown = winningBettors.slice(0, MAX_BETTORS_SHOWN);
+  const plural = winningBettors.length > 0; // the round's winner plus at least one winning bettor
+  const underdog = result.underdog;
   return (
+    <>
+    {backdrop}
     <div className="winner-banner" role="status">
-      {result.winner ? (
-        <>
-          <span>The winner is</span>
-          <strong>{result.winner.name}</strong>
-        </>
-      ) : (
-        <strong>It's a draw!</strong>
+      <span>{plural ? 'The winners are' : 'The winner is'}</span>
+      <strong>
+        {result.winner.name}
+        <em className="winner-vp" style={{ fontSize: `${0.5 * vpScale(1)}em` }}>+1</em>
+      </strong>
+      {underdog && (
+        <p className="winner-underdog">
+          🚨 {underdog.byDraw ? 'The underdog wins the draw!' : 'The underdog wins!'}
+          {underdog.bonus > 0 && <em className="winner-vp" style={{ fontSize: `${vpScale(underdog.bonus)}em` }}>+{underdog.bonus}</em>}
+        </p>
+      )}
+      {shown.length > 0 && (
+        <ul className="winner-bettors" aria-label="Winning bets">
+          {shown.map((b) => (
+            <li key={b.bettorId}>
+              {names.get(b.bettorId)}
+              <em className="winner-vp" style={{ fontSize: `${vpScale(b.delta)}em` }}>+{b.delta}</em>
+            </li>
+          ))}
+          {winningBettors.length > shown.length && <li className="more">+{winningBettors.length - shown.length} more</li>}
+        </ul>
       )}
     </div>
+    </>
   );
 }
 

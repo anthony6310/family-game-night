@@ -122,13 +122,54 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .tap-screen .snow-standings { background: rgba(38, 38, 74, 0.8); }
 
 /* Tap Race's ending: the winner's name, over the board while the camera is on the winner's button. */
+/* The 40% dark layer behind the winner text: the game stays visible through it. */
+.winner-backdrop { position: absolute; inset: 0; z-index: 3; background: rgba(0, 0, 0, 0.4); pointer-events: none; animation: winner-fade 0.35s ease-out both; }
+@keyframes winner-fade { from { opacity: 0; } to { opacity: 1; } }
 .winner-banner { position: absolute; left: 0; right: 0; top: 14%; z-index: 4; display: flex; flex-direction: column; align-items: center; gap: 0.15rem;
   padding: 0 1rem; text-align: center; pointer-events: none; color: #fff; animation: winner-pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
 .winner-banner span { font-size: 1.15rem; letter-spacing: 0.08em; text-transform: uppercase; opacity: 0.92; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7); }
 .winner-banner strong { font-size: clamp(2rem, 11vw, 3.6rem); line-height: 1.05; color: #ffd84a; max-width: 100%; overflow-wrap: anywhere;
   -webkit-text-stroke: 0.06em #14142a; paint-order: stroke fill; text-shadow: 0 4px 14px rgba(0, 0, 0, 0.6); }
+/* The point count next to a winner's name grows with the points won (its size is set per number, see vpScale). */
+.winner-banner strong .winner-vp { font-size: 0.5em; margin-left: 0.4em; font-style: normal; color: #7dffb0; -webkit-text-stroke: 0.06em #14142a; vertical-align: baseline; }
+.winner-bettors { list-style: none; margin: 0.5rem 0 0; padding: 0; display: flex; flex-wrap: wrap; justify-content: center; align-items: baseline; gap: 0.2rem 1rem;
+  max-width: min(94vw, 34rem); font-size: 1rem; font-weight: 700; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7); }
+.winner-bettors li { display: inline-flex; align-items: baseline; gap: 0.3rem; }
+.winner-bettors .winner-vp { font-style: normal; color: #7dffb0; -webkit-text-stroke: 0.05em #14142a; paint-order: stroke fill; font-weight: 900; }
+.winner-bettors .more { opacity: 0.85; font-weight: 600; }
 @keyframes winner-pop { from { opacity: 0; transform: scale(0.6) translateY(0.6rem); } to { opacity: 1; transform: scale(1) translateY(0); } }
 
 /* Sound on/off: a small round icon pinned to the top-right of every screen (above the game's touch layers). */
 .sound-btn { position: fixed; top: 0.6rem; right: 0.6rem; z-index: 50; width: 2.4rem; height: 2.4rem; padding: 0; border-radius: 50%;
   font-size: 1.15rem; line-height: 1; display: grid; place-items: center; background: rgba(38, 38, 74, 0.85); color: #fff; }
+
+/* Spectator betting: pick a player, then a plus/minus for extra points of your own. */
+.bet-panel { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; width: min(100%, 20rem); }
+.bet-panel .step-title { margin: 0; }
+.bet-options { display: flex; flex-wrap: wrap; gap: 0.5rem; width: 100%; }
+.bet-options .choice { flex: 1 1 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stepper { display: flex; align-items: center; justify-content: center; gap: 1rem; background: #26264a; border-radius: 999px; padding: 0.3rem; width: 100%; }
+.stepper button { width: 2.6rem; height: 2.6rem; padding: 0; border-radius: 50%; font-size: 1.4rem; line-height: 1; }
+.stepper button:disabled { opacity: 0.35; }
+.stepper-value { min-width: 6rem; text-align: center; }
+.bet-results { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; width: min(100%, 20rem); }
+.bet-results .step-title { margin: 0; font-size: 1.1rem; }
+
+/* The underdog announcement: a full-screen moment before the round, with a gently pulsing red glow (not a strobe). */
+.underdog-screen { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 0.6rem; padding: 1rem; text-align: center; color: #fff; background: radial-gradient(circle at 50% 40%, #5a0f1f 0%, #1b0a14 75%); overflow: hidden; }
+.underdog-glow { position: absolute; inset: -20%; background: radial-gradient(circle at 50% 45%, rgba(255, 60, 60, 0.55), transparent 60%);
+  animation: underdog-pulse 1.5s ease-in-out infinite; pointer-events: none; }
+@keyframes underdog-pulse { 0%, 100% { opacity: 0.25; transform: scale(0.95); } 50% { opacity: 0.9; transform: scale(1.05); } }
+.underdog-screen > :not(.underdog-glow) { position: relative; }
+.underdog-kicker { margin: 0; font-size: 1.1rem; font-weight: 800; letter-spacing: 0.12em; text-transform: uppercase; color: #ffd84a; }
+.underdog-name { margin: 0; font-size: clamp(2.4rem, 12vw, 4.2rem); line-height: 1.05; max-width: 100%; overflow-wrap: anywhere; }
+.underdog-line { margin: 0; opacity: 0.9; }
+.underdog-prize { margin: 0.4rem 0 0; display: flex; flex-direction: column; align-items: center; gap: 0.1rem; font-size: 1.1rem; }
+.underdog-prize strong { font-size: 3rem; line-height: 1; color: #7dffb0; -webkit-text-stroke: 0.04em #14142a; paint-order: stroke fill; }
+.underdog-small { margin: 0.4rem 0 0; font-size: 0.9rem; opacity: 0.8; }
+@media (prefers-reduced-motion: reduce) { .underdog-glow { animation: none; opacity: 0.5; } }
+
+.winner-underdog { margin: 0.25rem 0 0; font-size: 1.1rem; font-weight: 800; color: #ffd84a; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7); }
+.winner-underdog .winner-vp { margin-left: 0.4rem; font-style: normal; color: #7dffb0; -webkit-text-stroke: 0.05em #14142a; paint-order: stroke fill; font-weight: 900; }
+.my-bet-result { margin: 0; }

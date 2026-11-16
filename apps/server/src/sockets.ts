@@ -1,7 +1,7 @@
 import type { Server } from 'socket.io';
 import type { Ack, ClientToServerEvents, Player, RoomState, ServerToClientEvents } from '@fgn/shared';
 import { AuthError, authenticate } from './auth';
-import { RoomManager, type Outcome, type Result, type RoundRecord, type SessionRecord } from './rooms';
+import { RoomManager, personalize, type Outcome, type Result, type RoundRecord, type SessionRecord } from './rooms';
 
 /** Per-connection data the server keeps on each socket. */
 interface SocketData {
@@ -35,6 +35,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   const roundTimers = new Map<string, ScheduledTimer>();
   const finishTimers = new Map<string, ScheduledTimer>();
   const resultsTimers = new Map<string, ScheduledTimer>();
+  const underdogTimers = new Map<string, ScheduledTimer>();
   const flushPending = new Set<string>(); // rooms with a batched tap broadcast already scheduled
 
   /**
@@ -59,10 +60,18 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
 
   // Broadcast the room to everyone in it, then make sure the right timers exist for its phase.
   function publish(state: RoomState) {
-    io.to(state.code).emit('room:state', state);
+    // Bets are private, so everyone gets their OWN copy of the state (see `personalize`) instead of one shared broadcast.
+    for (const socketId of io.sockets.adapter.rooms.get(state.code) ?? []) {
+      const member = io.sockets.sockets.get(socketId);
+      if (member) member.emit('room:state', personalize(state, member.data.player.id));
+    }
     syncTimer(countdownTimers, state.code, state.phase === 'countdown' ? state.countdownEndsAt : null, (endsAt) => {
       const started = rooms.finishCountdown(state.code, endsAt);
       if (started) publish(started); // countdown hit zero: the round begins
+    });
+    syncTimer(underdogTimers, state.code, state.phase === 'underdog' ? state.underdogEndsAt : null, (endsAt) => {
+      const started = rooms.finishUnderdog(state.code, endsAt);
+      if (started) publish(started); // the underdog announcement is over: the round begins
     });
     syncTimer(roundTimers, state.code, state.phase === 'playing' ? (state.game?.endsAt ?? null) : null, (endsAt) => {
       const outcome = rooms.finishRound(state.code, endsAt);
@@ -79,7 +88,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   }
 
   function clearTimers(code: string) {
-    for (const timers of [countdownTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
+    for (const timers of [countdownTimers, underdogTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
   }
 
   function publishOutcome({ room, round, session }: Outcome) {
@@ -151,7 +160,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       if (!result.ok) return ack(result);
       socket.data.roomCode = result.room.code;
       socket.join(result.room.code); // Socket.io "room" = a named group we can broadcast to
-      ack({ ok: true, data: { playerId: player.id, room: result.room } });
+      ack({ ok: true, data: { playerId: player.id, room: personalize(result.room, player.id) } });
       publish(result.room);
     };
 
@@ -173,6 +182,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     socket.on('room:settings', (settings, ack) => {
       command(rooms.setSettings(player.id, settings && typeof settings === 'object' ? settings : {}), ack);
     });
+    socket.on('player:bet', (target, stake, ack) => command(rooms.setBet(player.id, typeof target === 'string' ? target : null, Number(stake)), ack));
     socket.on('player:ready', (ready, ack) => command(rooms.setReady(player.id, ready === true), ack));
     socket.on('room:return-to-lobby', (ack) => command(rooms.returnToLobby(player.id), ack));
     socket.on('room:reset', (ack) => command(rooms.reset(player.id), ack));

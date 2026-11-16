@@ -89,6 +89,11 @@ export class TapRaceScene {
     this.rig = new SpectatorRig(this.camera, reach + 6, () => ({ height: 9.5, back: 4.8 })); // players see their button from almost straight above
     this.buildWorld(reach);
     this.scene.add(this.sparks.object);
+    // Sparks that fall bounce on whatever is below them: the raised base around each button, or the floor beyond it.
+    this.sparks.floorAt = (x, z) => {
+      for (const button of this.buttons.values()) if (Math.hypot(x - button.x, z - button.z) < BUTTON_RADIUS + 0.45) return BASE_TOP - 0.12; // the top of the base (0.5)
+      return 0;
+    };
     this.disposables.push(this.sparks);
     styles.forEach((style, i) => this.addButton(style, positions[i]));
 

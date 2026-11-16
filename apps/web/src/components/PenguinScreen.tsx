@@ -103,7 +103,7 @@ export default function PenguinScreen({ game, players, selfId, serverNow, sendAc
         {isPlayer && !frozen && <p className="snow-hint">Loop a penguin to bag it, then skate home to your igloo to cash in · drag to steer or WASD</p>}
       </div>
 
-      {winnerMoment && result && <WinnerBanner result={result} />}
+      {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
       {isPlayer && !frozen && <Joystick onChange={setStick} />}
       {!isPlayer && !frozen && <SpectatorControls camera={camera} />}

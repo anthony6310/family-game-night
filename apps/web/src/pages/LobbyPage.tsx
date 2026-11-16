@@ -2,9 +2,11 @@ import { Suspense, lazy, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { GAMES, MAX_PLAYERS, getGame, type GameId } from '@fgn/shared';
 import { Avatar } from '../components/Avatar';
+import { BetPanel } from '../components/BetPanel';
 import { Countdown } from '../components/Countdown';
 import { ResultsScreen } from '../components/ResultsScreen';
 import { SessionOverScreen } from '../components/SessionOverScreen';
+import { UnderdogReveal } from '../components/UnderdogReveal';
 import { useRoom } from '../room/RoomContext';
 
 // three.js is big, so the 3D game screens are their own downloads, fetched only when needed.
@@ -21,7 +23,7 @@ const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-r
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
   const navigate = useNavigate();
-  const { room, selfId, leaveRoom, endSession, updateSettings, setReady, setWatching, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
+  const { room, selfId, leaveRoom, endSession, updateSettings, setReady, setWatching, placeBet, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
   const [error, setError] = useState<string | null>(null);
 
   // As soon as the host picks a game, start downloading its code so the round can begin instantly.
@@ -67,6 +69,10 @@ export function LobbyPage() {
       );
     return screen; // every game stages the shared winner moment inside its own screen (see GAME_RULES.md #2)
   }
+  // Between the countdown and the start of the round: everyone is shown the underdog (only happens when there is one).
+  if (room.phase === 'underdog' && room.underdog && room.underdogEndsAt !== null) {
+    return <UnderdogReveal underdog={room.underdog} players={room.players} endsAt={room.underdogEndsAt} serverNow={serverNow} />;
+  }
   if (room.phase === 'results' && room.result) {
     return <ResultsScreen room={room} selfId={selfId} error={error} serverNow={serverNow} onSkip={() => run(returnToLobby())} />;
   }
@@ -77,18 +83,19 @@ export function LobbyPage() {
 
   const isHost = room.hostId === selfId;
   const game = getGame(room.settings.gameId);
-  const watchingIds = room.watchingIds; // members who chose to watch (or joined mid-round / into a full room)
+  const watchingIds = room.watchingIds; // members who chose to watch (or joined mid-round / beyond the seats)
   const isWatcher = selfId !== null && watchingIds.includes(selfId);
-  const playingCount = room.players.length - watchingIds.length; // these use the MAX_PLAYERS slots
-  const participantIds = room.players.map((p) => p.id).filter((id) => !watchingIds.includes(id));
-  const slotsFull = playingCount >= MAX_PLAYERS;
+  const spectatorOnly = selfId !== null && room.spectatorOnlyIds.includes(selfId); // beyond the first MAX_PLAYERS to join: no Play option
+  const playingCount = room.players.length - watchingIds.length;
+  const playing = room.players.filter((p) => !watchingIds.includes(p.id)); // the people this round is played by (and bet on)
   const amReady = selfId !== null && room.readyIds.includes(selfId);
-  const waitingOn = participantIds.filter((id) => !room.readyIds.includes(id)).length;
+  const waitingOn = room.players.filter((p) => !room.readyIds.includes(p.id)).length; // EVERYONE readies up, spectators too (they choose bets)
+  const myPoints = selfId ? (room.scores[selfId] ?? 0) : 0;
 
   // The status line explains exactly why the round hasn't started yet.
   let status = '';
   if (!game) status = isHost ? 'Pick a game to get started.' : 'Waiting for the host to pick a game…';
-  else if (participantIds.length < game.minPlayers) status = `Waiting for more players (need ${game.minPlayers}).`;
+  else if (playing.length < game.minPlayers) status = `Waiting for more players (need ${game.minPlayers}).`;
   else if (waitingOn > 0) status = `Waiting for ${waitingOn} ${waitingOn === 1 ? 'player' : 'players'} to ready up…`;
 
   return (
@@ -96,7 +103,7 @@ export function LobbyPage() {
       <p className="muted">Room code</p>
       <h1 className="room-code">{room.code}</h1>
       <p className="muted">
-        Share this code so others can join ({playingCount}/{MAX_PLAYERS} playing{watchingIds.length > 0 && ` · ${watchingIds.length} watching`})
+        Share this code so others can join ({playingCount} playing{watchingIds.length > 0 && ` · ${watchingIds.length} watching`})
       </p>
 
 
@@ -148,23 +155,28 @@ export function LobbyPage() {
       {status && <p className="muted">{status}</p>}
       {error && <p className="error">{error}</p>}
 
-      {isWatcher ? (
-        <p className="muted">You're watching this one out.</p>
-      ) : (
-        <button className={amReady ? '' : 'primary'} disabled={!game} onClick={() => run(setReady(!amReady))}>
-          {amReady ? 'Not ready' : "I'm ready!"}
-        </button>
+      {/* Spectators choose a bet (or none) in the ready step; then everyone, spectators included, readies up. */}
+      {isWatcher && (
+        <BetPanel players={playing} bet={selfId ? room.bets[selfId] : undefined} points={myPoints}
+          onBet={(target, stake) => run(placeBet(target, stake))} />
       )}
+      <button className={amReady ? '' : 'primary'} disabled={!game} onClick={() => run(setReady(!amReady))}>
+        {amReady ? 'Not ready' : "I'm ready!"}
+      </button>
       </>
       {/* Play / Watch: switch whenever you like between rounds. Your points stay, and a watcher can still win the session. */}
-      <div className="mode-toggle" role="radiogroup" aria-label="Play or watch">
-        <button role="radio" aria-checked={!isWatcher} className={!isWatcher ? 'on' : ''}
-          disabled={isWatcher && slotsFull} title={isWatcher && slotsFull ? 'All playing slots are taken' : undefined}
-          onClick={() => isWatcher && run(setWatching(false))}>🎮 Play</button>
-        <button role="radio" aria-checked={isWatcher} className={isWatcher ? 'on' : ''}
-          onClick={() => !isWatcher && run(setWatching(true))}>👀 Watch</button>
-      </div>
-      {isWatcher && <p className="muted">Watching: you keep your points, and you can still win the session.</p>}
+      {spectatorOnly ? (
+        // Only the first MAX_PLAYERS people in a room may play. Everyone after that is a spectator (and gets a seat if one of the first leaves).
+        <p className="muted">The room has {MAX_PLAYERS} players already, so you're a spectator. If a player leaves, you can take their seat.</p>
+      ) : (
+        <div className="mode-toggle" role="radiogroup" aria-label="Play or watch">
+          <button role="radio" aria-checked={!isWatcher} className={!isWatcher ? 'on' : ''}
+            onClick={() => isWatcher && run(setWatching(false))}>🎮 Play</button>
+          <button role="radio" aria-checked={isWatcher} className={isWatcher ? 'on' : ''}
+            onClick={() => !isWatcher && run(setWatching(true))}>👀 Watch</button>
+        </div>
+      )}
+      {isWatcher && <p className="muted">Watching: you keep your points, you can bet on the winner, and you can still win the session.</p>}
 
       {isHost && room.phase === 'lobby' && (
         <>

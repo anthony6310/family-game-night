@@ -50,18 +50,21 @@ try {
   check('everybody starts out playing', a.latest!.watchingIds.length === 0);
   check('a player can switch to watching, and everyone sees it', (await watching(c, true)).ok && await until(a, (s) => isWatching(s, c.id)));
   check('a watcher is still a member of the room (listed in players)', a.latest!.players.some((p) => p.id === c.id));
-  check('a watcher can\'t ready up', err(await ready(c)) === 'NOT_A_PLAYER');
   await cmd((r) => a.socket.emit('room:settings', { gameId: 'tap-race' }, r));
 
   // ---- a round plays without the watcher ----
   await Promise.all([a, b].map(ready));
-  check('the round starts once every PLAYER is ready (the watcher isn\'t waited for)', await until(a, (s) => s.phase === 'playing'));
+  await sleep(150);
+  check('spectators have to be ready too: the round waits for the watcher', a.latest!.phase === 'lobby');
+  check('a watcher can ready up', (await ready(c)).ok);
+  check('the round starts once the players AND the watcher are ready', await until(a, (s) => s.phase === 'playing'));
   check('the watcher is not in the game', !(c.id in (a.latest!.game as TapRaceView).taps));
   c.socket.emit('game:action', { type: 'tap' });
   await tap(a, 5);
   check('can\'t switch mid-round', err(await watching(b, true)) === 'WRONG_PHASE' && err(await watching(c, false)) === 'WRONG_PHASE');
   const late = await guest('Late');
   check('someone joining mid-round starts out watching (not refused)', (await join(late, code)).ok && isWatching(late.latest, late.id));
+  late.socket.emit('room:leave'); // (they would otherwise have to ready for every later round)
   check('round ends: Alice wins it', await until(a, (s) => s.phase === 'results' && s.result?.winnerId === a.id));
   await until(a, (s) => s.phase === 'lobby');
   check('the watcher\'s taps counted for nothing', a.latest!.result === null && a.latest!.scores[c.id] === undefined);
@@ -70,7 +73,7 @@ try {
   check('Alice leads with 1 point after round 1', a.latest!.scores[a.id] === 1);
   check('a watcher can come back to playing', (await watching(c, false)).ok && await until(a, (s) => !isWatching(s, c.id)));
   check('...and the new player is not ready, so the countdown waits for them', a.latest!.phase === 'lobby' && !a.latest!.readyIds.includes(c.id));
-  check('going to watch while others are ready lets their countdown start', (await ready(a)).ok && (await ready(b)).ok && (await watching(c, true)).ok && await until(a, (s) => s.phase === 'countdown' || s.phase === 'playing'));
+  check('going to watch drops your ready; the watcher readies again and the countdown starts', (await ready(a)).ok && (await ready(b)).ok && (await watching(c, true)).ok && (await ready(c)).ok && await until(a, (s) => s.phase === 'countdown' || s.phase === 'playing'));
   await until(a, (s) => s.phase === 'playing');
   await tap(a, 5);
   await until(a, (s) => s.phase === 'lobby');
@@ -78,7 +81,7 @@ try {
 
   // ---- a watcher who leads still wins the session ----
   // New room for the session-winner rules.
-  await a.socket.emit('room:leave'); await b.socket.emit('room:leave'); await c.socket.emit('room:leave'); late.socket.emit('room:leave');
+  await a.socket.emit('room:leave'); await b.socket.emit('room:leave'); await c.socket.emit('room:leave');
   await sleep(100);
 
   const x = await guest('X'); const y = await guest('Y'); const z = await guest('Z');
@@ -86,7 +89,7 @@ try {
   await join(y, code2); await join(z, code2);
   await cmd((r) => x.socket.emit('room:settings', { gameId: 'tap-race' }, r));
   async function round(players: P[], winner: P | null) {
-    await Promise.all(players.map(ready));
+    await Promise.all([x, y, z].map(ready)); // everyone readies, watchers included
     await until(x, (s) => s.phase === 'playing');
     if (winner) await tap(winner, 6);
     await until(x, (s) => s.phase === 'results' || s.phase === 'session-over' || s.phase === 'finish');
@@ -95,20 +98,25 @@ try {
   await round([x, y, z], y);              // Y: 1
   await round([x, y, z], y);              // Y: 2
   await watching(y, true);                // Y leads and then goes to watch
-  await round([x, z], x);                 // X: 1
+  await round([x, y, z], x);              // X: 1 (Y watches)
   await cmd((r) => x.socket.emit('session:end', r));
   check('a watcher who leads at the end is crowned', await until(x, (s) => s.phase === 'session-over' && s.sessionWinner?.id === y.id && isWatching(s, y.id)));
 
-  // ---- slots: watchers don't use one ----
+  // ---- seats: only the first 8 to join may play; later joiners are spectator-only ----
   const host = await guest('Host');
   const m3 = await create(host); const code3 = m3.ok ? m3.data.room.code : '';
   const crowd: P[] = [host];
   for (let i = 1; i < MAX_PLAYERS; i++) { const g = await guest(`P${i}`); await join(g, code3); crowd.push(g); }
   const ninth = await guest('Ninth');
-  check('the 9th person joins as a watcher (all 8 playing slots are taken)', (await join(ninth, code3)).ok && isWatching(ninth.latest, ninth.id));
-  check('...and can\'t take a slot while all 8 are used', err(await watching(ninth, false)) === 'ROOM_FULL');
+  check('the 9th person joins as a watcher', (await join(ninth, code3)).ok && isWatching(ninth.latest, ninth.id));
+  check('...and is listed as spectator-only', await until(host, (s) => s.spectatorOnlyIds.length === 1 && s.spectatorOnlyIds[0] === ninth.id));
+  check('...with no option to play', err(await watching(ninth, false)) === 'NO_SEAT');
   await watching(crowd[3], true);
-  check('...but can once a player switches to watching', (await watching(ninth, false)).ok && !isWatching(host.latest, ninth.id));
+  check('...even when a seat holder switches to watching (the seat is theirs to come back to)', err(await watching(ninth, false)) === 'NO_SEAT');
+  await watching(crowd[3], false);
+  crowd[5].socket.emit('room:leave'); // a seat holder drops out
+  check('when a seat holder leaves, the next spectator gets play privileges', await until(host, (s) => s.spectatorOnlyIds.length === 0));
+  check('...and can now switch to playing', (await watching(ninth, false)).ok && await until(host, (s) => !isWatching(s, ninth.id)));
 } finally {
   all.forEach((s) => s.close());
   httpServer.close();

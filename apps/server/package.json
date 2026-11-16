@@ -20,6 +20,9 @@
     "test:spectators": "tsx --env-file=.env scripts/test-spectators.ts",
     "test:fish": "tsx scripts/test-fish.ts",
     "test:penguin": "tsx scripts/test-penguin.ts",
+    "test:betting": "tsx scripts/test-betting.ts",
+    "test:underdog": "tsx scripts/test-underdog.ts",
+    "test:underdog-net": "tsx --env-file=.env scripts/test-underdog-net.ts",
     "test:finish-length": "tsx scripts/test-finish-length.ts"
   },
   "dependencies": {

@@ -33,7 +33,7 @@ export function ResultsScreen({ room, selfId, error, serverNow, onSkip }: Props)
       ) : (
         <>
           <h1>It's a draw!</h1>
-          <p className="muted">No point. This round doesn't count, so it's replayed.</p>
+          <p className="muted">Nobody wins this round.</p>
         </>
       )}
 
@@ -47,6 +47,14 @@ export function ResultsScreen({ room, selfId, error, serverNow, onSkip }: Props)
           </li>
         ))}
       </ul>
+
+      {/* Your own bet's result, if you had one (bets are private: nobody sees anybody else's). */}
+      {result.bets.filter((b) => b.bettorId === selfId).map((b) => (
+        <p key={b.bettorId} className="my-bet-result">
+          Your bet on {byId.get(b.targetId)?.name ?? 'a player who left'}:{' '}
+          <strong>{b.delta > 0 ? `+${b.delta} 🏆 (won)` : b.delta < 0 ? `${b.delta} 🏆 (lost)` : 'no change (void)'}</strong>
+        </p>
+      ))}
 
       <p className="muted">Next up in {secondsLeft}…</p>
       {room.hostId === selfId && <button className="link" onClick={onSkip}>Skip</button>}

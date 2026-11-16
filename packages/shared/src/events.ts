@@ -26,9 +26,11 @@ export interface RoomSettings {
  * 'finish'    the round just ended: the result is decided, input is stopped and a "you won / you lost" message
  *             plays over the frozen game for a few seconds
  * 'results'   the round summary screen (moves on by itself after a few seconds)
+ * 'underdog'  (only when there is an underdog) the countdown is over and everyone is shown the underdog for a few seconds
+ *             before the round starts
  * 'session-over' the host ended the session (or the room emptied): the player with the most wins is crowned
  */
-export type RoomPhase = 'lobby' | 'countdown' | 'playing' | 'finish' | 'results' | 'session-over';
+export type RoomPhase = 'lobby' | 'countdown' | 'underdog' | 'playing' | 'finish' | 'results' | 'session-over';
 
 /**
  * What a phone may send during a round. The server decides what it actually means.
@@ -154,11 +156,43 @@ export interface PenguinLassoView {
 /** What phones are told about a running round: one shape per game, told apart by `gameId`. */
 export type GameView = TapRaceView | SnowballView | PenguinLassoView;
 
-/** Outcome of a finished round. `winnerId` is null for a draw. */
+/** A spectator's bet on one player to win a round. With no stake it is a free bet worth 1 victory point if it wins. With a stake, the spectator puts up victory points of their own and wins (or loses) exactly that many. */
+export interface Bet {
+  targetId: string; // the player they think will win
+  stake: number; // victory points of their own put up (0 = the free bet that wins 1 point and can't lose any). Never more than they have.
+}
+
+/** How one bet turned out. `delta` is the change to the bettor's victory points: for a win +1 (free bet) or +stake (a staked bet), for a loss -stake (a draw counts as a loss), 0 if the bet was void (the player left, or the round was called off). */
+export interface BetResult {
+  bettorId: string;
+  targetId: string;
+  stake: number;
+  delta: number;
+}
+
+/**
+ * The underdog of a round: the one player nobody bet on while every other player had a bet (only with 3+ players). If they win
+ * the round, or are among the players tied for first in a draw, they win it and also collect `bonus` (1 point per person who bet
+ * against them) on top of the usual 1 point. The bonus is not taken from anybody.
+ */
+export interface Underdog {
+  playerId: string;
+  bonus: number;
+}
+
+/** Outcome of a finished round. `winnerId` is null when nobody won (a draw that doesn't include an underdog). */
 export interface RoundResult {
   winnerId: string | null;
   winner: Player | null; // snapshot, so the screen still works if the winner leaves
   scores: Record<string, number>; // playerId -> that round's score (taps)
+  /**
+   * PRIVATE: only your own bet's result is ever sent to you (nobody sees who bet on whom). Empty if you didn't bet.
+   */
+  bets: BetResult[];
+  /** PUBLIC: the spectators whose bets won, and how much each won. (It only says they backed the winner, never anything else.) */
+  winningBettors: { bettorId: string; delta: number }[];
+  /** Set when the underdog won this round: they collected `bonus` too. `byDraw` = they won because they were among the players tied for first. */
+  underdog: (Underdog & { byDraw: boolean }) | null;
 }
 
 /** Everything a phone needs to draw the lobby. The server sends a fresh copy on every change. */
@@ -173,6 +207,20 @@ export interface RoomState {
    * Anyone who joins mid-round, or into a full room, starts out watching.
    */
   watchingIds: string[];
+  /**
+   * Members who can ONLY watch: only the first MAX_PLAYERS people to join a room (in join order) may play, so anyone beyond
+   * that is spectator-only and has no Play option. When one of those first people leaves, the earliest of these gets a seat.
+   */
+  spectatorOnlyIds: string[];
+  /**
+   * YOUR bet for the coming (or running) round, if you have one, keyed by your id. Bets are private: the server only ever sends
+   * you your own, nobody can see who anyone else bet on. You bet in the ready step; the stake is locked when the countdown ends.
+   */
+  bets: Record<string, Bet>;
+  /** The underdog of the round that is about to start / running, or null. Shown to everyone during the 'underdog' phase. */
+  underdog: Underdog | null;
+  /** Server clock when the 'underdog' announcement ends and the round starts, or null. */
+  underdogEndsAt: number | null;
   settings: RoomSettings;
   readyIds: string[]; // ids of players who tapped Ready
   phase: RoomPhase;
@@ -200,7 +248,9 @@ export interface RoomState {
 export type RoomError =
   | 'ROOM_NOT_FOUND'
   | 'ROOM_FULL'
-  | 'NOT_A_PLAYER' // a watcher tried to ready up
+  | 'NO_SEAT' // a spectator-only member tried to switch to playing
+  | 'NOT_A_SPECTATOR' // only spectators can bet
+  | 'INVALID_BET' // not a playing player, or more victory points than the bettor has
   | 'ALREADY_IN_ROOM'
   | 'GAME_IN_PROGRESS'
   | 'NOT_IN_ROOM'
@@ -234,6 +284,12 @@ export interface ClientToServerEvents {
   /** Host only: pick the game. Changing it cancels a countdown and clears every Ready. */
   'room:settings': (settings: { gameId?: GameId }, ack?: (res: Ack<null>) => void) => void;
   'player:ready': (ready: boolean, ack?: (res: Ack<null>) => void) => void;
+  /**
+   * Spectators only, lobby/countdown: bet on a player to win the round (`targetId`, or null to take the bet back), putting up
+   * `stake` victory points of your own (0..your points). With no stake: win +1, and you can't lose anything. With a stake: win that many points, lose that many.
+   * Changing a bet drops your Ready, so you ready up again with the bet you want.
+   */
+  'player:bet': (targetId: string | null, stake: number, ack?: (res: Ack<null>) => void) => void;
   /** Fire-and-forget (no ack) because taps are frequent. */
   'game:action': (action: GameAction) => void;
   /** Host only, lobby or session-over: wipe the scores and start a fresh session in the same room. */

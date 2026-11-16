@@ -104,7 +104,7 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
         {isPlayer && !frozen && <p className="snow-hint">Drag to steer · or use WASD / arrow keys</p>}
       </div>
 
-      {winnerMoment && result && <WinnerBanner result={result} />}
+      {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
       {isPlayer && !frozen && <Joystick onChange={setStick} />}
       {!isPlayer && !frozen && <SpectatorControls camera={camera} />}

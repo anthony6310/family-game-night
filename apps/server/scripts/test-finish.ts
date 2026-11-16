@@ -91,6 +91,7 @@ try {
   const late = await guest('Late');
   const lateJoin = await join(late, code);
 check('input stopped: someone joining during the finish sequence can only watch', lateJoin.ok && lateJoin.data.room.watchingIds.includes(late.id));
+  late.socket.emit('room:leave'); // (a spectator has to ready for every round, so they step out to keep this test about the finish)
 
   // ---- then the summary, then the next round ----
   check('after the sequence the room shows the round summary', await until(a, (s) => s.phase === 'results', FINISH_MS + 800));

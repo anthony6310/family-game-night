@@ -89,14 +89,14 @@ try {
   check('results move on by themselves: back to the lobby for the next round',
     a.latest!.phase === 'lobby' && a.latest!.roundsPlayed === 1 && a.latest!.scores[a.id] === 1 && a.latest!.readyIds.length === 0);
   await playRound(a, S1.players, null); // nobody taps: a draw
-  check('a draw does not count as a round', a.latest!.roundsPlayed === 1 && a.latest!.phase === 'lobby' && rounds.length === 1);
+  check('a draw is a round played, with no winner and no replay forced', a.latest!.roundsPlayed === 2 && a.latest!.phase === 'lobby' && rounds.length === 1 && a.latest!.scores[a.id] === 1);
   await playRound(a, S1.players, b);
   await playRound(a, S1.players, a);
-  check('the session does NOT end by itself after any number of rounds', a.latest!.phase === 'lobby' && a.latest!.roundsPlayed === 3 && sessions.length === 0);
+  check('the session does NOT end by itself after any number of rounds', a.latest!.phase === 'lobby' && a.latest!.roundsPlayed === 4 && sessions.length === 0);
   check('only the host can end the session', errorOf(await endSession(b)) === 'NOT_HOST');
   check('host ends it: the player with the most wins is crowned', (await endSession(a)).ok && await until(b, (s) => s.phase === 'session-over')
     && a.latest!.sessionWinner?.id === a.id && a.latest!.scores[a.id] === 2);
-  check('the session is handed off for saving once', sessions.length === 1 && sessions[0].winner.id === a.id && sessions[0].winnerWins === 2 && sessions[0].roundsPlayed === 3);
+  check('the session is handed off for saving once', sessions.length === 1 && sessions[0].winner.id === a.id && sessions[0].winnerWins === 2 && sessions[0].roundsPlayed === 4);
   check('all 3 decided rounds were handed off', rounds.length === 3);
   check('cannot ready up once the session is over', errorOf(await ready(b)) === 'WRONG_PHASE');
   check('only the host can reset the room', errorOf(await reset(b)) === 'NOT_HOST');

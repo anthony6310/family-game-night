@@ -1,12 +1,13 @@
 // Game-wide settings shared by client and server. Change them here only.
 
-/** Maximum players allowed in one room. */
-export const MAX_PLAYERS = 8;
 /**
- * Players can switch to "watching" at any time between rounds. Watchers keep their points but don't use one of the
- * MAX_PLAYERS playing slots, so a room can hold this many extra people (and it bounds the room's broadcasts).
+ * How many "seats" a room has: only the FIRST this-many people to join (in join order) may play. Each of them can switch
+ * between playing and watching whenever they like between rounds. Everyone who joins after that is spectator-only, until
+ * one of the first people leaves and the earliest spectator-only member gets that seat.
  */
-export const MAX_SPECTATORS = 16;
+export const MAX_PLAYERS = 8;
+/** Extra spectator-only people a room can hold beyond the seats (this bounds the room's broadcasts). */
+export const MAX_SPECTATORS = 8; // (so a room holds at most MAX_PLAYERS + MAX_SPECTATORS = 16 people)
 
 /** Display-name length limit (used by the UI and mirrored by a DB check constraint). */
 export const DISPLAY_NAME_MAX = 20;
@@ -37,7 +38,7 @@ export const FINISH_SECONDS = 3;
  * them for WINNER_SECONDS. The two together are that game's finish sequence.
  */
 export const OWN_VIEW_SECONDS = 1.5;
-export const WINNER_SECONDS = 3;
+export const WINNER_SECONDS = 4;
 export const WINNER_FINISH_SECONDS = OWN_VIEW_SECONDS + WINNER_SECONDS;
 // Tap Race's original names for the same thing (kept so older code and tests still read naturally).
 export const TAP_RACE_OWN_BUTTON_SECONDS = OWN_VIEW_SECONDS;
@@ -49,6 +50,16 @@ export const RESULTS_SECONDS = 4;
 
 /** How long a Snowball round lasts. */
 export const SNOWBALL_SECONDS = 60;
+
+/** The smallest stake a spectator can put up on a bet (points of their own). A bet with no stake is a free bet; anything staked is at least this. */
+export const MIN_STAKE = 2;
+
+/**
+ * The underdog rule (see GAME_RULES.md): it only applies to rounds with at least this many players, and only when exactly
+ * one of them has no bets on them while every other player has at least one. The announcement is shown for UNDERDOG_SECONDS.
+ */
+export const UNDERDOG_MIN_PLAYERS = 3;
+export const UNDERDOG_SECONDS = 5;
 
 /** How long a Penguin Lasso round lasts. */
 export const PENGUIN_SECONDS = 60;

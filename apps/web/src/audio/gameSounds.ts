@@ -182,3 +182,36 @@ export const drawChime: SoundFn = (ctx, out, t) => {
   sparkle(ctx, out, t, 392, 0.8, 0.22); // G4...
   sparkle(ctx, out, t + 0.16, 587.33, 1, 0.22); // ...up to D5
 };
+
+// ---------- the underdog announcement ----------
+
+/**
+ * A siren for the underdog announcement, about 3 seconds long: a smooth, rising-and-falling wail (an air-raid / emergency-vehicle
+ * sweep between about 600 and 1100 Hz, two full swoops) from a sawtooth wave softened with a low-pass filter so it is attention-
+ * grabbing without being painful. It fades in and out so it never clicks.
+ */
+export const siren: SoundFn = (ctx, out, t) => {
+  const length = 3;
+  const tone = ctx.createOscillator();
+  tone.type = 'sawtooth';
+  tone.frequency.value = 850; // the middle of the sweep
+  const sweep = ctx.createOscillator(); // slowly moves the pitch up and down: 0.67 Hz = two full swoops in 3 seconds
+  sweep.type = 'sine';
+  sweep.frequency.value = 2 / length;
+  const depth = ctx.createGain();
+  depth.gain.value = 250; // +/- 250 Hz around the middle
+  sweep.connect(depth).connect(tone.frequency);
+  const soften = ctx.createBiquadFilter();
+  soften.type = 'lowpass';
+  soften.frequency.value = 2600;
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.linearRampToValueAtTime(0.32, t + 0.15);
+  env.gain.setValueAtTime(0.32, t + length - 0.3);
+  env.gain.linearRampToValueAtTime(0.0001, t + length);
+  tone.connect(soften).connect(env).connect(out);
+  sweep.start(t);
+  tone.start(t);
+  sweep.stop(t + length + 0.05);
+  tone.stop(t + length + 0.05);
+};

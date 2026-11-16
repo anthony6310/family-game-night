@@ -1,6 +1,6 @@
 import { CanvasTexture, SRGBColorSpace, Sprite, SpriteMaterial, type Texture } from 'three';
 
-/** A player's name as a picture (for a floating name tag): bold text in their colour with a dark outline, so it reads on any background. Shared by the 3D games. */
+/** A player's name as a picture (for a floating name tag): bold text in their color with a dark outline, so it reads on any background. Shared by the 3D games. */
 export function makeLabelTexture(name: string, color: string): Texture {
   const canvas = document.createElement('canvas');
   canvas.width = 512;

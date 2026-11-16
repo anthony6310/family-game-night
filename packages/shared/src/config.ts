@@ -73,3 +73,13 @@ export const CREATURE_POINTS: Record<CreatureKind, number> = { penguin: 1, seal:
  * though it is worth more; a polar bear is big and takes three spaces.
  */
 export const CREATURE_SPACE: Record<CreatureKind, number> = { penguin: 1, seal: 1, bear: 3 };
+
+/**
+ * The colors a player can pick (16: one for everyone a room can hold). Each player in a room has their OWN color from this list, nobody
+ * else can have the same one at the same time, and it is the color they have in every game, so players are easy to tell apart.
+ * The first eight are the original game colors. A player who joins is given the first color in the list that nobody has yet.
+ */
+export const PLAYER_COLORS = [
+  '#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#f97316',
+  '#facc15', '#84cc16', '#06b6d4', '#6366f1', '#d946ef', '#92400e', '#64748b', '#be123c',
+] as const;

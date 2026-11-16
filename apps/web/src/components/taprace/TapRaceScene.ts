@@ -10,12 +10,12 @@ import { SpectatorRig } from '../../spectate/SpectatorRig';
 import { SparkSystem } from './sparks';
 import type { CameraMode } from '../../spectate/useSpectatorCamera';
 
-/** One player's button: its colour and name. (Fixed when the round starts.) */
+/** One player's button: its color and name. (Fixed when the round starts.) */
 export interface ButtonStyle {
   id: string;
   name: string;
   color: string;
-  avatarUrl: string | null; // the player's profile picture, shown on top of their button (null = just their colour)
+  avatarUrl: string | null; // the player's profile picture, shown on top of their button (null = just their color)
 }
 
 /** Layout of the board: every button sits in a grid, `CELL_W` apart across and `CELL_D` apart down, so names have room under each button. */
@@ -82,7 +82,7 @@ export class TapRaceScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
     this.disposables.push(this.renderer);
-    this.scene.background = new Color('#1a1a2e'); // the same colour as the rest of the app, so the board floats in the page
+    this.scene.background = new Color('#1a1a2e'); // the same color as the rest of the app, so the board floats in the page
 
     const { positions, reach } = layout(styles.length);
     // The free camera may roam over the whole board and a little beyond; its height is set from this too.
@@ -190,7 +190,7 @@ export class TapRaceScene {
       this.track(new MeshStandardMaterial({ color: '#3a3a5c', roughness: 0.7, metalness: 0.2 })),
     );
     base.position.y = 0.25;
-    // ...a ring in the player's colour around it, so you can tell whose it is from anywhere...
+    // ...a ring in the player's color around it, so you can tell whose it is from anywhere...
     const rim = new Mesh(
       this.track(new CylinderGeometry(BUTTON_RADIUS + 0.62, BUTTON_RADIUS + 0.62, 0.12, 40)),
       this.track(new MeshStandardMaterial({ color: style.color, roughness: 0.5, emissive: style.color, emissiveIntensity: 0.25 })),
@@ -198,7 +198,7 @@ export class TapRaceScene {
     rim.position.y = 0.06;
     // ...and the button itself, which sinks when pressed.
     // A cylinder has three surfaces (side, top, bottom), so it takes three materials: the side and bottom are the player's
-    // colour, and the TOP gets the profile picture once it has loaded (until then, or for a guest without one, the colour).
+    // color, and the TOP gets the profile picture once it has loaded (until then, or for a guest without one, the color).
     const sideMaterial = this.track(new MeshStandardMaterial({ color: style.color, roughness: 0.4, emissive: style.color, emissiveIntensity: 0.12 }));
     const capMaterial = this.track(new MeshStandardMaterial({ color: style.color, roughness: 0.45, emissive: style.color, emissiveIntensity: 0.12 }));
     const top = new Mesh(this.track(new CylinderGeometry(BUTTON_RADIUS, BUTTON_RADIUS, 0.8, 40)), [sideMaterial, capMaterial, sideMaterial]);
@@ -235,7 +235,7 @@ export class TapRaceScene {
     this.drawFace(visual);
   }
 
-  /** Loads a profile picture and puts it on a button's top. If it can't be loaded, the button just stays its colour. */
+  /** Loads a profile picture and puts it on a button's top. If it can't be loaded, the button just stays its color. */
   private loadAvatar(url: string, material: MeshStandardMaterial) {
     this.textureLoader.load(
       url,
@@ -251,7 +251,7 @@ export class TapRaceScene {
         texture.rotation = Math.PI / 2;
         this.disposables.push(texture);
         material.map = texture;
-        material.color.set('#ffffff'); // the picture's own colours, not tinted by the player's colour
+        material.color.set('#ffffff'); // the picture's own colors, not tinted by the player's color
         material.emissive.set('#ffffff'); // a little self-light so the picture isn't dimmed by the shading
         material.emissiveIntensity = 0.28;
         material.emissiveMap = texture;
@@ -276,7 +276,7 @@ export class TapRaceScene {
     ctx.font = `bold ${hint ? 96 : text.length > 3 ? 100 : text.length > 2 ? 130 : 160}px system-ui, sans-serif`;
     ctx.lineJoin = 'round';
     ctx.lineWidth = 24;
-    ctx.strokeStyle = '#14142a'; // dark navy: contrasts with the white number and with the light, colourful pictures
+    ctx.strokeStyle = '#14142a'; // dark navy: contrasts with the white number and with the light, colorful pictures
     ctx.strokeText(text, 128, 134);
     ctx.fillText(text, 128, 134);
     button.faceTexture.needsUpdate = true;
@@ -370,7 +370,7 @@ function makeNameTexture(name: string, color: string): Texture {
   ctx.fillStyle = '#ffffff';
   ctx.fillText(name, 256, 66);
   ctx.fillStyle = color;
-  ctx.fillRect(176, 112, 160, 8); // a bar in the player's colour under the name
+  ctx.fillRect(176, 112, 160, 8); // a bar in the player's color under the name
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
   return texture;

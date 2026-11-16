@@ -16,6 +16,8 @@ const ERROR_TEXT: Record<RoomError, string> = {
   ROOM_FULL: 'That room is full.',
   NO_SEAT: `The first ${MAX_PLAYERS} people in a room can play. You're a spectator until a seat opens up.`,
   NOT_A_SPECTATOR: 'Only spectators can bet. Players are playing for the win!',
+  COLOR_TAKEN: 'Someone else already has that color.',
+  INVALID_COLOR: "That isn't one of the colors.",
   INVALID_BET: "That bet isn't allowed (pick a player who is playing; a stake is 0 or at least 2 points, and no more than you have).",
   ALREADY_IN_ROOM: "You're already in a room (maybe in another tab).",
   GAME_IN_PROGRESS: 'That room is mid-game. Try again in a moment.', // (no longer sent: late joiners just watch)
@@ -36,6 +38,8 @@ interface RoomContextValue {
   joinRoom: (code: string) => Promise<string | null>;
   /** Switch between playing and watching (between rounds). Points are kept either way. */
   setWatching: (watching: boolean) => Promise<string | null>;
+  /** Pick my color (one nobody else has). It is my color in every game. */
+  setColor: (color: string) => Promise<string | null>;
   /** Spectators: bet on a player to win (null = take the bet back), with `stake` extra victory points. */
   placeBet: (targetId: string | null, stake: number) => Promise<string | null>;
   leaveRoom: () => void;
@@ -155,6 +159,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     createRoom: () => request((s, ack) => s.emit('room:create', ack)),
     joinRoom: (code) => request((s, ack) => s.emit('room:join', code, ack)),
     setWatching: (watching) => command((s, ack) => s.emit('player:watching', watching, ack)),
+    setColor: (color) => command((s, ack) => s.emit('player:color', color, ack)),
     placeBet: (targetId, stake) => command((s, ack) => s.emit('player:bet', targetId, stake, ack)),
     endSession: () => command((s, ack) => s.emit('session:end', ack)),
     updateSettings: (change) => command((s, ack) => s.emit('room:settings', change, ack)),

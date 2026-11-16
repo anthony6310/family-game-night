@@ -1,5 +1,5 @@
 /**
- * The colours players are given in the 3D games: a seat's colour is its position in the room's player list at the
- * start of the round. Shared so the same player is the same colour in every game.
+ * Player colors are chosen by each player in the lobby (see ColorPicker) and kept in the room state, so a player has the same color
+ * in every game. This is only the color used if a player's color is somehow missing.
  */
-export const PLAYER_COLORS = ['#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#f97316'];
+export const FALLBACK_COLOR = '#94a3b8';

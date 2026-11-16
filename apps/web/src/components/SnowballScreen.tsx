@@ -2,16 +2,18 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { GameAction, Player, RoundResult, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './Joystick';
-import { PLAYER_COLORS } from './playerColors';
 import { SnowballScene, type BallStyle } from './snowball/SnowballScene';
 import { useSteering } from './snowball/useSteering';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
+import { FALLBACK_COLOR } from './playerColors';
 import { SpectatorControls } from '../spectate/SpectatorControls';
 import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
 
 interface Props {
   game: SnowballView;
   players: Player[];
+  /** Each player's chosen color (see the lobby's color picker): the same color in every game. */
+  colors: Record<string, string>;
   selfId: string | null;
   serverNow: () => number;
   sendAction: (action: GameAction) => void;
@@ -27,13 +29,13 @@ interface Props {
  * The Snowball round: a full-screen three.js view, a small HUD, and steering controls.
  * Loaded on demand (see LobbyPage) so the landing page doesn't download three.js.
  */
-export default function SnowballScreen({ game, players, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
+export default function SnowballScreen({ game, players, colors, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<SnowballScene | null>(null);
 
-  // Colours, names and profile pictures are fixed when the round starts (a player leaving mustn't recolour everyone).
+  // Colors, names and profile pictures are fixed when the round starts (a player leaving mustn't recolor everyone).
   const styles = useMemo<Record<string, BallStyle>>(
-    () => Object.fromEntries(players.map((p, i) => [p.id, { name: p.name, color: PLAYER_COLORS[i % PLAYER_COLORS.length], avatarUrl: p.avatarUrl }])),
+    () => Object.fromEntries(players.map((p) => [p.id, { name: p.name, color: colors[p.id] ?? FALLBACK_COLOR, avatarUrl: p.avatarUrl }])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );

@@ -3,6 +3,7 @@ import { Navigate, useNavigate } from 'react-router-dom';
 import { GAMES, MAX_PLAYERS, getGame, type GameId } from '@fgn/shared';
 import { Avatar } from '../components/Avatar';
 import { BetPanel } from '../components/BetPanel';
+import { ColorPicker } from '../components/ColorPicker';
 import { Countdown } from '../components/Countdown';
 import { ResultsScreen } from '../components/ResultsScreen';
 import { SessionOverScreen } from '../components/SessionOverScreen';
@@ -23,7 +24,7 @@ const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-r
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
   const navigate = useNavigate();
-  const { room, selfId, leaveRoom, endSession, updateSettings, setReady, setWatching, placeBet, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
+  const { room, selfId, leaveRoom, endSession, updateSettings, setReady, setWatching, setColor, placeBet, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
   const [error, setError] = useState<string | null>(null);
 
   // As soon as the host picks a game, start downloading its code so the round can begin instantly.
@@ -53,17 +54,17 @@ export function LobbyPage() {
     const screen =
       room.game.gameId === 'snowball' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <SnowballScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
+          <SnowballScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
             serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'penguin-lasso' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <PenguinScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
+          <PenguinScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
             serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} selfId={selfId}
+          <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
             serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       );
@@ -116,6 +117,7 @@ export function LobbyPage() {
           return (
             <li key={p.id} className={watching ? 'spectator' : ''}>
               <Avatar url={p.avatarUrl} name={p.name} size={44} />
+              <span className="color-dot" style={{ background: room.colors[p.id] }} title="Their color in every game" />
               <span className="player-name">{p.name}{p.id === selfId && ' (you)'}</span>
               {p.id === room.hostId && <span className="badge">Host</span>}
               {watching && <span className="muted">watching</span>}
@@ -148,6 +150,9 @@ export function LobbyPage() {
         </section>
       )}
       {game && <p className="muted">{game.description}</p>}
+
+      {/* Players pick their own color, from the ones nobody else has (it is their color in every game). Spectators don't need it. */}
+      {!isWatcher && <ColorPicker colors={room.colors} selfId={selfId} onPick={(color) => run(setColor(color))} />}
 
       {room.phase === 'countdown' && room.countdownEndsAt !== null && (
         <Countdown endsAt={room.countdownEndsAt} serverNow={serverNow} />

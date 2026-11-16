@@ -124,8 +124,8 @@ export const DEFAULT_PENGUIN_CONFIG: PenguinLassoConfig = {
   sealSlideSpeedMin: 10,
   sealSlideSpeedMax: 13,
   bagCapacity: 6,
-  sealSlideSecondsMin: 0.6, // (was 0.45: each slide goes about a third further)
-  sealSlideSecondsMax: 1.05, // (was 0.8)
+  sealSlideSecondsMin: 0.9, // (was 0.6: each slide now goes 50% further than before, on top of the earlier increase from 0.45)
+  sealSlideSecondsMax: 1.58, // (was 1.05)
   sealPauseSecondsMin: 1.08, // (was 0.6: 80% longer pauses, so a seal is easier to catch)
   sealPauseSecondsMax: 2.16, // (was 1.2)
   bearSpeedMin: 1.8,
@@ -150,7 +150,7 @@ interface Skater {
   carriedSpace: number; // how many spaces the bag's contents use (a penguin or seal 1, a polar bear 3): the bag is full at bagCapacity
   topCarried: CreatureKind | null; // the most valuable kind in the bag (the head shown in the sack)
   bag: CreatureKind[]; // what is in the bag, in the order it was caught (a polar bear in it slows the skater: see bearSpeedFactors)
-  banked: number; // penguins cashed in at the igloo: the score
+  banked: number; // points cashed in at the igloo: the score
 }
 interface Penguin {
   id: number; kind: CreatureKind; x: number; z: number; heading: number; speed: number;
@@ -202,7 +202,7 @@ export function insidePolygon(x: number, z: number, poly: Pt[]): boolean {
   return inside;
 }
 
-/** Penguin Lasso: catch the most penguins by skating loops around them. A tie for the most is a draw. */
+/** Penguin Lasso: catch animals (penguins 1 point, seals 2, polar bears 5) by skating loops around them, and cash the most points in at your igloo. A tie for the most is a draw. */
 export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): GameEngine<PenguinState> {
   const cfg: PenguinLassoConfig = { ...DEFAULT_PENGUIN_CONFIG, ...options };
   const rand = (lo: number, hi: number) => lo + cfg.random() * (hi - lo);
@@ -354,7 +354,7 @@ export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): G
             if (into < 0) { s.vx -= into * nx; s.vz -= into * nz; }
           }
         }
-        // Home: skating near YOUR igloo cashes in everything in the bag. That is the only way penguins become points.
+        // Home: skating near YOUR igloo cashes in everything in the bag. That is the only way animals become points.
         const home = state.igloos[id];
         if (home && s.carried > 0 && Math.hypot(s.x - home.x, s.z - home.z) <= cfg.cashRadius) {
           s.banked += s.carried;
@@ -470,7 +470,7 @@ export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): G
 
     getWinner(state) {
       const entries = Object.entries(state.skaters);
-      // Only penguins cashed in at the igloo count: whatever is still in a bag when time runs out is worth nothing.
+      // Only points cashed in at the igloo count: whatever is still in a bag when time runs out is worth nothing.
       const best = Math.max(0, ...entries.map(([, s]) => s.banked));
       const leaders = entries.filter(([, s]) => s.banked === best);
       return best > 0 && leaders.length === 1 ? leaders[0][0] : null; // nobody banked one, or a tie: draw

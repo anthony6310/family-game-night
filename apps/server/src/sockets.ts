@@ -182,6 +182,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     socket.on('room:settings', (settings, ack) => {
       command(rooms.setSettings(player.id, settings && typeof settings === 'object' ? settings : {}), ack);
     });
+    socket.on('player:color', (color, ack) => command(rooms.setColor(player.id, String(color)), ack));
     socket.on('player:bet', (target, stake, ack) => command(rooms.setBet(player.id, typeof target === 'string' ? target : null, Number(stake)), ack));
     socket.on('player:ready', (ready, ack) => command(rooms.setReady(player.id, ready === true), ack));
     socket.on('room:return-to-lobby', (ack) => command(rooms.returnToLobby(player.id), ack));

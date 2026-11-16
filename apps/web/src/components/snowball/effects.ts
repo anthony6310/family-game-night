@@ -89,8 +89,8 @@ export class FleckSystem {
           float d = length(gl_PointCoord - vec2(0.5));
           if (d > 0.5) discard;
           // white through almost the whole dot, with only a very thin pale-blue edge: without any edge, white on white snow vanishes
-          vec3 colour = mix(vec3(1.0), vec3(0.80, 0.87, 0.96), smoothstep(0.32, 0.5, d));
-          gl_FragColor = vec4(colour, vAlpha * smoothstep(0.5, 0.43, d));
+          vec3 color = mix(vec3(1.0), vec3(0.80, 0.87, 0.96), smoothstep(0.32, 0.5, d));
+          gl_FragColor = vec4(color, vAlpha * smoothstep(0.5, 0.43, d));
         }`,
     });
     const points = new Points(this.geometry, this.material);
@@ -223,7 +223,7 @@ export class StreakSystem {
     for (let i = 0; i < capacity; i++) index.set([i * 4, i * 4 + 1, i * 4 + 2, i * 4 + 1, i * 4 + 3, i * 4 + 2], i * 6);
     this.geometry.setIndex(new BufferAttribute(index, 1));
     this.material = new ShaderMaterial({
-      uniforms: { uColour: { value: new Color('#ffffff') } },
+      uniforms: { uColor: { value: new Color('#ffffff') } },
       transparent: true,
       depthWrite: false,
       side: DoubleSide, // a flat ribbon seen from either face (its winding depends on which way the ball is travelling)
@@ -235,9 +235,9 @@ export class StreakSystem {
           gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
         }`,
       fragmentShader: `
-        uniform vec3 uColour;
+        uniform vec3 uColor;
         varying float vAlpha;
-        void main() { gl_FragColor = vec4(uColour, vAlpha); }`,
+        void main() { gl_FragColor = vec4(uColor, vAlpha); }`,
     });
     const mesh = new Mesh(this.geometry, this.material);
     mesh.frustumCulled = false;

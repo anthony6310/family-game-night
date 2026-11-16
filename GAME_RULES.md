@@ -152,3 +152,17 @@ Games that have it so far: **Tap Race**, **Snowball** and **Penguin Lasso** (all
 **The one trade-off.** Because a name ignores depth, it can show through something that is in front of its owner (for example a Snowball name through a hill). We accept that: a readable name matters more.
 
 **Adding it to a new game:** create the name with `createNameTag`, add it to the scene, position it above the character each frame and set its scale; call `disposeNameTag` when the scene is torn down.
+
+---
+
+## 7. Players have one color of their own, in every game
+
+**Rule.** Each person in a room has **their own color**, chosen from **16** (`PLAYER_COLORS`), and nobody else in the room can have the same one at the same time. A game uses **that** color for the player everywhere it draws them (their ball, button or skater, their ring, trail and name tag, the scoreboard), so a player looks the same in every game and everyone is easy to tell apart. A game never picks colors itself.
+
+- **Default:** a person who joins is given the first color nobody has yet, so they always have one.
+- **Choosing:** in the lobby, under the game settings, a "Your color" picker shows the colors nobody else has (and the player's own, ringed). Changing it is only allowed in the lobby or during the countdown, never under a round that is running. A color is freed when its player leaves.
+- **Everyone sees everyone's color:** a small dot next to each name in the player list.
+
+**How it is done.** The server keeps the colors (`setColor` in `apps/server/src/rooms.ts`) and sends them in the room state as `colors` (player id to color). The game screens get a `colors` prop from the lobby page and give it to their scene. The picker is `apps/web/src/components/ColorPicker.tsx`.
+
+**Adding it to a new game's screen:** take the `colors` prop and use `colors[player.id]` (with `FALLBACK_COLOR` from `playerColors.ts` if one is somehow missing) wherever the game needs a color for a player.

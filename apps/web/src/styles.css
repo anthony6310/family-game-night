@@ -185,6 +185,16 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 /* No room: the circles flash red and shake for a moment. */
 .bag-meter.flashing { animation: bag-shake 0.7s ease-in-out; }
 .bag-meter.flashing .bag-cell { animation: bag-flash 0.7s ease-in-out; }
-@keyframes bag-flash { 20%, 60% { background-color: #ff4d4d; border-color: #ff4d4d; } 40%, 80% { background-color: #b32020; border-color: #ff4d4d; } } /* (each circle goes back to its own colour at the end) */
+@keyframes bag-flash { 20%, 60% { background-color: #ff4d4d; border-color: #ff4d4d; } 40%, 80% { background-color: #b32020; border-color: #ff4d4d; } } /* (each circle goes back to its own color at the end) */
 @keyframes bag-shake { 0%, 100% { transform: translateX(-50%); } 15% { transform: translateX(calc(-50% - 6px)); } 30% { transform: translateX(calc(-50% + 6px)); } 45% { transform: translateX(calc(-50% - 4px)); } 60% { transform: translateX(calc(-50% + 4px)); } 75% { transform: translateX(calc(-50% - 2px)); } }
 @media (prefers-reduced-motion: reduce) { .bag-meter.flashing { animation: none; } }
+
+/* The color picker (under the game settings): one swatch with your color; tap it to open all the choices. And the color dots in the player list. */
+.color-picker { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; width: min(100%, 20rem); }
+.color-picker p { margin: 0; }
+.color-current { display: flex; align-items: center; gap: 0.6rem; width: auto; padding: 0.3rem 0.8rem 0.3rem 0.4rem; background: #26264a; border-radius: 999px; box-shadow: none; color: inherit; }
+.color-current .color-swatch { width: 2rem; height: 2rem; }
+.color-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0.4rem; width: 100%; }
+.color-swatch { display: block; aspect-ratio: 1; width: 100%; padding: 0; min-width: 0; border-radius: 50%; border: 3px solid transparent; box-shadow: none; }
+.color-swatch.selected { border-color: #fff; box-shadow: 0 0 0 2px #14142a, 0 0 0 4px #fff; }
+.color-dot { width: 0.8rem; height: 0.8rem; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5); }

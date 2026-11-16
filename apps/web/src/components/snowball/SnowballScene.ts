@@ -18,7 +18,7 @@ import { createTerrain, type SnowballBall, type SnowballItem, type Terrain, type
 /** How a player's ball is labelled and marked. */
 export interface BallStyle {
   name: string;
-  color: string; // CSS colour of the ring under the ball and the name tag
+  color: string; // CSS color of the ring under the ball and the name tag
   avatarUrl: string | null; // the player's profile picture, wrapped around the ball (null = plain white)
 }
 
@@ -43,7 +43,7 @@ interface BallFx {
   hopAge: number; // seconds since this ball was knocked into a hop (>= HOP_SECONDS = not hopping)
 }
 
-/** How far the colour ring under each ball floats above the ground (along the slope). Too low and the bumpy ground pokes through it; too high and it distracts. */
+/** How far the color ring under each ball floats above the ground (along the slope). Too low and the bumpy ground pokes through it; too high and it distracts. */
 const RING_LIFT = 0.084;
 
 /**
@@ -733,7 +733,7 @@ function makeSnowTexture(): Texture {
   return texture;
 }
 
-/** A flat gold crown: one solid colour, no outline, gradient or shading. Three points with round tips on a solid base. */
+/** A flat gold crown: one solid color, no outline, gradient or shading. Three points with round tips on a solid base. */
 function makeCrownTexture(): Texture {
   const canvas = document.createElement('canvas');
   canvas.width = 256;
@@ -753,7 +753,7 @@ function makeCrownTexture(): Texture {
   g.closePath();
   g.fill();
 
-  // Round tips on the three peaks, in the same flat colour.
+  // Round tips on the three peaks, in the same flat color.
   for (const [x, y] of [[24, 66], [128, 34], [232, 66]]) {
     g.beginPath();
     g.arc(x, y, 15, 0, Math.PI * 2);

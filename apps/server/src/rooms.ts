@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto';
 import {
-  MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
+  PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
   COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
   PENGUIN_SECONDS, SNOWBALL_SECONDS, TAP_RACE_SECONDS, getGame,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
@@ -15,6 +15,7 @@ interface Room {
   code: string;
   hostId: string;
   players: Map<string, Player>; // a Map keeps insertion order = join order
+  colors: Map<string, string>; // each member's color (from PLAYER_COLORS), different for everyone; freed when they leave
   roster: Map<string, Player>; // EVERYONE who has joined this session, kept after they leave, so a departed player's wins can still crown them
   watching: Set<string>; // members (a subset of `players`) sitting rounds out: no slot, no Ready, not in the game, but their wins still count
   settings: RoomSettings;
@@ -90,6 +91,7 @@ export class RoomManager {
       code: this.newCode(),
       hostId: host.id,
       players: new Map([[host.id, host]]),
+      colors: new Map([[host.id, PLAYER_COLORS[0]]]), // the host gets the first color
       roster: new Map([[host.id, host]]),
       watching: new Set(),
       settings: { gameId: null },
@@ -128,6 +130,7 @@ export class RoomManager {
     if (midRound || room.players.size >= MAX_PLAYERS) room.watching.add(player.id); // (size = how many are already in: their place in line)
     room.players.set(player.id, player);
     room.roster.set(player.id, player);
+    room.colors.set(player.id, this.freeColor(room)); // everyone starts with a color nobody has; they can change it
     this.roomOfPlayer.set(player.id, room.code);
     this.reconcile(room); // the newcomer isn't ready, so a running countdown is cancelled
     return ok(room);
@@ -143,6 +146,7 @@ export class RoomManager {
     room.watching.delete(playerId);
     room.ready.delete(playerId);
     delete room.bets[playerId]; // a leaver's bet is void
+    room.colors.delete(playerId); // their color is free for someone else
     // NOTE: their wins (and roster entry) stay, so they can still be named the session winner.
     this.roomOfPlayer.delete(playerId);
 
@@ -220,6 +224,26 @@ export class RoomManager {
     room.ready.delete(playerId);
     this.reconcile(room);
     return ok(room);
+  }
+
+  /**
+   * Pick your color: one of PLAYER_COLORS that nobody else in the room has. It is your color in every game (colors are not chosen
+   * per round any more). Lobby/countdown only, so it never changes under a round that is running.
+   */
+  setColor(playerId: string, color: string): Result {
+    const room = this.roomFor(playerId);
+    if (!room) return fail('NOT_IN_ROOM');
+    if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
+    if (!(PLAYER_COLORS as readonly string[]).includes(color)) return fail('INVALID_COLOR');
+    for (const [id, taken] of room.colors) if (taken === color && id !== playerId) return fail('COLOR_TAKEN');
+    room.colors.set(playerId, color);
+    return ok(room);
+  }
+
+  /** The first color in the list that nobody in the room has (a room never holds more people than there are colors). */
+  private freeColor(room: Room): string {
+    const used = new Set(room.colors.values());
+    return PLAYER_COLORS.find((c) => !used.has(c)) ?? PLAYER_COLORS[0];
   }
 
   /**
@@ -596,6 +620,7 @@ function toState(room: Room): RoomState {
     hostId: room.hostId,
     players: [...room.players.values()],
     watchingIds: [...room.watching],
+    colors: Object.fromEntries(room.colors),
     spectatorOnlyIds: [...room.players.keys()].slice(MAX_PLAYERS),
     bets: { ...room.bets }, // (everyone's, for the server's own use: `personalize` cuts it down to the recipient's before it is sent)
     underdog: room.underdog,

@@ -41,7 +41,7 @@ function hsl(hue: number, saturation: number, lightness: number): [number, numbe
  * drawn ADDITIVELY (light adds to what is behind it), which is what makes them look like they glow.
  *
  * `intensity` (0..1) decides how fierce a burst is: more sparks, flying faster and further, bigger and longer-lived. Their
- * COLOUR follows the round too: yellow early on, through orange, to red; and in the very last second a rainbow. The game
+ * COLOR follows the round too: yellow early on, through orange, to red; and in the very last second a rainbow. The game
  * raises both as the round goes on, so the last seconds throw the biggest, reddest (then rainbow) showers.
  */
 export class SparkSystem {
@@ -53,7 +53,7 @@ export class SparkSystem {
   private readonly age: Float32Array;
   private readonly life: Float32Array; // 0 = free slot
   private readonly width: Float32Array; // how thick the tube is (world units)
-  private readonly colour: Float32Array; // r, g, b (0..1): fixed for the spark's whole life
+  private readonly color: Float32Array; // r, g, b (0..1): fixed for the spark's whole life
   private readonly flightEnd: Float32Array; // bouncers: when (age, seconds) the straight flight ends and the fall begins; Infinity = never (a plain straight spark)
   private readonly bouncesLeft: Float32Array; // bouncers: how many more times it will bounce
   private readonly bounciness: Float32Array; // bouncers: how much of its downward speed it keeps when it hits the floor (random per spark)
@@ -61,7 +61,7 @@ export class SparkSystem {
   // Per corner (4 corners per spark; what the GPU draws):
   private readonly cornerCentre: Float32Array;
   private readonly cornerVelocity: Float32Array;
-  private readonly cornerColour: Float32Array;
+  private readonly cornerColor: Float32Array;
   private readonly cornerSize: Float32Array; // half-length and half-width in world units, per corner
   private readonly cornerAlpha: Float32Array;
   private geometry = new BufferGeometry();
@@ -77,14 +77,14 @@ export class SparkSystem {
     this.age = new Float32Array(capacity);
     this.life = new Float32Array(capacity);
     this.width = new Float32Array(capacity);
-    this.colour = new Float32Array(capacity * 3);
+    this.color = new Float32Array(capacity * 3);
     this.flightEnd = new Float32Array(capacity);
     this.bouncesLeft = new Float32Array(capacity);
     this.bounciness = new Float32Array(capacity);
     this.seed = new Float32Array(capacity);
     this.cornerCentre = new Float32Array(capacity * 12);
     this.cornerVelocity = new Float32Array(capacity * 12);
-    this.cornerColour = new Float32Array(capacity * 12);
+    this.cornerColor = new Float32Array(capacity * 12);
     this.cornerSize = new Float32Array(capacity * 8);
     this.cornerAlpha = new Float32Array(capacity * 4);
 
@@ -101,7 +101,7 @@ export class SparkSystem {
     };
     dynamic('position', this.cornerCentre, 3);
     dynamic('aVelocity', this.cornerVelocity, 3);
-    dynamic('aColour', this.cornerColour, 3);
+    dynamic('aColor', this.cornerColor, 3);
     dynamic('aSize', this.cornerSize, 2);
     dynamic('aAlpha', this.cornerAlpha, 1);
     this.geometry.setAttribute('aCorner', new BufferAttribute(corner, 2));
@@ -113,15 +113,15 @@ export class SparkSystem {
       blending: AdditiveBlending,
       vertexShader: `
         attribute vec3 aVelocity;
-        attribute vec3 aColour;
+        attribute vec3 aColor;
         attribute vec2 aSize;   // half-length, half-width (world units)
         attribute float aAlpha;
         attribute vec2 aCorner; // (along, across), each -1..1
-        varying vec3 vColour;
+        varying vec3 vColor;
         varying float vAlpha;
         varying vec2 vCorner;
         void main() {
-          vColour = aColour;
+          vColor = aColor;
           vAlpha = aAlpha;
           vCorner = aCorner;
           vec4 view = modelViewMatrix * vec4(position, 1.0);
@@ -134,7 +134,7 @@ export class SparkSystem {
           gl_Position = projectionMatrix * view;
         }`,
       fragmentShader: `
-        varying vec3 vColour;
+        varying vec3 vColor;
         varying float vAlpha;
         varying vec2 vCorner;
         void main() {
@@ -149,12 +149,12 @@ export class SparkSystem {
           float halo = exp(-haloDist * haloDist * 6.0) * 0.6 * (1.0 - smoothstep(0.55, 1.0, along)) * (1.0 - smoothstep(0.6, 1.0, across));
           float glow = body + halo;
           if (glow < 0.01) discard;
-          // The body keeps the round's colour (yellow -> orange -> red, then rainbow); only the hottest middle of the head runs towards white.
-          vec3 hot = mix(vColour, vec3(1.0, 0.96, 0.85), 0.35);
+          // The body keeps the round's color (yellow -> orange -> red, then rainbow); only the hottest middle of the head runs towards white.
+          vec3 hot = mix(vColor, vec3(1.0, 0.96, 0.85), 0.35);
           float heat = smoothstep(0.1, 0.65, along) * (1.0 - smoothstep(0.0, 0.3, across));
-          vec3 colour = vColour * halo + mix(vColour, hot, heat) * body;
+          vec3 color = vColor * halo + mix(vColor, hot, heat) * body;
           // (No brightness multiplier on purpose: scaling all three channels clips the red first and drags orange and red towards yellow. The solid body is what makes it bright.)
-          gl_FragColor = vec4(colour, vAlpha * min(1.0, glow));
+          gl_FragColor = vec4(color, vAlpha * min(1.0, glow));
         }`,
     });
     const mesh = new Mesh(this.geometry, this.material);
@@ -165,8 +165,8 @@ export class SparkSystem {
   /**
    * One press: a shower of sparks from the RING around the button (centred on (x, z), `ringRadius` out, at height y).
    * They fly straight outwards (and a little upwards). `intensity` 0 = a modest flurry; 1 = a big, fast spray.
-   * `warmth` picks the colour: 0 = yellow, 0.5 = orange, 1 = red. `rainbow` overrides it: every spark gets a different
-   * colour, running round the full colour wheel as the sparks fan out around the button. `frenzy` (the final second) more
+   * `warmth` picks the color: 0 = yellow, 0.5 = orange, 1 = red. `rainbow` overrides it: every spark gets a different
+   * color, running round the full color wheel as the sparks fan out around the button. `frenzy` (the final second) more
    * than doubles the number of sparks.
    */
   burst(x: number, y: number, z: number, intensity: number, ringRadius: number, warmth: number, rainbow: boolean, frenzy: boolean) {
@@ -178,7 +178,7 @@ export class SparkSystem {
       const [dx, dz] = [Math.cos(angle), Math.sin(angle)]; // straight out from the middle of the button
       const outward = rand(0.35, 1) * mix(3.5, 8, k) * TRAVEL_SPEED;
       const up = outward * rand(0.2, 0.5); // a modest lift: they leave in a straight line that climbs gently away from the button
-      // Yellow (hue 58) -> orange (30) -> red (2), bright and fully saturated. A little hue jitter so a burst isn't one flat colour.
+      // Yellow (hue 58) -> orange (30) -> red (2), bright and fully saturated. A little hue jitter so a burst isn't one flat color.
       const hue = rainbow ? (angle / (Math.PI * 2)) * 360 + rand(-12, 12) : mix(58, 2, w) + rand(-5, 5);
       const [r, g, bl] = hsl(hue, 1, rainbow ? 0.6 : 0.56); // a little brighter than before, still fully saturated
       const bouncer = Math.random() < BOUNCE_CHANCE;
@@ -205,7 +205,7 @@ export class SparkSystem {
     this.centre.set([x, y, z], slot * 3);
     this.velocity.set([vx, vy, vz], slot * 3);
     this.width[slot] = width;
-    this.colour.set([r, g, b], slot * 3);
+    this.color.set([r, g, b], slot * 3);
     this.life[slot] = life;
     this.age[slot] = 0;
     this.seed[slot] = Math.random();
@@ -241,13 +241,13 @@ export class SparkSystem {
         const corner = i * 4 + c;
         this.cornerCentre.set([this.centre[v], this.centre[v + 1], this.centre[v + 2]], corner * 3);
         this.cornerVelocity.set([this.velocity[v], this.velocity[v + 1], this.velocity[v + 2]], corner * 3);
-        this.cornerColour.set([this.colour[v], this.colour[v + 1], this.colour[v + 2]], corner * 3);
+        this.cornerColor.set([this.color[v], this.color[v + 1], this.color[v + 2]], corner * 3);
         this.cornerSize[corner * 2] = halfLength;
         this.cornerSize[corner * 2 + 1] = halfWidth;
         this.cornerAlpha[corner] = alpha;
       }
     }
-    for (const name of ['position', 'aVelocity', 'aColour', 'aSize', 'aAlpha']) this.geometry.getAttribute(name).needsUpdate = true;
+    for (const name of ['position', 'aVelocity', 'aColor', 'aSize', 'aAlpha']) this.geometry.getAttribute(name).needsUpdate = true;
   }
 
   /**

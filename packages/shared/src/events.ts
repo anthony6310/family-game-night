@@ -230,6 +230,8 @@ export interface RoomState {
    * Anyone who joins mid-round, or into a full room, starts out watching.
    */
   watchingIds: string[];
+  /** Each member's color (from PLAYER_COLORS), by player id: their color in every game. Everyone has a different one. */
+  colors: Record<string, string>;
   /**
    * Members who can ONLY watch: only the first MAX_PLAYERS people to join a room (in join order) may play, so anyone beyond
    * that is spectator-only and has no Play option. When one of those first people leaves, the earliest of these gets a seat.
@@ -271,6 +273,8 @@ export interface RoomState {
 export type RoomError =
   | 'ROOM_NOT_FOUND'
   | 'ROOM_FULL'
+  | 'COLOR_TAKEN' // someone else already has that color
+  | 'INVALID_COLOR' // not one of PLAYER_COLORS
   | 'NO_SEAT' // a spectator-only member tried to switch to playing
   | 'NOT_A_SPECTATOR' // only spectators can bet
   | 'INVALID_BET' // not a playing player, or more victory points than the bettor has
@@ -306,6 +310,8 @@ export interface ClientToServerEvents {
   'session:end': (ack?: (res: Ack<null>) => void) => void;
   /** Host only: pick the game. Changing it cancels a countdown and clears every Ready. */
   'room:settings': (settings: { gameId?: GameId }, ack?: (res: Ack<null>) => void) => void;
+  /** Pick your color (one of PLAYER_COLORS that nobody else has). Lobby/countdown only. It is your color in every game. */
+  'player:color': (color: string, ack?: (res: Ack<null>) => void) => void;
   'player:ready': (ready: boolean, ack?: (res: Ack<null>) => void) => void;
   /**
    * Spectators only, lobby/countdown: bet on a player to win the round (`targetId`, or null to take the bet back), putting up

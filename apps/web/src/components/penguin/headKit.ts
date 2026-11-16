@@ -4,7 +4,7 @@ import {
 import type { CreatureKind } from '@fgn/shared';
 
 /**
- * The heads of the animals in Penguin Lasso (penguin, seal, polar bear): the shapes and colours in one place, so the very same
+ * The heads of the animals in Penguin Lasso (penguin, seal, polar bear): the shapes and colors in one place, so the very same
  * heads are used on the full animals, poking out of the sack, and in the little pictures of the bag's contents on the screen.
  * Each head is centred on the middle of the skull and faces +z (forward), and wears the same long oval light-yellow eyes as the eskimo.
  * It owns its geometries and materials: call `dispose()` when done.

@@ -68,7 +68,7 @@ interface SkaterVisual {
   phase: number; // where it is in its skating stride
   swishTimer: number;
   hop: number; // seconds since it caught something (a little jump of joy), large = not hopping
-  bag: Group; // the sack on the skater's back that caught penguins go into
+  bag: Group; // the sack on the skater's back that caught animals go into
   bagSack: Mesh;
   bagHeads: Record<CreatureKind, Group>; // the head poking out of the sack: only the one for the most valuable animal inside is shown
   lastBanked: number | null; // their score when last seen (a rise = they just cashed in)
@@ -285,7 +285,7 @@ export class PenguinScene {
     const lean = new Group();
     root.add(lean);
 
-    // The eskimo is not a person: it is someone hiding inside a BIG COAT. The coat is a rounded triangle in the player's colour
+    // The eskimo is not a person: it is someone hiding inside a BIG COAT. The coat is a rounded triangle in the player's color
     // (wide at the hem, narrow and rounded at the top, and flatter front to back). There are no arms. All you see of whoever is inside
     // is a black hollow for a face with two glowing eyes, framed by the puffy white fur of the hood, and an opening down the front.
     const coat = new Mesh(this.coatGeometry, parka);
@@ -609,7 +609,7 @@ export class PenguinScene {
     }
   }
 
-  /** The bag on the skater's back: hidden when empty, and bigger (with more heads showing) the more penguins are in it. */
+  /** The bag on the skater's back: hidden when empty, and bigger (with more heads showing) the more space the animals in it take up. */
   /**
    * The sack. Its size is in proportion to how much SPACE the animals inside take up (a penguin or seal 1, a polar bear 3), in even steps
    * from the one-space size up to BAG_MAX_SIZE when all the bag's spaces are used. The head poking out is the one for the most valuable
@@ -645,7 +645,7 @@ export class PenguinScene {
     // Distance from the skater along the trail, for the fade.
     const behind = new Array<number>(n).fill(0);
     for (let i = n - 2; i >= 0; i--) behind[i] = behind[i + 1] + Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]);
-    const [r, g, b] = [v.color.r * 0.55 + 0.45, v.color.g * 0.55 + 0.45, v.color.b * 0.55 + 0.45]; // the player's colour, lightened towards ice-white
+    const [r, g, b] = [v.color.r * 0.55 + 0.45, v.color.g * 0.55 + 0.45, v.color.b * 0.55 + 0.45]; // the player's color, lightened towards ice-white
     for (let i = 0; i < n; i++) {
       const prev = pts[Math.max(0, i - 1)], next = pts[Math.min(n - 1, i + 1)];
       let dx = next[0] - prev[0], dz = next[1] - prev[1];
@@ -719,7 +719,7 @@ export class PenguinScene {
     audio.play(captureChime, x, z, 0.6 + 0.1 * points, 1);
     const catcher = this.skaters.get(by);
     if (catcher) catcher.hop = 0;
-    // Into the bag: not points yet, so the colour is not the gold of a cash-in. A penguin is white, a seal light blue, a bear warm yellow.
+    // Into the bag: not points yet, so the color is not the gold of a cash-in. A penguin is white, a seal light blue, a bear warm yellow.
     this.floatText(`+${points}`, kind === 'bear' ? '#ffe08a' : kind === 'seal' ? '#9fdcff' : '#ffffff', x, z, 1.8 + 0.5 * points);
   }
 
@@ -754,7 +754,7 @@ export class PenguinScene {
   /**
    * Builds every player's igloo, from the sketch: a wide dome with a flat-ish rounded top (like a loaf) and a low, rounded tunnel
    * entrance out of the front, whose end is a dark opening ringed in white. It faces the middle of the rink, has a flag in the
-   * player's colour on top, and a ring on the ice marking the cash-in zone. It GROWS with its owner's points (see updateIgloos).
+   * player's color on top, and a ring on the ice marking the cash-in zone. It GROWS with its owner's points (see updateIgloos).
    */
   private buildIgloos(view: PenguinLassoView) {
     this.iglooBuilt = true;
@@ -805,7 +805,7 @@ export class PenguinScene {
     return this.track(new CircleGeometry(1, 48));
   }
 
-  /** A closed loop: flash the area it enclosed in the skater's colour, fading out (a loop with nothing in it gets a soft "zip"). */
+  /** A closed loop: flash the area it enclosed in the skater's color, fading out (a loop with nothing in it gets a soft "zip"). */
   private newLoops(loops: LoopView[]) {
     for (const loop of loops) {
       if (this.seenLoops.has(loop.id)) continue;
@@ -1002,7 +1002,7 @@ function makeIceTexture(): Texture {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const g = canvas.getContext('2d')!;
-  g.fillStyle = '#cde5f7'; // one flat colour: a gradient would show seams where the texture tiles
+  g.fillStyle = '#cde5f7'; // one flat color: a gradient would show seams where the texture tiles
   g.fillRect(0, 0, size, size);
   g.lineCap = 'round';
   for (let i = 0; i < 70; i++) { // scratches from old skating
@@ -1028,7 +1028,7 @@ function makeIceTexture(): Texture {
   return texture;
 }
 
-/** Some text (like "+1") in a colour with a dark outline, as a picture for a floating label. */
+/** Some text (like "+1") in a color with a dark outline, as a picture for a floating label. */
 function makeFloatTexture(text: string, color: string): Texture {
   const canvas = document.createElement('canvas');
   canvas.width = 256;

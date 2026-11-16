@@ -3,16 +3,18 @@ import type { GameAction, PenguinLassoView, Player, RoundResult } from '@fgn/sha
 import { useRemainingMs } from './Countdown';
 import { BagMeter } from './BagMeter';
 import { Joystick } from './Joystick';
-import { PLAYER_COLORS } from './playerColors';
 import { PenguinScene, type SkaterStyle } from './penguin/PenguinScene';
 import { useSteering } from './snowball/useSteering';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
+import { FALLBACK_COLOR } from './playerColors';
 import { SpectatorControls } from '../spectate/SpectatorControls';
 import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
 
 interface Props {
   game: PenguinLassoView;
   players: Player[];
+  /** Each player's chosen color (see the lobby's color picker): the same color in every game. */
+  colors: Record<string, string>;
   selfId: string | null;
   serverNow: () => number;
   sendAction: (action: GameAction) => void;
@@ -29,14 +31,14 @@ interface Props {
  * The ending is the shared winner moment (GAME_RULES.md #2): your own view for a moment, then the camera glides to the winner.
  * Loaded on demand (see LobbyPage) so the landing page doesn't download three.js.
  */
-export default function PenguinScreen({ game, players, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
+export default function PenguinScreen({ game, players, colors, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<PenguinScene | null>(null);
   const isPlayer = selfId !== null && selfId in game.skaters;
 
-  // Colours, names and pictures are fixed when the round starts (a player leaving mustn't recolour everyone).
+  // Colors, names and pictures are fixed when the round starts (a player leaving mustn't recolor everyone).
   const styles = useMemo<Record<string, SkaterStyle>>(
-    () => Object.fromEntries(players.map((p, i) => [p.id, { name: p.name, color: PLAYER_COLORS[i % PLAYER_COLORS.length], avatarUrl: p.avatarUrl }])),
+    () => Object.fromEntries(players.map((p) => [p.id, { name: p.name, color: colors[p.id] ?? FALLBACK_COLOR, avatarUrl: p.avatarUrl }])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -109,9 +111,9 @@ export default function PenguinScreen({ game, players, selfId, serverNow, sendAc
             <li key={id} className={id === selfId ? 'me' : ''}>
               <span className="dot" style={{ background: style?.color }} />
               <span className="snow-name">{style?.name ?? '?'}</span>
-              {/* 🎒 = caught and in the bag (not points yet), 🐧 = cashed in at the igloo (the score) */}
+              {/* 🎒 = points in the bag (not banked yet), the plain number = points cashed in at the igloo (the score) */}
               {carried > 0 && <span className="snow-fish" title="Points in the bag: skate home to the igloo to cash them in">🎒{carried}{full && ' full'}{bears > 0 && ` 🐻×${bears} slow`}</span>}
-              <span className="snow-size" title="Cashed in: the score">🐧 {banked}</span>
+              <span className="snow-size" title="Points cashed in at the igloo: the score">{banked} pts</span>
             </li>
           ))}
         </ul>

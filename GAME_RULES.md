@@ -138,3 +138,17 @@ Games that have it so far: **Tap Race**, **Snowball** and **Penguin Lasso** (all
 **Why.** It rewards the player nobody backed, makes a fun moment before the round, and keeps bets and payouts private until the result.
 
 **How it is done.** The server decides at the end of the countdown (`findUnderdog` in `apps/server/src/rooms.ts`), holds the room in the `underdog` phase for `UNDERDOG_SECONDS`, then starts the round. The screen is `apps/web/src/components/UnderdogReveal.tsx` and the siren is in `gameSounds.ts`. A game doesn't have to do anything for this.
+
+---
+
+## 6. Player names are always readable (they live on a top layer)
+
+**Rule.** A player's floating name in a 3D game is drawn on its **own top layer**: after everything else in the scene and ignoring depth, so **no 3D object can ever cut into it or hide part of it**. Not a big sack, a hill, a wall or another character.
+
+**Why.** Names clipped into other models (the penguin sack, for example) and became unreadable. Names are the most important text on the board.
+
+**How it is done.** One shared helper, `createNameTag(name, color)` in `apps/web/src/components/labelTexture.ts` (with `disposeNameTag` for cleanup), makes the name as a camera-facing sprite with depth testing off and a very high render order. Every game that floats a name above a character uses it: **Snowball** and **Penguin Lasso** (Tap Race paints its names flat on the floor, so they can't be cut into). A game also lifts its name above anything tall that is attached to a character (Penguin Lasso raises it above a big sack).
+
+**The one trade-off.** Because a name ignores depth, it can show through something that is in front of its owner (for example a Snowball name through a hill). We accept that: a readable name matters more.
+
+**Adding it to a new game:** create the name with `createNameTag`, add it to the scene, position it above the character each frame and set its scale; call `disposeNameTag` when the scene is torn down.

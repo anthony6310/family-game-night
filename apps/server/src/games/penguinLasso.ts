@@ -1,4 +1,4 @@
-import { PENGUIN_SECONDS, type LoopView, type PenguinLassoView, type PenguinView, type SkaterView } from '@fgn/shared';
+import { CREATURE_POINTS, CREATURE_SPACE, PENGUIN_SECONDS, type CreatureKind, type LoopView, type PenguinLassoView, type PenguinView, type SkaterView } from '@fgn/shared';
 import { arenaRadiusFor, spawnPoints } from './terrain';
 import type { GameEngine } from './types';
 
@@ -53,9 +53,40 @@ export interface PenguinLassoConfig {
   // ----- igloos (home bases) -----
   /** Each player's igloo stands at this fraction of the rink's radius, on the same side as their starting spot (just behind it). */
   iglooDistance: number;
-  iglooRadius: number; // its size: solid, nobody skates or walks through it
+  iglooRadius: number; // its size at the start: solid, nobody skates or walks through it
+  /** An igloo grows with its owner's points: each cashed-in point makes it this much bigger (a fraction of its starting size), up to iglooMaxScale times. */
+  iglooGrowthPerPoint: number;
+  iglooMaxScale: number;
   /** Skating within this distance of YOUR igloo cashes in everything in your bag. */
   cashRadius: number;
+
+  // ----- seals and polar bears (the rarer animals) -----
+  /**
+   * When a spot on the ice is filled (at the start, and when a caught animal is replaced), the chance it is a seal / a polar bear
+   * instead of a penguin. Seals and bears are mixed into the same total count as the penguins. The bear is the rarest.
+   */
+  sealChance: number;
+  bearChance: number;
+  /**
+   * TESTING SWITCH. While true there is ALWAYS at least one seal and one polar bear on the ice (the first spots are a seal and a bear,
+   * and a caught one is replaced by the same kind if none is left), so they are easy to find. Set it to false to let the animals spawn
+   * purely by sealChance / bearChance, which is how the real game should play.
+   */
+  guaranteeOneOfEach: boolean;
+  /** A seal moves in SLIDES: it shoots off quickly (the speed fades as it glides), stops for a moment, then slides again. */
+  sealSlideSpeedMin: number;
+  sealSlideSpeedMax: number;
+  /** How many animals a bag holds. A full bag (or one with a polar bear) means no trail and no more catches until you cash in. */
+  bagCapacity: number;
+  sealSlideSecondsMin: number;
+  sealSlideSecondsMax: number;
+  sealPauseSecondsMin: number;
+  sealPauseSecondsMax: number;
+  /** A polar bear wanders like a penguin, but slower. */
+  bearSpeedMin: number;
+  bearSpeedMax: number;
+  /** A skater's top speed multiplied by this, by how many polar bears they carry (none, one, two): normal, half, a third. They stay slow until they cash in. */
+  bearSpeedFactors: readonly number[];
 
   random: () => number; // Math.random normally; tests pass a seeded one
 }
@@ -87,8 +118,23 @@ export const DEFAULT_PENGUIN_CONFIG: PenguinLassoConfig = {
   spawnClearance: 8,
   caughtShowSeconds: 1.2,
   loopShowSeconds: 0.8,
+  sealChance: 0.12,
+  bearChance: 0.05,
+  guaranteeOneOfEach: true, // TESTING: always at least one seal and one bear. Turn off to play with the real rarity.
+  sealSlideSpeedMin: 10,
+  sealSlideSpeedMax: 13,
+  bagCapacity: 6,
+  sealSlideSecondsMin: 0.6, // (was 0.45: each slide goes about a third further)
+  sealSlideSecondsMax: 1.05, // (was 0.8)
+  sealPauseSecondsMin: 1.08, // (was 0.6: 80% longer pauses, so a seal is easier to catch)
+  sealPauseSecondsMax: 2.16, // (was 1.2)
+  bearSpeedMin: 1.8,
+  bearSpeedMax: 2.8,
+  bearSpeedFactors: [1, 0.5, 1 / 3],
   iglooDistance: 0.8,
   iglooRadius: 2.6,
+  iglooGrowthPerPoint: 0.06,
+  iglooMaxScale: 1.8,
   cashRadius: 7,
   random: Math.random,
 };
@@ -100,15 +146,19 @@ interface Skater {
   x: number; z: number; vx: number; vz: number;
   steerX: number; steerZ: number;
   trail: TrailPoint[]; // oldest first; the skater is at the end
-  carried: number; // penguins in the bag (not points yet)
+  carried: number; // points worth of animals in the bag (not banked yet)
+  carriedSpace: number; // how many spaces the bag's contents use (a penguin or seal 1, a polar bear 3): the bag is full at bagCapacity
+  topCarried: CreatureKind | null; // the most valuable kind in the bag (the head shown in the sack)
+  bag: CreatureKind[]; // what is in the bag, in the order it was caught (a polar bear in it slows the skater: see bearSpeedFactors)
   banked: number; // penguins cashed in at the igloo: the score
 }
 interface Penguin {
-  id: number; x: number; z: number; heading: number; speed: number;
+  id: number; kind: CreatureKind; x: number; z: number; heading: number; speed: number;
   walking: boolean; changeAt: number; // when it next decides what to do
+  slideStart: number; slideMs: number; // seals: when the current slide began and how long it lasts
   caughtBy?: string; caughtAt?: number;
 }
-interface Loop { id: number; playerId: string; points: Pt[]; at: number }
+interface Loop { id: number; playerId: string; points: Pt[]; at: number; skipped: number }
 
 interface PenguinState {
   startsAt: number; endsAt: number; arenaRadius: number;
@@ -173,8 +223,23 @@ export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): G
     return best;
   }
 
-  function newPenguin(id: number, spot: { x: number; z: number }, now: number): Penguin {
-    return { id, ...spot, heading: cfg.random() * Math.PI * 2, speed: rand(cfg.penguinSpeedMin, cfg.penguinSpeedMax), walking: false, changeAt: now + rand(0, 1) * 1000 };
+  /** How big an igloo is (1 = its starting size) once its owner has cashed in `points`: it grows a little with each point, up to a limit. */
+  const iglooScale = (points: number) => Math.min(cfg.iglooMaxScale, 1 + cfg.iglooGrowthPerPoint * points);
+
+  /** Which animal fills the next spot: by chance, except that in testing mode there is always at least one seal and one bear. */
+  function chooseKind(existing: Penguin[]): CreatureKind {
+    const alive = existing.filter((a) => !a.caughtBy);
+    if (cfg.guaranteeOneOfEach) {
+      if (!alive.some((a) => a.kind === 'seal')) return 'seal';
+      if (!alive.some((a) => a.kind === 'bear')) return 'bear';
+    }
+    const roll = cfg.random();
+    return roll < cfg.bearChance ? 'bear' : roll < cfg.bearChance + cfg.sealChance ? 'seal' : 'penguin';
+  }
+
+  function newPenguin(id: number, spot: { x: number; z: number }, now: number, kind: CreatureKind): Penguin {
+    const speed = kind === 'bear' ? rand(cfg.bearSpeedMin, cfg.bearSpeedMax) : rand(cfg.penguinSpeedMin, cfg.penguinSpeedMax);
+    return { id, kind, ...spot, heading: cfg.random() * Math.PI * 2, speed, walking: false, changeAt: now + rand(0, 1) * 1000, slideStart: 0, slideMs: 0 };
   }
 
   /** The loop made when a skater's newest trail point `q` comes back to its own older trail: returns the corners of the loop and the point it closed at, or null. */
@@ -231,13 +296,13 @@ export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): G
       playerIds.forEach((id, i) => {
         const k = cfg.iglooDistance / 0.7; // spawnPoints puts players at 0.7 of the radius: the igloo is the same direction, further out
         igloos[id] = { x: spawns[i].x * k, z: spawns[i].z * k };
-        skaters[id] = { x: spawns[i].x, z: spawns[i].z, vx: 0, vz: 0, steerX: 0, steerZ: 0, trail: [{ x: spawns[i].x, z: spawns[i].z, t: now }], carried: 0, banked: 0 };
+        skaters[id] = { x: spawns[i].x, z: spawns[i].z, vx: 0, vz: 0, steerX: 0, steerZ: 0, trail: [{ x: spawns[i].x, z: spawns[i].z, t: now }], carried: 0, carriedSpace: 0, topCarried: null, bag: [], banked: 0 };
       });
       // The penguin count grows with the player count, like the rink does.
       const extra = Math.max(0, playerIds.length - cfg.basePlayers);
       const count = cfg.penguins + cfg.penguinsPerExtraPlayer * extra;
       const penguins: Penguin[] = [];
-      for (let i = 0; i < count; i++) penguins.push(newPenguin(i + 1, freeSpot(arenaRadius, [...spawns, ...Object.values(igloos), ...penguins]), now));
+      for (let i = 0; i < count; i++) penguins.push(newPenguin(i + 1, freeSpot(arenaRadius, [...spawns, ...Object.values(igloos), ...penguins]), now, chooseKind(penguins)));
       return { startsAt: now, endsAt: now + cfg.durationMs, arenaRadius, skaters, igloos, penguins, loops: [], respawns: [], nextId: count + 1, clock: now };
     },
 
@@ -262,8 +327,10 @@ export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): G
       for (const [id, s] of Object.entries(skaters)) {
         const steering = Math.hypot(s.steerX, s.steerZ) > 0.01;
         const k = Math.min(1, (steering ? cfg.accelRate : cfg.frictionRate) * dt);
-        s.vx += ((steering ? s.steerX * cfg.maxSpeed : 0) - s.vx) * k;
-        s.vz += ((steering ? s.steerZ * cfg.maxSpeed : 0) - s.vz) * k;
+        const bears = s.bag.filter((k) => k === 'bear').length;
+        const top = cfg.maxSpeed * cfg.bearSpeedFactors[Math.min(bears, cfg.bearSpeedFactors.length - 1)]; // each polar bear in the bag slows you more
+        s.vx += ((steering ? s.steerX * top : 0) - s.vx) * k;
+        s.vz += ((steering ? s.steerZ * top : 0) - s.vz) * k;
         s.x += s.vx * dt;
         s.z += s.vz * dt;
         // Wall: keep the skater on the ice and stop them sliding into it.
@@ -277,9 +344,9 @@ export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): G
         }
 
         // Igloos are solid: slide off them, never through.
-        for (const igloo of Object.values(state.igloos)) {
+        for (const [owner, igloo] of Object.entries(state.igloos)) {
           const away = Math.hypot(s.x - igloo.x, s.z - igloo.z);
-          const min = cfg.iglooRadius + cfg.skaterRadius;
+          const min = cfg.iglooRadius * iglooScale(skaters[owner]?.banked ?? 0) + cfg.skaterRadius; // (an igloo that has grown is bigger to skate around)
           if (away < min && away > 1e-6) {
             const nx = (s.x - igloo.x) / away, nz = (s.z - igloo.z) / away;
             s.x = igloo.x + nx * min; s.z = igloo.z + nz * min;
@@ -292,6 +359,15 @@ export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): G
         if (home && s.carried > 0 && Math.hypot(s.x - home.x, s.z - home.z) <= cfg.cashRadius) {
           s.banked += s.carried;
           s.carried = 0;
+          s.carriedSpace = 0;
+          s.topCarried = null;
+          s.bag = []; // everything is handed in (so any bears too): full speed again
+        }
+
+        // A FULL bag (its contents use all bagCapacity spaces): no trail, so no loops and no more catches until you cash in.
+        if (s.carriedSpace >= cfg.bagCapacity) {
+          s.trail = [{ x: s.x, z: s.z, t: now }];
+          continue;
         }
 
         // Lay a trail point each time we've moved far enough from the last one.
@@ -302,14 +378,23 @@ export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): G
           const loop = findLoop(trail, q);
           if (loop) {
             // CLOSED A LOOP: every free penguin inside it goes into the bag, and the loop is used up (its trail is removed).
+            // Who is inside the loop? Everything that is inside is a candidate, the most valuable first, and each is taken only if it still
+            // FITS in the bag: a bear needs 3 free spaces, a penguin or seal 1. (So a bag with 2 spaces left skips a bear but takes a penguin.)
+            const candidates = penguins.filter((p) => !p.caughtBy && insidePolygon(p.x, p.z, loop.poly)).sort((a, b) => CREATURE_POINTS[b.kind] - CREATURE_POINTS[a.kind]);
+            const inside: Penguin[] = [];
+            let space = cfg.bagCapacity - s.carriedSpace;
+            for (const p of candidates) if (CREATURE_SPACE[p.kind] <= space) { inside.push(p); space -= CREATURE_SPACE[p.kind]; }
             let got = 0;
-            for (const p of penguins) {
-              if (p.caughtBy || !insidePolygon(p.x, p.z, loop.poly)) continue;
-              p.caughtBy = id; p.caughtAt = now; got++;
+            for (const p of inside) {
+              p.caughtBy = id; p.caughtAt = now;
+              got += CREATURE_POINTS[p.kind]; // a penguin is 1, a seal 2, a polar bear 3
+              s.carriedSpace += CREATURE_SPACE[p.kind];
+              if (!s.topCarried || CREATURE_POINTS[p.kind] > CREATURE_POINTS[s.topCarried]) s.topCarried = p.kind;
+              s.bag.push(p.kind);
               respawns = [...respawns, now + cfg.respawnSeconds * 1000];
             }
             s.carried += got;
-            loops = [...loops, { id: nextId++, playerId: id, points: loop.poly.map(([x, z]): Pt => [round(x), round(z)]), at: now }];
+            loops = [...loops, { id: nextId++, playerId: id, points: loop.poly.map(([x, z]): Pt => [round(x), round(z)]), at: now, skipped: candidates.length - inside.length }];
             trail = [...trail.slice(0, loop.index + 1), { x: loop.at[0], z: loop.at[1], t: now }, { x: q[0], z: q[1], t: now }];
           } else {
             trail = [...trail, { x: q[0], z: q[1], t: now }];
@@ -318,28 +403,42 @@ export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): G
         s.trail = trimTrail(trail, now);
       }
 
-      // ----- penguins: wander aimlessly -----
+      // ----- the animals: penguins and bears wander aimlessly; seals slide, pause, slide -----
       for (const p of penguins) {
         if (p.caughtBy) continue;
         if (now >= p.changeAt) {
-          if (cfg.random() < cfg.idleChance) {
+          if (p.kind === 'seal') {
+            if (p.walking) { // it was sliding: stop and look around for a moment
+              p.walking = false;
+              p.changeAt = now + rand(cfg.sealPauseSecondsMin, cfg.sealPauseSecondsMax) * 1000;
+            } else { // the pause is over: pick a new direction and shoot off
+              p.walking = true;
+              p.heading += rand(-1.3, 1.3);
+              p.speed = rand(cfg.sealSlideSpeedMin, cfg.sealSlideSpeedMax);
+              p.slideStart = now;
+              p.slideMs = rand(cfg.sealSlideSecondsMin, cfg.sealSlideSecondsMax) * 1000;
+              p.changeAt = now + p.slideMs;
+            }
+          } else if (cfg.random() < cfg.idleChance) {
             p.walking = false;
             p.changeAt = now + rand(cfg.idleSecondsMin, cfg.idleSecondsMax) * 1000;
           } else {
             p.walking = true;
             p.heading += rand(-1.4, 1.4);
-            p.speed = rand(cfg.penguinSpeedMin, cfg.penguinSpeedMax);
+            p.speed = p.kind === 'bear' ? rand(cfg.bearSpeedMin, cfg.bearSpeedMax) : rand(cfg.penguinSpeedMin, cfg.penguinSpeedMax);
             p.changeAt = now + rand(cfg.walkSecondsMin, cfg.walkSecondsMax) * 1000;
           }
         }
         if (p.walking) {
-          p.x += Math.cos(p.heading) * p.speed * dt;
-          p.z += Math.sin(p.heading) * p.speed * dt;
+          // A seal's slide starts fast and glides to a slower finish; the others keep one steady pace.
+          const pace = p.kind === 'seal' ? 1 - 0.65 * Math.min(1, (now - p.slideStart) / Math.max(1, p.slideMs)) : 1;
+          p.x += Math.cos(p.heading) * p.speed * pace * dt;
+          p.z += Math.sin(p.heading) * p.speed * pace * dt;
         }
-        // Igloos are solid for penguins too.
-        for (const igloo of Object.values(state.igloos)) {
+        // Igloos are solid for animals too (a bear is bigger than a penguin).
+        for (const [owner, igloo] of Object.entries(state.igloos)) {
           const away = Math.hypot(p.x - igloo.x, p.z - igloo.z);
-          const min = cfg.iglooRadius + 0.7;
+          const min = cfg.iglooRadius * iglooScale(skaters[owner]?.banked ?? 0) + (p.kind === 'bear' ? 1.4 : p.kind === 'seal' ? 1.0 : 0.7);
           if (away < min && away > 1e-6) { p.x = igloo.x + ((p.x - igloo.x) / away) * min; p.z = igloo.z + ((p.z - igloo.z) / away) * min; p.heading += Math.PI / 2; }
         }
         // Near the wall: turn back towards the middle.
@@ -359,7 +458,7 @@ export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): G
         respawns = respawns.filter((t) => t > now);
         const where = [...Object.values(skaters), ...Object.values(state.igloos), ...penguins.filter((p) => !p.caughtBy)];
         for (let i = 0; i < due.length; i++) {
-          const fresh = newPenguin(nextId++, freeSpot(state.arenaRadius, where), now);
+          const fresh = newPenguin(nextId++, freeSpot(state.arenaRadius, where), now, chooseKind(penguins));
           penguins.push(fresh);
           where.push(fresh);
         }
@@ -387,11 +486,11 @@ export function createPenguinLasso(options: Partial<PenguinLassoConfig> = {}): G
     view(state): PenguinLassoView {
       const skaters: Record<string, SkaterView> = {};
       for (const [id, s] of Object.entries(state.skaters)) {
-        skaters[id] = { x: round(s.x), z: round(s.z), vx: round(s.vx), vz: round(s.vz), trail: s.trail.map((p): Pt => [round(p.x), round(p.z)]), carried: s.carried, banked: s.banked };
+        skaters[id] = { x: round(s.x), z: round(s.z), vx: round(s.vx), vz: round(s.vz), trail: s.trail.map((p): Pt => [round(p.x), round(p.z)]), carried: s.carried, carriedSpace: s.carriedSpace, bag: [...s.bag], topCarried: s.topCarried, bagFull: s.carriedSpace >= cfg.bagCapacity, carryingBear: s.bag.includes('bear'), banked: s.banked };
       }
-      const penguins: PenguinView[] = state.penguins.map((p) => ({ id: p.id, x: round(p.x), z: round(p.z), heading: round(p.heading, 3), walking: p.walking, caughtBy: p.caughtBy }));
-      const loops: LoopView[] = state.loops.map((l) => ({ id: l.id, playerId: l.playerId, points: l.points }));
-      return { gameId: 'penguin-lasso', startsAt: state.startsAt, endsAt: state.endsAt, arenaRadius: state.arenaRadius, trailMax: cfg.trailMax, igloos: Object.fromEntries(Object.entries(state.igloos).map(([id, g]) => [id, { x: round(g.x), z: round(g.z) }])), iglooRadius: cfg.iglooRadius, cashRadius: cfg.cashRadius, skaters, penguins, loops };
+      const penguins: PenguinView[] = state.penguins.map((p) => ({ id: p.id, kind: p.kind, x: round(p.x), z: round(p.z), heading: round(p.heading, 3), walking: p.walking, caughtBy: p.caughtBy }));
+      const loops: LoopView[] = state.loops.map((l) => ({ id: l.id, playerId: l.playerId, points: l.points, skipped: l.skipped }));
+      return { gameId: 'penguin-lasso', startsAt: state.startsAt, endsAt: state.endsAt, arenaRadius: state.arenaRadius, trailMax: cfg.trailMax, bagCapacity: cfg.bagCapacity, igloos: Object.fromEntries(Object.entries(state.igloos).map(([id, g]) => [id, { x: round(g.x), z: round(g.z), scale: round(iglooScale(state.skaters[id]?.banked ?? 0), 3) }])), iglooRadius: cfg.iglooRadius, cashRadius: cfg.cashRadius, skaters, penguins, loops };
     },
   };
 }

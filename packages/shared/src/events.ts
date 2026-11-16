@@ -1,5 +1,6 @@
 import type { TerrainFeature } from './terrain';
 import type { GameId } from './games';
+import type { CreatureKind } from './config';
 
 /**
  * The Socket.io contract between phones and server. Both sides import these types, so
@@ -112,19 +113,36 @@ export interface SkaterView {
   vz: number;
   /** The skate trail, oldest point first (it ends at the skater). It is the lasso: it is limited in length, so the old end keeps vanishing. */
   trail: [number, number][];
-  /** Penguins in the skater's bag: caught, but NOT points yet. Skating home to the igloo cashes them in. */
+  /** Points worth of animals in the skater's bag (a penguin is 1, a seal 2, a polar bear 5): caught, but NOT points yet. Skating home to the igloo cashes them in. */
   carried: number;
-  banked: number; // penguins cashed in at the igloo so far this round: the score
+  /**
+   * How many SPACES the bag's contents use up (of `bagCapacity`): a penguin or a seal takes 1 (a seal takes the same room as a penguin,
+   * though it is worth more), a polar bear takes 3. The sack's size follows this.
+   */
+  carriedSpace: number;
+  /** What is in the bag, in the order it was caught (the display of the bag's contents). */
+  bag: CreatureKind[];
+  /** The most valuable kind of animal in the bag (it is the head shown poking out of the sack), or null when the bag is empty. */
+  topCarried: CreatureKind | null;
+  /**
+   * True when the bag is FULL (its contents use all `bagCapacity` spaces): the skater lays no trail and so can't catch anything more
+   * until they cash in at the igloo.
+   */
+  bagFull: boolean;
+  /** True while the bag holds at least one polar bear. Each bear slows the skater (see `bearSpeedFactors`) until they cash in; a bear takes 3 spaces but does not stop other catches. */
+  carryingBear: boolean;
+  banked: number; // points cashed in at the igloo so far this round: the score
 }
 
-/** A penguin. One that was just caught stays in the list for a moment (with `caughtBy`) so phones can show it being collected. */
+/** An animal on the ice (a penguin, a seal or a polar bear). One that was just caught stays in the list for a moment (with `caughtBy`) so phones can show it being collected. */
 export interface PenguinView {
   id: number;
+  kind: CreatureKind;
   x: number;
   z: number;
   /** Which way it is facing (radians, 0 = east, counter-clockwise seen from above is z-down so +angle turns towards south). */
   heading: number;
-  /** True while it is walking (so phones can waddle it); false while it stands still. */
+  /** True while it is moving (walking, or for a seal sliding) so phones can animate it; false while it stands still. */
   walking: boolean;
   caughtBy?: string; // set for ~1.2 s after a catch (it goes into that skater's bag)
 }
@@ -134,6 +152,8 @@ export interface LoopView {
   id: number;
   playerId: string;
   points: [number, number][]; // the corners of the enclosed area
+  /** How many animals were inside this loop but did NOT fit in the bag (phones flash and shake the bag display for the skater who made it). */
+  skipped: number;
 }
 
 /** Penguin Lasso, as phones see it. Streamed ~20 times a second while the round runs. */
@@ -144,9 +164,12 @@ export interface PenguinLassoView {
   arenaRadius: number;
   /** The most trail a skater can have out at once, in world units (phones fade the trail along this length). */
   trailMax: number;
+  /** How many animals a bag holds before it is full (the sack grows in steps up to this). */
+  bagCapacity: number;
   /** Each player's igloo (their home base). Skating within `cashRadius` of your own igloo cashes in your bag. */
-  igloos: Record<string, { x: number; z: number }>;
-  iglooRadius: number; // the igloo's own size (solid: skaters can't skate through it)
+  /** Where each igloo is, and how much it has grown: 1 = its starting size, bigger with every point its owner has cashed in. */
+  igloos: Record<string, { x: number; z: number; scale: number }>;
+  iglooRadius: number; // an igloo's size at scale 1 (solid: skaters can't skate through it). Multiply by its `scale`.
   cashRadius: number;
   skaters: Record<string, SkaterView>;
   penguins: PenguinView[];

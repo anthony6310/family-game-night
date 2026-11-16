@@ -38,7 +38,7 @@ export const GAMES = [
   {
     id: 'penguin-lasso',
     name: 'Penguin Lasso',
-    description: 'Skate around the ice looking for penguins. Your skate trail is your lasso: skate a closed loop around a penguin to put it in your bag. The trail is short and fades as you go, so close your loops fast. Then skate back to your igloo to cash the penguins in: only cashed-in penguins count. Most penguins wins!',
+    description: 'Skate around the ice looking for animals. Your skate trail is your lasso: skate a closed loop around one to put it in your bag. The trail is short and fades as you go, so close your loops fast. Penguins are worth 1 point, tricky sliding seals 2, and a rare polar bear 5 (but it takes 3 of your 6 bag spaces and slows you down: by half with one bear, to a third with two). When your bag is full your trail disappears until you cash in. Skate back to your igloo to cash in: only cashed-in points count. Most points wins!',
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
     scoreLabel: 'penguins',

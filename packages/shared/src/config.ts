@@ -63,3 +63,13 @@ export const UNDERDOG_SECONDS = 5;
 
 /** How long a Penguin Lasso round lasts. */
 export const PENGUIN_SECONDS = 60;
+
+/** The animals on the ice in Penguin Lasso, and how many victory points each is worth once it is cashed in at the igloo. */
+export type CreatureKind = 'penguin' | 'seal' | 'bear';
+export const CREATURE_POINTS: Record<CreatureKind, number> = { penguin: 1, seal: 2, bear: 5 };
+
+/**
+ * How much room each animal takes up in the bag (the bag holds `bagCapacity` spaces). A seal takes the same room as a penguin even
+ * though it is worth more; a polar bear is big and takes three spaces.
+ */
+export const CREATURE_SPACE: Record<CreatureKind, number> = { penguin: 1, seal: 1, bear: 3 };

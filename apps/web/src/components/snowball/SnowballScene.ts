@@ -12,7 +12,7 @@ import { SpectatorRig } from '../../spectate/SpectatorRig';
 import type { CameraMode } from '../../spectate/useSpectatorCamera';
 import { FleckSystem, ShockRingSystem, StreakSystem } from './effects';
 import { FishKit } from './fish';
-import { makeLabelTexture } from '../labelTexture';
+import { createNameTag, disposeNameTag } from '../labelTexture';
 import { createTerrain, type SnowballBall, type SnowballItem, type Terrain, type TerrainFeature } from '@fgn/shared';
 
 /** How a player's ball is labelled and marked. */
@@ -339,8 +339,8 @@ export class SnowballScene {
     const shadowMaterial = this.track(new MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.16, depthWrite: false }));
     const shadow = new Mesh(this.shadowGeometry, shadowMaterial);
 
-    const labelTexture = this.track(makeLabelTexture(style.name, style.color));
-    const label = new Sprite(this.track(new SpriteMaterial({ map: labelTexture, transparent: true })));
+    const label = createNameTag(style.name, style.color); // on the top layer: nothing can clip into it
+    this.track({ dispose: () => disposeNameTag(label) });
 
     // A Sprite is a flat picture that always turns to face the camera (a "billboard"), which is exactly what a 2D crown needs.
     const crown = new Sprite(this.crownMaterial);

@@ -2,10 +2,10 @@ import {
   BufferAttribute, BufferGeometry, CanvasTexture, CircleGeometry, Color, CylinderGeometry, DirectionalLight, DoubleSide, Fog, Group,
   HemisphereLight, IcosahedronGeometry, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshStandardMaterial, PerspectiveCamera,
   RepeatWrapping, RingGeometry, Scene, Shape, ShapeGeometry, SRGBColorSpace, Sprite, SpriteMaterial, TextureLoader, TorusGeometry,
-  Vector3, WebGLRenderer, BoxGeometry, ConeGeometry, SphereGeometry,
+  Vector3, WebGLRenderer, BoxGeometry, ConeGeometry, SphereGeometry, LatheGeometry, Vector2, AdditiveBlending, Float32BufferAttribute, ExtrudeGeometry,
   type Texture,
 } from 'three';
-import type { LoopView, PenguinLassoView, SkaterView } from '@fgn/shared';
+import { CREATURE_POINTS, type CreatureKind, type LoopView, type PenguinLassoView, type SkaterView } from '@fgn/shared';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
 import { captureChime, cashIn, loopMiss, skateSwish } from '../../audio/iceSounds';
@@ -13,17 +13,18 @@ import type { SoundFn } from '../../audio/snowSounds';
 import { SpectatorRig } from '../../spectate/SpectatorRig';
 import type { CameraMode } from '../../spectate/useSpectatorCamera';
 import { FleckSystem } from '../snowball/effects';
-import { makeLabelTexture } from '../labelTexture';
+import { HeadKit } from './headKit';
+import { createNameTag, disposeNameTag } from '../labelTexture';
 
 /** How a skater is labelled and dressed. */
 export interface SkaterStyle {
   name: string;
   color: string; // the parka, the ring under the skater, the trail and the name tag
-  avatarUrl: string | null; // shown as the skater's face (null = a plain face)
+  avatarUrl: string | null; // (not used by this model: the eskimo's face is black with glowing eyes. Kept so another place can show it.)
 }
 
 interface SkaterPose { x: number; z: number; vx: number; vz: number }
-interface PenguinPose { x: number; z: number; heading: number; walking: boolean; caughtBy?: string }
+interface PenguinPose { kind: CreatureKind; x: number; z: number; heading: number; walking: boolean; caughtBy?: string }
 interface Snapshot {
   t: number; // when it ARRIVED (performance.now() timeline)
   skaters: Record<string, SkaterPose>;
@@ -43,29 +44,40 @@ const TRAIL_LIFT = 0.04; // just above the ice so it never z-fights with it
 const LOOP_FLASH_SECONDS = 0.8;
 const CATCH_FLIGHT_SECONDS = 0.8; // how long a caught penguin takes to hop into its catcher's arms
 const PLUS_ONE_SECONDS = 1.1;
-const BAG_HEADS = 4; // most penguin heads shown poking out of the bag
+// Just ONE head pokes out of the sack, whatever is inside (the head of the most valuable animal): how many are inside shows in how BIG the sack is.
+/**
+ * The sack grows with every penguin in it, by the SAME amount each time, in even steps from the size it has with ONE
+ * animal (BAG_FIRST_SIZE) up to BAG_MAX_SIZE, which it reaches exactly when the bag is full (the server's bagCapacity, 6). That is about
+ * 0.95, 1.4, 1.8, 2.2, 2.6, 3.0 times the sack's normal size for 1 to 6 animals. The cap is there so a very full sack stays funny rather than
+ * covering the screen or hiding the skater from its own camera.
+ */
+/** How big each head is when it pokes out of the sack (before it is shrunk to stay head-sized on a big sack): a bear's head is bigger, so it is scaled down more. */
+const SACK_HEAD_SCALE: Record<CreatureKind, number> = { penguin: 0.75, seal: 0.7, bear: 0.52 };
+const BAG_FIRST_SIZE = 0.95;
+const BAG_MAX_SIZE = 3;
+
 const SKATE_SOUND_EVERY = 0.3; // seconds between swishes at full speed
 
 interface SkaterVisual {
   root: Group; // moves and turns (faces where it is going)
   lean: Group; // the body, tilted forward with speed
-  leftSkate: Mesh; rightSkate: Mesh; leftArm: Mesh; rightArm: Mesh;
+  leftSkate: Mesh; rightSkate: Mesh;
   ring: Mesh; shadow: Mesh; label: Sprite;
   trail: Mesh; trailGeometry: BufferGeometry; trailPositions: Float32Array; trailColors: Float32Array;
   color: Color;
   phase: number; // where it is in its skating stride
   swishTimer: number;
   hop: number; // seconds since it caught something (a little jump of joy), large = not hopping
-  face: MeshStandardMaterial;
   bag: Group; // the sack on the skater's back that caught penguins go into
   bagSack: Mesh;
-  bagHeads: Group[]; // penguin heads poking out of the sack (up to 4)
+  bagHeads: Record<CreatureKind, Group>; // the head poking out of the sack: only the one for the most valuable animal inside is shown
   lastBanked: number | null; // their score when last seen (a rise = they just cashed in)
 }
 
 interface PenguinVisual {
   root: Group; body: Group; shadow: Mesh;
   phase: number;
+  kind: CreatureKind;
   catch: { startedAt: number; from: Vector3; by: string } | null;
 }
 
@@ -87,7 +99,13 @@ export class PenguinScene {
   private flashes: { mesh: Mesh; material: MeshBasicMaterial; age: number }[] = [];
   private seenLoops = new Set<number>();
   private iglooBuilt = false; // the igloos are built from the first view (they never move)
-  private iglooGeometries = [new SphereGeometry(1, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2), new CylinderGeometry(1, 1, 1, 10, 1, false, 0, Math.PI), new RingGeometry(0.97, 1, 48)];
+  private iglooBodies = new Map<string, Group>(); // each player's igloo (it grows as they cash in points)
+  // The igloo, from the sketch: a wide, flat-topped dome like a loaf, with a low rounded tunnel entrance out of the front. All in units
+  // of the igloo's radius (scaled up by the real size when it is built).
+  private iglooDome = makeIglooDomeGeometry();
+  private iglooTunnel = new ExtrudeGeometry(archShape(0.4), { depth: 0.8, bevelEnabled: false }); // an arch, extruded forward
+  private iglooDoor = new ShapeGeometry(archShape(0.26)); // the dark opening in the end of the tunnel
+  private iglooRing = new RingGeometry(0.97, 1, 48); // the cash-in zone's edge
   private bagGeometry = new IcosahedronGeometry(0.6, 1);
   private iglooFlagGeometry = new BoxGeometry(0.1, 1.1, 0.7);
   private pluses: { sprite: Sprite; age: number; x: number; z: number }[] = [];
@@ -106,22 +124,24 @@ export class PenguinScene {
   private clock = createRoundClock((sound, gain) => this.playHere(sound, gain));
 
   // Shared shapes (one geometry, many meshes).
-  private skaterBody = new CylinderGeometry(0.55, 0.9, 1.5, 8);
-  private skaterHead = new IcosahedronGeometry(0.55, 1);
-  private furRing = new TorusGeometry(0.5, 0.15, 6, 12);
-  private furHem = new TorusGeometry(0.82, 0.14, 6, 12);
-  private faceDisc = new CircleGeometry(0.4, 16);
-  private limb = new BoxGeometry(0.2, 0.7, 0.2);
-  private skateBox = new BoxGeometry(0.28, 0.14, 0.95);
-  private bladeBox = new BoxGeometry(0.06, 0.1, 1.05);
+  private coatGeometry = makeCoatGeometry(true); // the eskimo's coat: a rounded triangle that parts at the front of the hem (see makeCoatGeometry)
+  private liningGeometry = makeCoatGeometry(false); // the inside of the coat: the same shape, whole, a little smaller, in black: it shows through where the coat parts
+  private faceGeometry = new SphereGeometry(1, 12, 10); // the black face hollow (squashed into shape per use)
+  private puffGeometry = new IcosahedronGeometry(1, 1); // one puff of the coat's fur
+  private eyeGeometry = new SphereGeometry(1, 10, 8); // an eye: a long oval, squashed into shape
+  private bootGeometry = new SphereGeometry(1, 8, 6); // a skate nub
+  private furRing = new TorusGeometry(0.5, 0.15, 6, 12); // (the sack's rope)
+  private faceDisc = new CircleGeometry(0.4, 16); // (the igloo's doorway)
+  private bladeBox = new BoxGeometry(0.07, 0.09, 0.8);
+  private glowTexture = makeGlowTexture(); // a soft round glow for behind the eyes
   private ringGeometry = new RingGeometry(1.25, 1.5, 32);
   private shadowGeometry = new CircleGeometry(1.1, 20);
   private penguinBody = new IcosahedronGeometry(0.62, 1);
   private penguinHead = new IcosahedronGeometry(0.4, 1);
   private beak = new ConeGeometry(0.12, 0.34, 6);
-  private flipper = new BoxGeometry(0.1, 0.55, 0.28);
-  private foot = new BoxGeometry(0.3, 0.07, 0.42);
-  private eye = new SphereGeometry(0.07, 6, 6);
+  private headKit = new HeadKit(); // the animals' heads
+  private penguinTorso = makePenguinTorsoGeometry(); // a pear-shaped body: widest low down (see makePenguinTorsoGeometry)
+  private foot = new CylinderGeometry(0.3, 0.3, 0.06, 3); // a flat webbed foot: a triangle with one corner (the toes) pointing forward
   private materials = {
     dark: new MeshStandardMaterial({ color: '#1e2a47', flatShading: true, roughness: 0.8 }),
     white: new MeshStandardMaterial({ color: '#f6fbff', flatShading: true, roughness: 0.9 }),
@@ -129,6 +149,15 @@ export class PenguinScene {
     fur: new MeshStandardMaterial({ color: '#fffaf0', flatShading: true, roughness: 1 }),
     steel: new MeshStandardMaterial({ color: '#cfd8e3', flatShading: true, roughness: 0.3, metalness: 0.6 }),
     boot: new MeshStandardMaterial({ color: '#4a3426', flatShading: true, roughness: 0.9 }),
+    hollow: new MeshStandardMaterial({ color: '#05060a', roughness: 1 }), // the black inside of the coat: the face and the opening down the front
+    eyeGlow: new MeshBasicMaterial({ color: '#fff2a6' }), // the eyes: light yellow, unaffected by the lighting so they always glow
+    coatInside: new MeshStandardMaterial({ color: '#05060a', roughness: 1, flatShading: true }),
+    sealBody: new MeshStandardMaterial({ color: '#7f93a8', flatShading: true, roughness: 0.8 }),
+    sealBelly: new MeshStandardMaterial({ color: '#cbd8e4', flatShading: true, roughness: 0.8 }),
+    bearFur: new MeshStandardMaterial({ color: '#eef3f8', flatShading: true, roughness: 1 }),
+    bearMuzzle: new MeshStandardMaterial({ color: '#f7eedb', flatShading: true, roughness: 1 }),
+    nose: new MeshStandardMaterial({ color: '#0b0d14', roughness: 0.6 }),
+    patch: new MeshStandardMaterial({ color: '#2a2f3a', roughness: 1 }), // the dark patch the bear's eyes sit on
     sack: new MeshStandardMaterial({ color: '#a0763f', flatShading: true, roughness: 1 }),
     rope: new MeshStandardMaterial({ color: '#e8d8b0', flatShading: true, roughness: 1 }),
     igloo: new MeshStandardMaterial({ color: '#f4fbff', flatShading: true, roughness: 0.7 }),
@@ -149,9 +178,9 @@ export class PenguinScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
     this.disposables.push(
-      ...this.iglooGeometries, this.bagGeometry, this.iglooFlagGeometry,
-      this.renderer, this.flecks, this.skaterBody, this.skaterHead, this.furRing, this.furHem, this.faceDisc, this.limb, this.skateBox, this.bladeBox,
-      this.ringGeometry, this.shadowGeometry, this.penguinBody, this.penguinHead, this.beak, this.flipper, this.foot, this.eye,
+      this.iglooDome, this.iglooTunnel, this.iglooDoor, this.iglooRing, this.bagGeometry, this.iglooFlagGeometry,
+      this.renderer, this.flecks, this.headKit, this.coatGeometry, this.liningGeometry, this.faceGeometry, this.puffGeometry, this.eyeGeometry, this.bootGeometry, this.glowTexture, this.furRing, this.faceDisc, this.bladeBox,
+      this.ringGeometry, this.shadowGeometry, this.penguinBody, this.penguinTorso, this.penguinHead, this.beak, this.foot,
       ...Object.values(this.materials),
     );
     this.rig = new SpectatorRig(this.camera, arenaRadius, FOLLOW_VIEW);
@@ -172,7 +201,7 @@ export class PenguinScene {
     this.checkCashIns(view);
     const skaters: Record<string, SkaterPose> = {};
     for (const [id, s] of Object.entries(view.skaters)) skaters[id] = { x: s.x, z: s.z, vx: s.vx, vz: s.vz };
-    this.snapshots.push({ t: performance.now(), skaters, penguins: new Map(view.penguins.map((p) => [p.id, { x: p.x, z: p.z, heading: p.heading, walking: p.walking, caughtBy: p.caughtBy }])) });
+    this.snapshots.push({ t: performance.now(), skaters, penguins: new Map(view.penguins.map((p) => [p.id, { kind: p.kind, x: p.x, z: p.z, heading: p.heading, walking: p.walking, caughtBy: p.caughtBy }])) });
     if (this.snapshots.length > 10) this.snapshots.shift();
     this.newLoops(view.loops);
   }
@@ -196,7 +225,7 @@ export class PenguinScene {
     this.disposed = true;
     cancelAnimationFrame(this.rafId);
     this.resizeObserver.disconnect();
-    for (const v of this.skaters.values()) { v.trailGeometry.dispose(); v.trail.material instanceof MeshBasicMaterial && v.trail.material.dispose(); v.face.dispose(); }
+    for (const v of this.skaters.values()) { v.trailGeometry.dispose(); v.trail.material instanceof MeshBasicMaterial && v.trail.material.dispose(); }
     for (const f of this.flashes) { f.mesh.geometry.dispose(); f.material.dispose(); }
     this.disposables.forEach((d) => d.dispose());
     this.renderer.domElement.remove();
@@ -251,69 +280,88 @@ export class PenguinScene {
     const style = this.styles[id] ?? { name: '?', color: '#3b82f6', avatarUrl: null };
     const color = new Color(style.color);
     const parka = this.track(new MeshStandardMaterial({ color: style.color, flatShading: true, roughness: 0.85 }));
-    const face = new MeshStandardMaterial({ color: '#f2c9a0', roughness: 0.9 }); // plain skin colour until an avatar loads
 
     const root = new Group();
     const lean = new Group();
     root.add(lean);
-    const body = new Mesh(this.skaterBody, parka);
-    body.position.y = 1.05;
-    const hem = new Mesh(this.furHem, this.materials.fur); // fur trim at the bottom of the parka
-    hem.rotation.x = Math.PI / 2;
-    hem.position.y = 0.3;
-    const head = new Mesh(this.skaterHead, parka); // the hood
-    head.scale.set(1.2, 1.1, 1.15);
-    head.position.set(0, 2.15, -0.05);
-    const fur = new Mesh(this.furRing, this.materials.fur); // fur ring framing the face
-    fur.position.set(0, 2.15, 0.4);
-    const faceMesh = new Mesh(this.faceDisc, face); // the face: the player's avatar
-    faceMesh.position.set(0, 2.15, 0.5);
-    const leftArm = new Mesh(this.limb, parka);
-    const rightArm = new Mesh(this.limb, parka);
-    leftArm.position.set(-0.75, 1.45, 0);
-    rightArm.position.set(0.75, 1.45, 0);
-    lean.add(body, hem, head, fur, faceMesh, leftArm, rightArm);
 
+    // The eskimo is not a person: it is someone hiding inside a BIG COAT. The coat is a rounded triangle in the player's colour
+    // (wide at the hem, narrow and rounded at the top, and flatter front to back). There are no arms. All you see of whoever is inside
+    // is a black hollow for a face with two glowing eyes, framed by the puffy white fur of the hood, and an opening down the front.
+    const coat = new Mesh(this.coatGeometry, parka);
+    coat.scale.set(1, 1, COAT_DEPTH);
+    // The coat PARTS at the front of the hem, like a sweater or jacket that is open at the bottom: a V-shaped opening runs up from
+    // the hem to the face. Behind it is the black lining (the same coat, whole, a little smaller), so the gap shows black inside.
+    const lining = new Mesh(this.liningGeometry, this.materials.coatInside);
+    lining.scale.set(0.93, 1, 0.93 * COAT_DEPTH);
+    lean.add(coat, lining);
+    // Everything on the front is built in a group that is tilted to follow the slope of the coat's front.
+    const frontAt = (y: number) => coatRadiusAt((y - COAT_BASE_Y) / COAT_HEIGHT) * COAT_DEPTH; // how far forward the coat's surface is at height y
+    const frontTilt = -Math.atan(COAT_SLOPE * COAT_DEPTH); // the front leans back as it goes up
+    const faceY = COAT_BASE_Y + FACE_T * COAT_HEIGHT;
+    const face = new Group();
+    face.position.set(0, faceY, frontAt(faceY) - 0.04);
+    face.rotation.x = frontTilt;
+    const hollow = new Mesh(this.faceGeometry, this.materials.hollow); // the black face
+    hollow.scale.set(0.46, 0.58, 0.2);
+    face.add(hollow);
+    // The eyes: long, rounded ovals (like a Bomb-omb's), light yellow, each with a soft glow behind it.
+    for (const side of [-1, 1]) {
+      const eye = new Mesh(this.eyeGeometry, this.materials.eyeGlow);
+      eye.scale.set(0.1, 0.27, 0.05);
+      eye.position.set(side * 0.18, 0.06, 0.17);
+      const halo = new Sprite(this.track(new SpriteMaterial({ map: this.glowTexture, color: '#fff0a0', blending: AdditiveBlending, transparent: true, depthWrite: false, opacity: 0.8 })));
+      halo.scale.set(0.7, 0.9, 1);
+      halo.position.set(side * 0.18, 0.06, 0.24);
+      face.add(eye, halo);
+    }
+    // The fur of the hood: a ring of puffy white balls round the top and sides of the face (a fur-trimmed hood, like a fancy coat).
+    for (let i = 0; i < FUR_PUFFS; i++) {
+      const angle = -0.4 + (i / (FUR_PUFFS - 1)) * (Math.PI + 0.8); // from below the right cheek, over the top, to below the left cheek
+      const puff = new Mesh(this.puffGeometry, this.materials.fur);
+      puff.scale.setScalar(0.2 + Math.random() * 0.09);
+      puff.position.set(Math.cos(angle) * 0.6 + (Math.random() - 0.5) * 0.05, Math.sin(angle) * 0.78 + (Math.random() - 0.5) * 0.05, 0.1 + Math.random() * 0.06);
+      face.add(puff);
+    }
+    lean.add(face);
     // The bag: a lumpy sack on the skater's back. It swells with every penguin caught, and their heads poke out of the top.
     const bag = new Group();
-    bag.position.set(0, 1.6, -0.95);
+    bag.position.set(0, COAT_BASE_Y + 0.55 * COAT_HEIGHT, -0.95); // on the back of the coat
     const bagSack = new Mesh(this.bagGeometry, this.materials.sack);
     const tie = new Mesh(this.furRing, this.materials.rope); // the rope tied round the neck of the sack
     tie.scale.setScalar(0.55);
     tie.rotation.x = Math.PI / 2;
     tie.position.y = 0.5;
     bag.add(bagSack, tie);
-    const bagHeads: Group[] = [];
-    for (let i = 0; i < BAG_HEADS; i++) {
-      const head = new Group();
-      const skull = new Mesh(this.penguinHead, this.materials.dark);
-      skull.scale.setScalar(0.7);
-      const beak = new Mesh(this.beak, this.materials.orange);
-      beak.scale.setScalar(0.7);
-      beak.rotation.x = Math.PI / 2;
-      beak.position.set(0, -0.02, 0.3);
-      head.add(skull, beak);
-      const angle = (i / BAG_HEADS) * Math.PI * 2;
-      head.position.set(Math.cos(angle) * 0.22, 0.62, Math.sin(angle) * 0.22);
-      head.rotation.y = -angle + Math.PI / 2;
+    // One head for each kind of animal, all facing BACKWARD (out of the back of the skater, the way the sack faces); only the one
+    // for the most valuable animal in the bag is shown (see updateBag).
+    const bagHeads = {} as Record<CreatureKind, Group>;
+    for (const kind of ['penguin', 'seal', 'bear'] as const) {
+      const head = this.buildHead(kind);
+      head.rotation.y = Math.PI; // facing back
+      head.position.set(0, 0.62, 0);
+      head.scale.setScalar(SACK_HEAD_SCALE[kind]);
       head.visible = false;
       bag.add(head);
-      bagHeads.push(head);
+      bagHeads[kind] = head;
     }
     bag.visible = false;
     lean.add(bag);
 
+    // The legs are just little nubs (a skate each) that float under the coat, with a gap between.
     const makeSkate = (x: number) => {
-      const boot = new Mesh(this.skateBox, this.materials.boot);
+      const boot = new Mesh(this.bootGeometry, this.materials.boot);
+      boot.scale.set(0.26, 0.2, 0.4);
       const blade = new Mesh(this.bladeBox, this.materials.steel);
-      blade.position.y = -0.1;
+      blade.scale.set(1 / 0.26, 1 / 0.2, 1 / 0.4); // (undo the nub's squashing so the blade keeps its own shape)
+      blade.position.set(0, -0.26, 0); // under the nub
       boot.add(blade);
-      boot.position.set(x, 0.2, 0);
+      boot.position.set(x, 0.3, 0);
       root.add(boot);
       return boot;
     };
-    const leftSkate = makeSkate(-0.3);
-    const rightSkate = makeSkate(0.3);
+    const leftSkate = makeSkate(-0.45);
+    const rightSkate = makeSkate(0.45);
 
     const ring = new Mesh(this.ringGeometry, this.track(new MeshBasicMaterial({ color: style.color, side: DoubleSide, transparent: true, opacity: 0.95 })));
     ring.rotation.x = -Math.PI / 2;
@@ -321,7 +369,8 @@ export class PenguinScene {
     const shadow = new Mesh(this.shadowGeometry, this.materials.shadow);
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.03;
-    const label = new Sprite(this.track(new SpriteMaterial({ map: this.track(makeLabelTexture(style.name, style.color)), transparent: true })));
+    const label = createNameTag(style.name, style.color); // on the top layer: the sack (or anything else) can never clip into it
+    this.track({ dispose: () => disposeNameTag(label) });
     label.scale.set(4.2, 1.05, 1);
 
     // The trail: a flat ribbon on the ice (rebuilt every frame from the server's trail points), faded towards its old end.
@@ -339,65 +388,105 @@ export class PenguinScene {
     trail.renderOrder = 1;
 
     this.scene.add(root, ring, shadow, label, trail);
-    if (style.avatarUrl) this.loadAvatar(style.avatarUrl, face);
-    return { root, lean, leftSkate, rightSkate, leftArm, rightArm, ring, shadow, label, trail, trailGeometry, trailPositions, trailColors, color, phase: Math.random() * 6, swishTimer: 0, hop: 99, face, bag, bagSack, bagHeads, lastBanked: null };
-  }
-
-  /** Puts the player's profile picture on their skater's face once it has downloaded (a plain face until then, or if it fails). */
-  private loadAvatar(url: string, material: MeshStandardMaterial) {
-    this.textureLoader.load(url, (texture) => {
-      if (this.disposed) { texture.dispose(); return; }
-      texture.colorSpace = SRGBColorSpace;
-      texture.wrapS = texture.wrapT = RepeatWrapping;
-      this.disposables.push(texture);
-      material.color.set('#ffffff'); // show the picture's own colours
-      material.map = texture;
-      material.needsUpdate = true;
-    }, undefined, () => {});
+    return { root, lean, leftSkate, rightSkate, ring, shadow, label, trail, trailGeometry, trailPositions, trailColors, color, phase: Math.random() * 6, swishTimer: 0, hop: 99, bag, bagSack, bagHeads, lastBanked: null };
   }
 
   private makePenguin(): PenguinVisual {
     const root = new Group();
     const body = new Group(); // everything that waddles
     root.add(body);
-    const torso = new Mesh(this.penguinBody, this.materials.dark);
-    torso.scale.set(0.95, 1.25, 0.8);
-    torso.position.y = 0.95;
-    const belly = new Mesh(this.penguinBody, this.materials.white);
-    belly.scale.set(0.75, 1.05, 0.5);
-    belly.position.set(0, 0.92, 0.28);
-    const head = new Mesh(this.penguinHead, this.materials.dark);
-    head.position.set(0, 1.98, 0.02);
-    const beak = new Mesh(this.beak, this.materials.orange);
-    beak.rotation.x = Math.PI / 2;
-    beak.position.set(0, 1.93, 0.5);
-    const leftEye = new Mesh(this.eye, this.materials.white);
-    const rightEye = new Mesh(this.eye, this.materials.white);
-    leftEye.position.set(-0.17, 2.06, 0.34);
-    rightEye.position.set(0.17, 2.06, 0.34);
-    const pupilL = new Mesh(this.eye, this.materials.eye);
-    const pupilR = new Mesh(this.eye, this.materials.eye);
-    pupilL.scale.setScalar(0.55);
-    pupilR.scale.setScalar(0.55);
-    pupilL.position.set(-0.17, 2.06, 0.4);
-    pupilR.position.set(0.17, 2.06, 0.4);
-    const leftFlipper = new Mesh(this.flipper, this.materials.dark);
-    const rightFlipper = new Mesh(this.flipper, this.materials.dark);
-    leftFlipper.position.set(-0.68, 1.1, 0);
-    rightFlipper.position.set(0.68, 1.1, 0);
-    leftFlipper.rotation.z = 0.35;
-    rightFlipper.rotation.z = -0.35;
-    const leftFoot = new Mesh(this.foot, this.materials.orange);
-    const rightFoot = new Mesh(this.foot, this.materials.orange);
-    leftFoot.position.set(-0.28, 0.05, 0.12);
-    rightFoot.position.set(0.28, 0.05, 0.12);
-    body.add(torso, belly, head, beak, leftEye, rightEye, pupilL, pupilR, leftFlipper, rightFlipper, leftFoot, rightFoot);
+    // A penguin built from the sketches: a big pear-shaped body, a separate wide round head, an orange beak,
+    // flat webbed feet, and two light-yellow oval eyes (like the eskimo's) on its face. Everything faces +z.
+    const torso = new Mesh(this.penguinTorso, this.materials.dark);
+    torso.scale.set(1, 1, 0.85); // flatter front to back than it is wide
+    const belly = new Mesh(this.penguinBody, this.materials.white); // the pale front
+    belly.scale.set(0.8, 1.2, 0.5);
+    belly.position.set(0, 0.88, 0.42);
+    const head = this.buildHead('penguin');
+    head.position.set(0, 2.0, 0.04);
+    body.add(torso, belly, head);
+    // Feet: flat triangles at the bottom, toes pointing forward and turned out a little, like the sketch.
+    for (const side of [-1, 1]) {
+      const foot = new Mesh(this.foot, this.materials.orange);
+      foot.position.set(side * 0.36, 0.05, 0.32);
+      foot.rotation.y = side * 0.4;
+      foot.scale.set(1, 1, 1.25);
+      body.add(foot);
+    }
     const shadow = new Mesh(this.shadowGeometry, this.materials.shadow);
     shadow.rotation.x = -Math.PI / 2;
     shadow.position.y = 0.03;
     shadow.scale.setScalar(0.85);
     this.scene.add(root, shadow);
-    return { root, body, shadow, phase: Math.random() * 6, catch: null };
+    return { root, body, shadow, phase: Math.random() * 6, kind: 'penguin', catch: null };
+  }
+
+  /** The head of each kind of animal (see HeadKit): the same heads are used on the full animals, in the sack and in the bag display on the screen. */
+  private buildHead(kind: CreatureKind): Group {
+    return this.headKit.build(kind);
+  }
+
+  /** A seal: a long, low, rounded body on its belly with a round head, two short front flippers and a pair of tail flippers. Faces +z. */
+  private makeSeal(): PenguinVisual {
+    const root = new Group();
+    const body = new Group();
+    root.add(body);
+    const oval = (material: MeshStandardMaterial, sx: number, sy: number, sz: number, x: number, y: number, z: number, ry = 0) => {
+      const mesh = new Mesh(this.faceGeometry, material);
+      mesh.scale.set(sx, sy, sz);
+      mesh.position.set(x, y, z);
+      mesh.rotation.y = ry;
+      body.add(mesh);
+    };
+    oval(this.materials.sealBody, 0.85, 0.78, 1.55, 0, 0.78, 0); // the long body
+    oval(this.materials.sealBelly, 0.7, 0.5, 1.35, 0, 0.55, 0.1); // the pale underside
+    const head = this.buildHead('seal');
+    head.position.set(0, 1.15, 1.35);
+    head.rotation.x = -0.3; // head held up
+    body.add(head);
+    for (const side of [-1, 1]) {
+      oval(this.materials.sealBody, 0.48, 0.08, 0.26, side * 0.95, 0.3, 0.55, side * 0.7); // a front flipper, resting on the ice
+      oval(this.materials.sealBody, 0.36, 0.08, 0.3, side * 0.3, 0.28, -1.6, side * 0.5); // half of the tail
+    }
+    const shadow = new Mesh(this.shadowGeometry, this.materials.shadow);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.03;
+    shadow.scale.set(1.2, 1.2, 1.2);
+    this.scene.add(root, shadow);
+    return { root, body, shadow, phase: Math.random() * 6, kind: 'seal', catch: null };
+  }
+
+  /** A polar bear: bigger than the eskimo. A big white body on four thick legs, a hump of shoulders, a big head with a cream muzzle and round ears. Faces +z. */
+  private makeBear(): PenguinVisual {
+    const root = new Group();
+    const body = new Group();
+    root.add(body);
+    const oval = (material: MeshStandardMaterial, sx: number, sy: number, sz: number, x: number, y: number, z: number) => {
+      const mesh = new Mesh(this.faceGeometry, material);
+      mesh.scale.set(sx, sy, sz);
+      mesh.position.set(x, y, z);
+      body.add(mesh);
+    };
+    oval(this.materials.bearFur, 1.2, 1.1, 1.75, 0, 2.0, -0.1); // the body
+    oval(this.materials.bearFur, 1.0, 0.8, 0.9, 0, 2.45, 0.85); // the shoulder hump
+    for (const z of [-1, 1]) for (const side of [-1, 1]) {
+      oval(this.materials.bearFur, 0.42, 1.05, 0.46, side * 0.68, 1.0, z * 0.95); // four thick legs
+      oval(this.materials.bearMuzzle, 0.46, 0.18, 0.55, side * 0.68, 0.14, z * 0.95 + 0.12); // and their paws
+    }
+    oval(this.materials.bearFur, 0.28, 0.28, 0.28, 0, 2.35, -1.8); // a little round tail
+    const head = this.buildHead('bear');
+    head.position.set(0, 2.75, 1.75);
+    body.add(head);
+    const shadow = new Mesh(this.shadowGeometry, this.materials.shadow);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.03;
+    shadow.scale.set(1.9, 1.9, 1.9);
+    this.scene.add(root, shadow);
+    return { root, body, shadow, phase: Math.random() * 6, kind: 'bear', catch: null };
+  }
+
+  private makeCreature(kind: CreatureKind): PenguinVisual {
+    return kind === 'seal' ? this.makeSeal() : kind === 'bear' ? this.makeBear() : this.makePenguin();
   }
 
   // ---------- per frame ----------
@@ -457,12 +546,14 @@ export class PenguinScene {
       for (const [id, pose] of Object.entries(sampled.skaters)) {
         const v = this.skaters.get(id) ?? this.addSkater(id);
         this.updateSkater(v, pose, dt);
-        this.updateBag(v, this.latest.skaters[id]?.carried ?? 0, dt);
+        const mine = this.latest.skaters[id];
+        this.updateBag(v, mine?.carriedSpace ?? 0, mine?.topCarried ?? null, this.latest.bagCapacity, dt);
         this.updateTrail(v, pose, this.latest.skaters[id]);
       }
       this.updatePenguins(sampled.penguins, sampled.skaters, dt, time);
     }
     this.updateEffects(dt);
+    this.updateIgloos(dt);
     // Camera: follow a skater, or fly the free camera (see SpectatorRig). Size 1: the follow view doesn't depend on size.
     const followed = this.view.targetId && poses ? poses[this.view.targetId] : undefined;
     this.rig.update(dt, this.view.mode, followed && { x: followed.x, y: 0, z: followed.z, size: 1 }, this.pan.current, this.zoom);
@@ -494,7 +585,10 @@ export class PenguinScene {
     v.ring.position.set(pose.x, 0.05, pose.z);
     v.shadow.position.set(pose.x, 0.03, pose.z);
     v.shadow.scale.setScalar(1 - 0.25 * Math.min(1, hopLift));
-    v.label.position.set(pose.x, 3.9 + hopLift, pose.z);
+    // The name floats above the top of the coat, or above the top of the sack when that is higher (a big sack). It is also drawn on the
+    // top layer, so even where they overlap nothing can cut into it.
+    const bagTop = v.bag.visible ? v.bag.position.y + 0.66 * v.bag.scale.x + 0.9 : 0;
+    v.label.position.set(pose.x, Math.max(COAT_BASE_Y + COAT_HEIGHT + 1.05, bagTop) + hopLift, pose.z);
     v.lean.rotation.x = Math.min(0.35, speed / 30); // lean forward into the glide
 
     // Stride: alternate the skates forwards and back, faster with speed, and swing the arms opposite.
@@ -502,8 +596,7 @@ export class PenguinScene {
     const stride = Math.sin(v.phase) * Math.min(1, speed / 6) * 0.45;
     v.leftSkate.position.z = stride;
     v.rightSkate.position.z = -stride;
-    v.leftArm.rotation.x = -stride * 1.2;
-    v.rightArm.rotation.x = stride * 1.2;
+    v.lean.rotation.z = Math.sin(v.phase) * Math.min(1, speed / 8) * 0.07; // the coat sways from side to side as it skates (no arms to swing)
 
     // The sound of the blades, quieter when slow, played where the skater is (you hear nearby skaters, not far ones).
     if (speed > 1.5) {
@@ -517,13 +610,26 @@ export class PenguinScene {
   }
 
   /** The bag on the skater's back: hidden when empty, and bigger (with more heads showing) the more penguins are in it. */
-  private updateBag(v: SkaterVisual, carried: number, dt: number) {
-    v.bag.visible = carried > 0 || v.bag.scale.x > 0.05;
-    const wanted = carried > 0 ? 0.85 + Math.min(carried, 8) * 0.1 : 0.01;
-    v.bag.scale.setScalar(v.bag.scale.x + (wanted - v.bag.scale.x) * Math.min(1, 10 * dt)); // grows and shrinks smoothly
+  /**
+   * The sack. Its size is in proportion to how much SPACE the animals inside take up (a penguin or seal 1, a polar bear 3), in even steps
+   * from the one-space size up to BAG_MAX_SIZE when all the bag's spaces are used. The head poking out is the one for the most valuable
+   * animal inside, facing backwards.
+   */
+  private updateBag(v: SkaterVisual, space: number, top: CreatureKind | null, capacity: number, dt: number) {
+    v.bag.visible = space > 0 || v.bag.scale.x > 0.05;
+    const wanted = space <= 0 ? 0.01 : BAG_FIRST_SIZE + (BAG_MAX_SIZE - BAG_FIRST_SIZE) * Math.min(1, (space - 1) / Math.max(1, capacity - 1));
+    const size = v.bag.scale.x + (wanted - v.bag.scale.x) * Math.min(1, 10 * dt); // grows and shrinks smoothly
+    v.bag.scale.setScalar(size);
     v.bagSack.scale.set(1, 1.1, 1);
-    v.bagHeads.forEach((h, i) => { h.visible = i < carried; });
-    v.bag.rotation.z = Math.sin(v.phase * 0.5) * 0.06 * Math.min(1, carried); // sways as they skate
+    // A big sack hangs further back and rides higher on the skater's back (it must not sink into the ice or into the coat).
+    v.bag.position.set(0, Math.max(COAT_BASE_Y + 0.55 * COAT_HEIGHT, 0.15 + 0.7 * size), -(0.45 + 0.6 * size));
+    // Only one head shows. It grows much more slowly than the sack, so the sack looks huge and the head stays a head.
+    for (const kind of ['penguin', 'seal', 'bear'] as const) {
+      const head = v.bagHeads[kind];
+      head.visible = space > 0 && kind === top;
+      head.scale.setScalar(SACK_HEAD_SCALE[kind] / Math.max(1, size) ** 0.7);
+    }
+    v.bag.rotation.z = Math.sin(v.phase * 0.5) * 0.06 * Math.min(1, space); // sways as they skate
   }
 
   /**
@@ -563,14 +669,14 @@ export class PenguinScene {
     }
     for (const [id, pose] of poses) {
       let pv = this.penguins.get(id);
-      if (!pv) { pv = this.makePenguin(); this.penguins.set(id, pv); }
-      pv.phase += dt * (pose.walking ? 11 : 1.5);
+      if (!pv) { pv = this.makeCreature(pose.kind); this.penguins.set(id, pv); }
+      pv.phase += dt * (pose.walking ? (pv.kind === 'bear' ? 6 : 11) : 1.5);
       pv.root.rotation.y = Math.PI / 2 - pose.heading;
 
       if (pose.caughtBy && !pv.catch) {
         // Just caught: remember where it was, celebrate there, and start the hop towards the catcher.
         pv.catch = { startedAt: time, from: new Vector3(pose.x, 0, pose.z), by: pose.caughtBy };
-        this.celebrate(pose.x, pose.z, pose.caughtBy);
+        this.celebrate(pose.x, pose.z, pose.caughtBy, pose.kind);
       }
       if (pv.catch) {
         const u = Math.min(1, (time - pv.catch.startedAt) / (CATCH_FLIGHT_SECONDS * 1000));
@@ -588,19 +694,33 @@ export class PenguinScene {
         continue;
       }
       pv.root.position.set(pose.x, 0, pose.z);
-      pv.body.rotation.z = pose.walking ? Math.sin(pv.phase) * 0.16 : 0; // the waddle
-      pv.body.position.y = pose.walking ? Math.abs(Math.sin(pv.phase)) * 0.12 : 0;
+      if (pv.kind === 'seal') {
+        // A seal slides: it stretches a little and lifts its head while it shoots along, and just breathes while it pauses.
+        pv.body.rotation.x = pose.walking ? -0.1 : 0;
+        pv.body.rotation.z = pose.walking ? Math.sin(pv.phase * 0.6) * 0.05 : 0;
+        pv.body.scale.set(pose.walking ? 0.94 : 1 + Math.sin(pv.phase) * 0.012, 1, pose.walking ? 1.1 : 1);
+        pv.body.position.y = 0;
+      } else if (pv.kind === 'bear') {
+        // A bear lumbers: a slow, heavy sway and bob.
+        pv.body.rotation.z = pose.walking ? Math.sin(pv.phase) * 0.045 : 0;
+        pv.body.position.y = pose.walking ? Math.abs(Math.sin(pv.phase)) * 0.1 : 0;
+      } else {
+        pv.body.rotation.z = pose.walking ? Math.sin(pv.phase) * 0.16 : 0; // the penguin's waddle
+        pv.body.position.y = pose.walking ? Math.abs(Math.sin(pv.phase)) * 0.12 : 0;
+      }
       pv.shadow.position.set(pose.x, 0.03, pose.z);
     }
   }
 
-  /** A catch: sparkles of ice, a chime and a "+1" over the catcher, and the catcher does a little hop. */
-  private celebrate(x: number, z: number, by: string) {
-    this.flecks.burst(x, 1, z, 1, 0, 0.8, 0.9);
-    audio.play(captureChime, x, z, 0.7, 1);
+  /** A catch: sparkles of ice, a chime and a "+N" (what the animal is worth) over the catch, and the catcher does a little hop. Bigger animals make a bigger fuss. */
+  private celebrate(x: number, z: number, by: string, kind: CreatureKind) {
+    const points = CREATURE_POINTS[kind];
+    this.flecks.burst(x, 1, z, 1, 0, 0.6 + 0.3 * points, 0.7 + 0.4 * points);
+    audio.play(captureChime, x, z, 0.6 + 0.1 * points, 1);
     const catcher = this.skaters.get(by);
     if (catcher) catcher.hop = 0;
-    this.floatText('+1', '#ffffff', x, z, 2.2); // into the bag: not points yet, so a plain white +1
+    // Into the bag: not points yet, so the colour is not the gold of a cash-in. A penguin is white, a seal light blue, a bear warm yellow.
+    this.floatText(`+${points}`, kind === 'bear' ? '#ffe08a' : kind === 'seal' ? '#9fdcff' : '#ffffff', x, z, 1.8 + 0.5 * points);
   }
 
   /** Floating text that rises and fades at a place on the ice. */
@@ -631,34 +751,36 @@ export class PenguinScene {
     }
   }
 
-  /** Builds every player's igloo: a white dome with a dark doorway facing the middle of the rink, a flag in their colour, and a ring on the ice marking the cash-in zone. */
+  /**
+   * Builds every player's igloo, from the sketch: a wide dome with a flat-ish rounded top (like a loaf) and a low, rounded tunnel
+   * entrance out of the front, whose end is a dark opening ringed in white. It faces the middle of the rink, has a flag in the
+   * player's colour on top, and a ring on the ice marking the cash-in zone. It GROWS with its owner's points (see updateIgloos).
+   */
   private buildIgloos(view: PenguinLassoView) {
     this.iglooBuilt = true;
-    const [dome, tunnel, ringShape] = this.iglooGeometries;
+    const R = view.iglooRadius;
     for (const [id, spot] of Object.entries(view.igloos)) {
       const color = this.styles[id]?.color ?? '#ffffff';
       const group = new Group();
-      const body = new Mesh(dome, this.materials.igloo);
-      body.scale.set(view.iglooRadius, view.iglooRadius * 0.8, view.iglooRadius);
-      const entrance = new Group(); // a short tunnel (half a cylinder lying on its side) out of the front
-      const tube = new Mesh(tunnel, this.materials.igloo);
-      tube.scale.set(view.iglooRadius * 0.45, view.iglooRadius * 0.9, view.iglooRadius * 0.45);
-      tube.rotation.set(Math.PI / 2, 0, Math.PI / 2);
-      const door = new Mesh(this.faceDisc, this.materials.iglooDark); // the dark doorway
-      door.scale.setScalar(view.iglooRadius * 0.4);
-      door.position.set(0, view.iglooRadius * 0.28, view.iglooRadius * 0.46);
-      entrance.add(tube, door);
-      entrance.position.set(0, 0, view.iglooRadius * 0.85);
+      const dome = new Mesh(this.iglooDome, this.materials.igloo);
+      dome.scale.setScalar(R);
+      const tunnel = new Mesh(this.iglooTunnel, this.materials.igloo);
+      tunnel.scale.setScalar(R);
+      tunnel.position.z = 0.6 * R; // from inside the dome out to 1.4 radii: a short stub, like the side view
+      const door = new Mesh(this.iglooDoor, this.materials.iglooDark);
+      door.scale.setScalar(R);
+      door.position.z = 1.4 * R + 0.02; // on the end of the tunnel, so the white edge of the tunnel rings it
       const pole = new Mesh(this.iglooFlagGeometry, this.materials.rope);
       pole.scale.set(0.5, 1.6, 0.2);
-      pole.position.set(0, view.iglooRadius * 0.8 + 0.7, 0);
+      pole.position.set(0, 0.9 * R + 0.65, 0);
       const flag = new Mesh(this.iglooFlagGeometry, this.track(new MeshStandardMaterial({ color, flatShading: true, roughness: 0.8 })));
-      flag.scale.set(0.3, 0.8, 1.3);
-      flag.position.set(0, view.iglooRadius * 0.8 + 1.1, 0.6);
-      group.add(body, entrance, pole, flag);
+      flag.scale.set(9, 0.8, 0.5); // a small square flag, wide enough to show from the front (the entrance side) and still show from the side
+      flag.position.set(0.5, 0.9 * R + 1.1, 0);
+      group.add(dome, tunnel, door, pole, flag);
       group.position.set(spot.x, 0, spot.z);
-      group.rotation.y = Math.atan2(-spot.x, -spot.z); // the doorway faces the middle of the rink
-      const zone = new Mesh(ringShape, this.track(new MeshBasicMaterial({ color, side: DoubleSide, transparent: true, opacity: 0.55, depthWrite: false })));
+      group.rotation.y = Math.atan2(-spot.x, -spot.z); // the entrance faces the middle of the rink
+      this.iglooBodies.set(id, group);
+      const zone = new Mesh(this.iglooRing, this.track(new MeshBasicMaterial({ color, side: DoubleSide, transparent: true, opacity: 0.55, depthWrite: false })));
       zone.rotation.x = -Math.PI / 2;
       zone.scale.setScalar(view.cashRadius);
       zone.position.set(spot.x, 0.05, spot.z);
@@ -667,6 +789,15 @@ export class PenguinScene {
       fill.scale.setScalar(view.cashRadius);
       fill.position.set(spot.x, 0.045, spot.z);
       this.scene.add(group, zone, fill);
+    }
+  }
+
+  /** Every igloo eases to the size the server says it is: bigger with every point its owner has cashed in. */
+  private updateIgloos(dt: number) {
+    if (!this.latest) return;
+    for (const [id, group] of this.iglooBodies) {
+      const wanted = this.latest.igloos[id]?.scale ?? 1;
+      group.scale.setScalar(group.scale.x + (wanted - group.scale.x) * Math.min(1, 6 * dt));
     }
   }
 
@@ -724,6 +855,112 @@ export class PenguinScene {
       }
     }
   }
+}
+
+// ---------- the igloo ----------
+
+/** The igloo's dome, as a surface of revolution of a loaf-shaped outline: nearly vertical sides, rounded shoulders, a flat-ish top. Radius 1, height 0.9. */
+function makeIglooDomeGeometry(): LatheGeometry {
+  const outline: [number, number][] = [ // [radius, height]
+    [1, 0], [1, 0.2], [0.97, 0.45], [0.88, 0.68], [0.7, 0.82], [0.42, 0.89], [0.001, 0.9],
+  ];
+  return new LatheGeometry(outline.map(([r, y]) => new Vector2(r, y)), 14);
+}
+
+/** An arch: a half circle of radius `r` standing on the ground (flat side down). Used for the igloo's tunnel and its doorway. */
+function archShape(r: number): Shape {
+  const shape = new Shape();
+  shape.moveTo(r, 0);
+  shape.absarc(0, 0, r, 0, Math.PI, false);
+  shape.lineTo(r, 0);
+  return shape;
+}
+
+// ---------- the penguin's body ----------
+
+/** The penguin's body: an outline turned round into a pear, widest low down and narrowing up to the neck, with a rounded top. Flat low-poly facets. */
+function makePenguinTorsoGeometry(): LatheGeometry {
+  const outline: [number, number][] = [ // [radius, height]
+    [0.001, 0.08], [0.4, 0.12], [0.66, 0.4], [0.74, 0.8], [0.68, 1.2], [0.52, 1.55], [0.32, 1.78], [0.001, 1.86],
+  ];
+  return new LatheGeometry(outline.map(([r, y]) => new Vector2(r, y)), 12);
+}
+
+// ---------- the eskimo's coat ----------
+
+const COAT_BASE_Y = 0.55; // the hem floats this far above the ice (the skate nubs are under it)
+const COAT_HEIGHT = 2.2; // (was 2.9: shorter, so it looks stockier and less long and thin)
+const COAT_RADIUS = 1.55; // at the hem
+const COAT_DEPTH = 0.68; // the coat is this much shallower front to back than it is wide, so from the side it is a slimmer egg
+const COAT_SLOPE = (COAT_RADIUS * 0.78) / COAT_HEIGHT; // how fast the coat narrows as it rises (before the rounded top)
+const FACE_T = 0.58; // where up the coat the face is (0 = hem, 1 = top)
+const PART_TOP_T = 0.46; // the opening at the front of the coat runs from the hem up to here (it meets the face)
+const PART_HEM_ANGLE = 0.33; // how wide the opening is at the hem: this many radians either side of the front (about half the coat's radius across)
+const PART_TOP_ANGLE = 0.1; // ...and how wide it is at the top of the opening (a narrow channel down from the face)
+const FUR_PUFFS = 13;
+
+/** How wide the coat is (its radius) at `t` (0 = hem, 1 = top): a straight taper, with the top rounded off into a dome. */
+function coatRadiusAt(t: number): number {
+  const straight = COAT_RADIUS * (1 - 0.78 * Math.min(1, Math.max(0, t)));
+  if (t <= 0.8) return straight;
+  const u = Math.min(1, (t - 0.8) / 0.2); // 0..1 over the last fifth: round the top over
+  return straight * Math.sqrt(Math.max(0, 1 - u * u));
+}
+
+/** How far (radians, either side of the front) the coat is cut away at height `t`: a V that is widest at the hem and narrows to a channel at PART_TOP_T. Zero above that. */
+function partAngleAt(t: number): number {
+  if (t >= PART_TOP_T) return 0;
+  return PART_TOP_ANGLE + (PART_HEM_ANGLE - PART_TOP_ANGLE) * (1 - t / PART_TOP_T);
+}
+
+/**
+ * The coat: its outline (see coatRadiusAt) turned round into a surface, so it reads as a rounded triangle from the front, with flat
+ * low-poly facets. With `parted`, the front (the +z side) of the lower part is cut away in a V, so the coat is open at the bottom
+ * like a jacket. Built ring by ring: each ring has the same number of points, spread over the part of the circle that is left.
+ */
+function makeCoatGeometry(parted: boolean): BufferGeometry {
+  const rings = 16;
+  const around = 14;
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (let i = 0; i <= rings; i++) {
+    const t = i / rings;
+    const radius = Math.max(0.001, coatRadiusAt(t));
+    const y = COAT_BASE_Y + t * COAT_HEIGHT;
+    const gap = parted ? partAngleAt(t) : 0; // angle of front left out (each side)
+    for (let j = 0; j <= around; j++) {
+      const angle = gap + ((Math.PI * 2 - 2 * gap) * j) / around; // 0 = straight ahead (+z); the cut is centred there
+      positions.push(Math.sin(angle) * radius, y, Math.cos(angle) * radius);
+    }
+  }
+  const row = around + 1;
+  for (let i = 0; i < rings; i++) {
+    for (let j = 0; j < around; j++) {
+      const a = i * row + j, b = a + 1, c = a + row, d = c + 1;
+      indices.push(a, b, c, b, d, c); // (counter-clockwise seen from outside, so the faces point outwards)
+    }
+  }
+  const geometry = new BufferGeometry();
+  geometry.setAttribute('position', new Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
+/** A soft round glow (bright in the middle, fading to nothing at the edge), drawn on a canvas: it goes behind the eyes. */
+function makeGlowTexture(): Texture {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = 64;
+  const g = canvas.getContext('2d')!;
+  const gradient = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  gradient.addColorStop(0, 'rgba(255,255,255,1)');
+  gradient.addColorStop(0.4, 'rgba(255,255,255,0.35)');
+  gradient.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = gradient;
+  g.fillRect(0, 0, 64, 64);
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
 }
 
 // ---------- helpers ----------

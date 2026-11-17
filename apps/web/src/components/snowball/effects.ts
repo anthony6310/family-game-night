@@ -1,5 +1,5 @@
 import {
-  BufferAttribute, BufferGeometry, Color, DoubleSide, DynamicDrawUsage, Group, Mesh, MeshStandardMaterial, Points, ShaderMaterial, TorusGeometry,
+  BufferAttribute, BufferGeometry, Color, DoubleSide, DynamicDrawUsage, Mesh, Points, ShaderMaterial,
   type Object3D,
 } from 'three';
 
@@ -31,6 +31,38 @@ const FADE = 0.35;
 const FLIGHT_LIMIT = 5; // safety: a fleck that somehow never lands is removed after this long
 
 // ---------- flecks: a spray of tiny white snow ----------
+
+/**
+ * The snow-dot look shared by the particle systems (the impact flecks and the swirl): soft round white dots, sized in world units (smaller
+ * when far away), with a very thin pale-blue edge so they still show against white snow.
+ */
+function makeDotMaterial(): ShaderMaterial {
+return new ShaderMaterial({
+    uniforms: { uScale: { value: 500 } },
+    transparent: true,
+    depthWrite: false, // soft particles must not punch holes in each other
+    vertexShader: `
+      attribute float aSize;
+      attribute float aAlpha;
+      uniform float uScale;
+      varying float vAlpha;
+      void main() {
+        vAlpha = aAlpha;
+        vec4 view = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * view;
+        gl_PointSize = aSize * uScale / -view.z; // world size -> pixels, smaller when farther away
+      }`,
+    fragmentShader: `
+      varying float vAlpha;
+      void main() {
+        float d = length(gl_PointCoord - vec2(0.5));
+        if (d > 0.5) discard;
+        // white through almost the whole dot, with only a very thin pale-blue edge: without any edge, white on white snow vanishes
+        vec3 color = mix(vec3(1.0), vec3(0.80, 0.87, 0.96), smoothstep(0.32, 0.5, d));
+        gl_FragColor = vec4(color, vAlpha * smoothstep(0.5, 0.43, d));
+      }`,
+  });
+}
 
 /**
  * Lots of tiny round white dots (about snowflake-sized next to a ball). Used for the spray when snowballs collide.
@@ -68,31 +100,7 @@ export class FleckSystem {
       attribute.setUsage(DynamicDrawUsage);
       this.geometry.setAttribute(name, attribute);
     }
-    this.material = new ShaderMaterial({
-      uniforms: { uScale: { value: 500 } },
-      transparent: true,
-      depthWrite: false, // soft particles must not punch holes in each other
-      vertexShader: `
-        attribute float aSize;
-        attribute float aAlpha;
-        uniform float uScale;
-        varying float vAlpha;
-        void main() {
-          vAlpha = aAlpha;
-          vec4 view = modelViewMatrix * vec4(position, 1.0);
-          gl_Position = projectionMatrix * view;
-          gl_PointSize = aSize * uScale / -view.z; // world size -> pixels, smaller when farther away
-        }`,
-      fragmentShader: `
-        varying float vAlpha;
-        void main() {
-          float d = length(gl_PointCoord - vec2(0.5));
-          if (d > 0.5) discard;
-          // white through almost the whole dot, with only a very thin pale-blue edge: without any edge, white on white snow vanishes
-          vec3 color = mix(vec3(1.0), vec3(0.80, 0.87, 0.96), smoothstep(0.32, 0.5, d));
-          gl_FragColor = vec4(color, vAlpha * smoothstep(0.5, 0.43, d));
-        }`,
-    });
+    this.material = makeDotMaterial();
     const points = new Points(this.geometry, this.material);
     points.frustumCulled = false; // particles move around inside a bounding box we never update
     this.object = points;
@@ -106,18 +114,20 @@ export class FleckSystem {
   /**
    * A spray of flecks from the point where two balls touch. `axisX/axisZ` is the (unit) direction from one ball to the
    * other: the snow squirts out SIDEWAYS from that line (and up), because straight along it is inside the balls.
-   * `power` (0..1+) is how hard the hit was, `scale` the size of the balls involved.
+   * `power` (0..1+) is how hard the hit was, `scale` the size of the balls involved. `drama` (1 = the normal burst) scales how much
+   * snow there is (the number of flecks) and how fast it flies out; a weak hit uses less than 1 and a strong one more. How fast the
+   * flecks FALL does not change with it (gravity is fixed), only how far and how fast they are thrown.
    */
-  burst(x: number, y: number, z: number, axisX: number, axisZ: number, power: number, scale: number) {
-    const count = Math.round(30 + power * 26); // many tiny flecks instead of a few big puffs
+  burst(x: number, y: number, z: number, axisX: number, axisZ: number, power: number, scale: number, drama = 1) {
+    const count = Math.max(6, Math.round((30 + power * 26) * drama)); // many tiny flecks instead of a few big puffs
     const [sideX, sideZ] = [-axisZ, axisX];
     for (let i = 0; i < count; i++) {
       const side = (Math.random() < 0.5 ? -1 : 1) * rand(0.5, 1); // out to the left or the right of the contact
       const along = rand(-0.4, 0.4); // a little forwards/backwards too, so it is a fan and not two jets
-      const speed = rand(8, 22) * BURST_SPEED * (0.6 + power * 0.7) * Math.sqrt(scale); // a quick burst
+      const speed = rand(8, 22) * BURST_SPEED * (0.6 + power * 0.7) * Math.sqrt(scale) * drama; // a quick burst
       this.spawn(
         x, y + rand(0, 0.4), z,
-        (sideX * side + axisX * along) * speed, rand(5, 11) * (0.6 + power * 0.5), (sideZ * side + axisZ * along) * speed,
+        (sideX * side + axisX * along) * speed, rand(5, 11) * (0.6 + power * 0.5) * Math.sqrt(drama), (sideZ * side + axisZ * along) * speed, // (the lift scales more gently than the sideways speed)
         rand(0.2, 0.4) * (0.7 + scale * 0.3), // snowflake-sized
       );
     }
@@ -295,120 +305,5 @@ export class StreakSystem {
   dispose() {
     this.geometry.dispose();
     this.material.dispose();
-  }
-}
-
-// ---------- shockwave: a ring that spreads out from where two balls hit ----------
-
-/**
- * The ring's whole life in seconds: it spreads out the whole time (quickly at first, then in a slowing glide) while
- * fading in over the first moments and then fading out smoothly over most of the rest, so it dissolves instead of vanishing.
- */
-const RING_LIFE = 0.4;
-/**
- * How sharply the spreading slows down: 1 = steady speed, higher = faster start and a gentler glide at the end.
- * Its opening speed is about 0.75 * RING_SPREAD / RING_LIFE (fractions of the full radius per second): 6 now,
- * between the earlier 4.5 (a bit too slow) and 9 (a bit too fast).
- */
-const RING_SPREAD = 3.2;
-/** How flat the ring's band is: 1 = a fully round tube, smaller = a flatter, thinner band (measured along the ring's axis). */
-const RING_FLATNESS = 0.4;
-/** The ring's strongest opacity (0..1), reached just after it appears. Lower = more see-through. */
-const RING_OPACITY = 0.5;
-
-/**
- * One hit makes TWO rings, like a ripple: the big main ring, then a smaller, fainter one that sets off a moment later
- * and follows it outward. `size` scales the ring's final radius, `delay` is how long (seconds) after the hit it starts,
- * and `opacity` scales its strength.
- */
-const RING_PARTS = [
-  { size: 1, delay: 0, opacity: 1 }, // the main ring
-  { size: 0.8, delay: 0.04, opacity: 0.75 }, // the ripple, close behind it (was 0.6 / 0.07: further apart)
-] as const;
-const RING_TOTAL_TIME = RING_LIFE + Math.max(...RING_PARTS.map((part) => part.delay));
-
-/**
- * Translucent 3D rings (each a torus: a tube bent into a circle, squashed flat into a band) that stand upright at the
- * point where two balls meet, across the line between them, and spread out and fade, to make a hit feel bigger.
- * Because they are solid tubes rather than flat pictures, they have thickness and are visible from any direction, even
- * seen edge-on. They are built from three.js's own torus shape (no model file needed). A small fixed pool is reused,
- * so hits never allocate.
- */
-export class ShockRingSystem {
-  readonly object = new Group();
-  // One slot per hit that can be on screen at once; each slot holds the rings (RING_PARTS) of that hit.
-  private readonly slots: { parts: { mesh: Mesh; material: MeshStandardMaterial }[]; age: number; maxRadius: number; active: boolean }[] = [];
-  // Radius 1 so scaling the mesh by R gives a ring of radius R; the tube is a thin 0.07 (it scales along with the ring).
-  private geometry = new TorusGeometry(1, 0.07, 10, 56);
-  private next = 0;
-
-  constructor(capacity = 6) {
-    for (let i = 0; i < capacity; i++) {
-      const parts = RING_PARTS.map(() => {
-        const material = new MeshStandardMaterial({
-          color: '#ffffff',
-          emissive: new Color('#8fb0d8'), // a faint cool glow so the shaded side of the tube doesn't go grey
-          emissiveIntensity: 0.5,
-          roughness: 0.55,
-          transparent: true,
-          opacity: 0,
-          depthWrite: false,
-        });
-        const mesh = new Mesh(this.geometry, material);
-        mesh.visible = false;
-        mesh.frustumCulled = false;
-        this.object.add(mesh);
-        return { mesh, material };
-      });
-      this.slots.push({ parts, age: 0, maxRadius: 1, active: false });
-    }
-  }
-
-  /**
-   * Start the rings centred on (x, y, z) (the contact point between the balls), spreading out to `maxRadius`.
-   * `axisX/axisZ` is the (unit) direction from one ball to the other: the rings stand upright with that line through
-   * their middle, i.e. they spread across the gap between the two balls. (Fixed in the world, not turned to the camera.)
-   */
-  spawn(x: number, y: number, z: number, axisX: number, axisZ: number, maxRadius: number) {
-    const slot = this.slots[this.next];
-    this.next = (this.next + 1) % this.slots.length; // recycle the oldest when many hits happen at once
-    slot.active = true;
-    slot.age = 0;
-    slot.maxRadius = maxRadius;
-    for (const { mesh } of slot.parts) {
-      mesh.position.set(x, y, z);
-      mesh.rotation.set(0, Math.atan2(axisX, axisZ), 0); // a torus starts with its hole along +z; turn it about the vertical to line up with the axis
-      mesh.visible = false; // each ring appears when its own delay is over (see update)
-    }
-  }
-
-  update(dt: number) {
-    for (const slot of this.slots) {
-      if (!slot.active) continue;
-      slot.age += dt;
-      if (slot.age >= RING_TOTAL_TIME) {
-        slot.active = false;
-        for (const { mesh } of slot.parts) mesh.visible = false;
-        continue;
-      }
-      slot.parts.forEach(({ mesh, material }, i) => {
-        const part = RING_PARTS[i];
-        const t = (slot.age - part.delay) / RING_LIFE; // this ring's own 0 -> 1 progress
-        mesh.visible = t >= 0 && t < 1;
-        if (!mesh.visible) return;
-        // Spreads fast at first, then glides to a stop (ease-out). It starts part-way out (0.25) so it isn't buried inside the balls.
-        const radius = slot.maxRadius * part.size * (0.25 + 0.75 * (1 - Math.pow(1 - t, RING_SPREAD)));
-        // Flat, not round: the tube is squashed along the ring's axis into a thin band (RING_FLATNESS), and it thins
-        // out further as it ages, which helps it look like it is dissolving.
-        mesh.scale.set(radius, radius, radius * RING_FLATNESS * (1 - 0.6 * smoothstep(0.2, 1, t)));
-        // A quick fade-in (no sudden pop-on), a short hold, then a long smooth fade to nothing. Never very opaque (RING_OPACITY).
-        material.opacity = RING_OPACITY * part.opacity * smoothstep(0, 0.1, t) * (1 - smoothstep(0.2, 1, t));
-      });
-    }
-  }
-
-  dispose() {
-    this.geometry.dispose();
-    for (const slot of this.slots) for (const { material } of slot.parts) material.dispose();
   }
 }

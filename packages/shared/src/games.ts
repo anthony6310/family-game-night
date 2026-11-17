@@ -29,7 +29,7 @@ export const GAMES = [
   {
     id: 'snowball',
     name: 'Snowball',
-    description: 'Roll around and grow as big as you can. Every bump costs both balls size, the biggest ball hits twice as hard, and smaller balls get a speed boost to get away. Biggest ball wins!',
+    description: 'Roll around and grow as big as you can. Every bump costs both balls size, the biggest ball hits twice as hard, and a smaller ball that hits a bigger one refills its stamina instantly. Hills slow you a little uphill and speed you up downhill, and you can hold sprint to go 50% faster until your stamina runs out (and a hit made while sprinting does 5 extra damage). Biggest ball wins!',
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
     scoreLabel: '',

@@ -66,15 +66,28 @@ export interface SnowballConfig {
   /** A ball is "bigger" (or the leader) only if it leads by more than this share. Prevents buff flicker between near-equals. */
   sizeMargin: number;
 
+  // ----- sprint and stamina -----
+  /** Holding sprint multiplies top speed by this (1.5 = +50%) while there is stamina. */
+  sprintFactor: number;
+  staminaMax: number;
+  staminaDrainPerSecond: number; // used up while sprinting
+  staminaRegenPerSecond: number; // refilled while not sprinting...
+  staminaRegenDelaySeconds: number; // ...but only after this long since the last sprint (so you can't tap-sprint forever)
+  /** A sprint can only be STARTED with at least this much stamina, so it doesn't stutter on and off at empty. */
+  staminaStartMin: number;
+
   // ----- small ball buff -----
-  /** When a SMALLER ball hits a bigger one it gets this much extra top speed (a fraction; 0.3 = +30%), as if fully boosted downhill... */
-  escapeBoost: number;
-  /** ...for this long. It stacks on top of the hill boost, so hill + escape can reach downhillMaxFactor + escapeBoost (160%). */
+  /**
+   * When a SMALLER ball hits a bigger one, for this long its stamina refills straight away: the usual wait before refilling
+   * (staminaRegenDelaySeconds) is skipped, so a small ball that has just been hit can recover and get away faster.
+   */
   escapeSeconds: number;
 
   // ----- pick-ups (fish) -----
   /** Each fish stuck to a ball adds this much to the damage of its next hit (flat, like the base damage). */
   fishDamage: number;
+  /** A ball that is SPRINTING when it hits deals this much extra damage (flat, like the base damage and the fish bonus). */
+  sprintDamage: number;
   /** A ball can carry this many fish at once; at the limit it rolls over further ones without taking them. */
   fishCapacity: number;
   /** A ball collects an item when the two touch: the item counts as a disc of this radius lying on the ground. */
@@ -92,7 +105,7 @@ export interface SnowballConfig {
   itemClearance: number; // ...and this far from the starting positions / balls...
   itemSpacing: number; // ...and this far from other items
 
-  // ----- terrain: uphill and downhill hand out "stacks" -----
+  // ----- terrain: a little slower uphill, a little faster downhill -----
   /**
    * Hill and ditch size. 1 or 2 players get the base sizes in `featureSpecs`; every additional player adds this many
    * world units to EVERY feature's footprint radius (a fixed amount, not a percentage). Heights stay as they are.
@@ -104,31 +117,18 @@ export interface SnowballConfig {
   /** The randomness behind the layout (Math.random by default; tests pass a seeded one). */
   random: () => number;
   /**
-   * Climbing earns SLOW stacks and descending earns BOOST stacks. Each stack is a small flat change to
-   * top speed, and the number of stacks is capped, which is what gives the overall floor and ceiling:
-   *   slowest  = uphillMinFactor    (0.9 = 90% of normal speed)
-   *   fastest from hills = downhillMaxFactor  (1.3 = 130%)
+   * How much a slope changes top speed, at its most: going straight up a steep slope you are this much slower (0.15 = 15%), going straight
+   * down you are this much faster. Gentler slopes change it proportionally less. It is instant: no building up, no wearing off.
    */
-  uphillMinFactor: number;
-  downhillMaxFactor: number;
-  uphillMaxStacks: number; // each slow stack = (1 - uphillMinFactor) / uphillMaxStacks
-  downhillMaxStacks: number; // each boost stack = (downhillMaxFactor - 1) / downhillMaxStacks
-  uphillFullSlowSeconds: number; // straight up a steep slope, all slow stacks are earned after this long
-  downhillFullBoostSeconds: number; // straight down a steep slope, all boost stacks are earned after this long
-  /**
-   * How long stacks last after you stop traversing a slope. All stacks of one kind share this timer,
-   * and it is refreshed whenever you are still climbing / descending, so the effect holds while you're
-   * on the slope and then falls away on its own, back to normal speed.
-   */
-  stackLifetimeSeconds: number;
+  hillSpeedEffect: number;
   slopeFullEffect: number; // a slope this steep (rise/run) gives the full effect; gentler slopes ramp proportionally slower
   slopeDeadzone: number; // slopes gentler than this count as flat
-  slopeMinSpeed: number; // slower than this the ball isn't "traversing" anything
+  slopeMinSpeed: number; // slower than this the ball is judged by the way it is steering instead of the way it is moving
 }
 
 export const DEFAULT_SNOWBALL_CONFIG: SnowballConfig = {
   durationMs: SNOWBALL_SECONDS * 1000,
-  arenaRadius: 45,
+  arenaRadius: 51.75, // (was 45: the map is 15% bigger at every player count, since the other sizes are worked out from this one)
   basePlayers: 2,
   startRadius: 1,
   growthPerUnit: 0.02,
@@ -152,10 +152,16 @@ export const DEFAULT_SNOWBALL_CONFIG: SnowballConfig = {
   minRadius: 0.5,
   sizeMargin: 0.02,
 
-  escapeBoost: 0.3,
+  sprintFactor: 1.5,
+  staminaMax: 100,
+  staminaDrainPerSecond: 40, // a full bar is 2.5 s of sprint
+  staminaRegenPerSecond: 15, // and about 6.7 s to refill from empty
+  staminaRegenDelaySeconds: 1,
+  staminaStartMin: 20,
   escapeSeconds: 2,
 
   fishDamage: 5, // +5 damage per fish, used up on the hit
+  sprintDamage: 5, // +5 for hitting while sprinting
   fishCapacity: 6,
   itemRadius: 0.9,
   fishScatterMin: 18, // fish used on a hit land well away from it, so whoever just lost theirs can't scoop them straight back up
@@ -175,13 +181,7 @@ export const DEFAULT_SNOWBALL_CONFIG: SnowballConfig = {
   featureSpecs: DEFAULT_FEATURE_SPECS,
   featureRadiusPerPlayer: 2,
   random: Math.random,
-  uphillMinFactor: 0.9,
-  downhillMaxFactor: 1.3,
-  uphillMaxStacks: 10, // 1% each
-  downhillMaxStacks: 15, // 2% each
-  uphillFullSlowSeconds: 1.5,
-  downhillFullBoostSeconds: 3,
-  stackLifetimeSeconds: 0.3,
+  hillSpeedEffect: 0.15,
   slopeFullEffect: 0.12,
   slopeDeadzone: 0.02,
   slopeMinSpeed: 0.5,
@@ -197,14 +197,13 @@ interface Ball {
   vx: number;
   vz: number;
   snow: number; // = radius²; also used as the ball's mass in collisions
-  /** Uphill SLOW stacks and downhill BOOST stacks currently active (see SnowballConfig). */
-  slowStacks: number;
-  boostStacks: number;
-  slowProgress: number; // 0..1 toward earning the next slow / boost stack
-  boostProgress: number;
-  slowUntil: number; // server clock (ms) when all slow / boost stacks fall off, unless refreshed
-  boostUntil: number;
-  escapeUntil: number; // server clock (ms) when the small-ball escape boost ends
+  lastHit: number; // size points the most recent hit took off this ball (for the impact effect; 0 = never hit)
+  hillFactor: number; // the slope's effect on top speed right now (a little under 1 uphill, a little over downhill), refreshed every tick
+  stamina: number; // 0..staminaMax
+  sprintWanted: boolean; // the player is holding the sprint button
+  sprinting: boolean; // actually sprinting: wanted, steering, and with stamina to spend
+  lastSprintAt: number; // server clock (ms) of the last tick spent sprinting (the refill waits staminaRegenDelaySeconds after this)
+  escapeUntil: number; // server clock (ms) when the small-ball instant-refill window ends
   escape: boolean; // mirrors `now < escapeUntil`, refreshed every tick
   leader: boolean; // the single biggest ball (refreshed every tick)
   steerX: number; // the player's latest steering input (length <= 1)
@@ -245,12 +244,6 @@ const clamp = (n: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, n
 export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEngine<SnowballState> {
   const cfg: SnowballConfig = { ...DEFAULT_SNOWBALL_CONFIG, ...overrides };
   const maxSpeedFor = (radius: number) => cfg.maxSpeed * (cfg.startRadius / radius) ** cfg.speedFalloff;
-
-  const slowAmount = (1 - cfg.uphillMinFactor) / cfg.uphillMaxStacks; // one slow stack, as a fraction of top speed
-  const boostAmount = (cfg.downhillMaxFactor - 1) / cfg.downhillMaxStacks;
-  const slowSecondsPerStack = cfg.uphillFullSlowSeconds / cfg.uphillMaxStacks; // on a fully steep slope
-  const boostSecondsPerStack = cfg.downhillFullBoostSeconds / cfg.downhillMaxStacks;
-  const maxFactor = cfg.downhillMaxFactor + cfg.escapeBoost; // hill boost + escape boost = the absolute ceiling (160%)
 
   const waves = [...cfg.itemWaves].sort((p, q) => p.at - q.at); // in the order they happen
 
@@ -308,41 +301,40 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
     return placed;
   }
 
-  /** The ground's effect on top speed alone. Stacks add flat amounts; the stack caps make 0.9 / 1.3 the hard floor / ceiling. */
-  const hillFactorOf = (b: Ball) =>
-    clamp(1 - b.slowStacks * slowAmount + b.boostStacks * boostAmount, cfg.uphillMinFactor, cfg.downhillMaxFactor);
-  /** Everything together: the ground plus the escape boost, which stacks on top (up to 130% + 30% = 160%). */
-  const speedFactorOf = (b: Ball) => clamp(hillFactorOf(b) + (b.escape ? cfg.escapeBoost : 0), cfg.uphillMinFactor, maxFactor);
+  /** The ground's effect and sprint together: the multiplier on top speed (1 = normal). */
+  const speedFactorOf = (b: Ball) => b.hillFactor * (b.sprinting ? cfg.sprintFactor : 1);
 
   /**
-   * Looks at the ground the ball is travelling over. Climbing steadily earns slow stacks, descending
-   * earns boost stacks (a steeper slope earns them faster, a gentle one slower). While you keep traversing
-   * a slope its stacks stay alive; once you stop, they all fall off after `stackLifetimeSeconds`, so on
-   * flat ground you are back to normal speed almost immediately.
+   * Looks at the slope the ball is heading up or down (the way it is moving, or the way it is steering if it is nearly still) and
+   * sets its hill factor: a little slower uphill, a little faster downhill, in proportion to how steep it is. Instant.
    */
-  function updateStacks(b: Ball, terrain: Terrain, dt: number, now: number) {
-    // Stacks that weren't refreshed in time fall off together.
-    if (b.slowStacks > 0 && now >= b.slowUntil) { b.slowStacks = 0; b.slowProgress = 0; }
-    if (b.boostStacks > 0 && now >= b.boostUntil) { b.boostStacks = 0; b.boostProgress = 0; }
-
+  function updateHill(b: Ball, terrain: Terrain) {
     const speed = Math.hypot(b.vx, b.vz);
-    if (speed <= cfg.slopeMinSpeed) return; // barely moving: not traversing anything
+    let dx = b.vx, dz = b.vz, length = speed;
+    if (speed <= cfg.slopeMinSpeed) { dx = b.steerX; dz = b.steerZ; length = Math.hypot(dx, dz); }
+    if (length < 1e-6) { b.hillFactor = 1; return; }
     const g = terrain.gradient(b.x, b.z);
-    const along = (g.x * b.vx + g.z * b.vz) / speed; // rise per unit run in the direction of travel (+ = uphill)
-    if (Math.abs(along) <= cfg.slopeDeadzone) return; // effectively flat
-    const intensity = Math.min(1, Math.abs(along) / cfg.slopeFullEffect);
-    const until = now + cfg.stackLifetimeSeconds * 1000;
+    const along = (g.x * dx + g.z * dz) / length; // rise per unit run in the direction of travel (+ = uphill)
+    if (Math.abs(along) <= cfg.slopeDeadzone) { b.hillFactor = 1; return; }
+    b.hillFactor = 1 - cfg.hillSpeedEffect * clamp(along / cfg.slopeFullEffect, -1, 1);
+  }
 
-    if (along > 0) {
-      b.slowProgress += (dt * intensity) / slowSecondsPerStack;
-      while (b.slowProgress >= 1 && b.slowStacks < cfg.uphillMaxStacks) { b.slowStacks++; b.slowProgress -= 1; }
-      b.slowProgress = Math.min(b.slowProgress, 1);
-      b.slowUntil = until; // still climbing: keep the stacks alive
-    } else {
-      b.boostProgress += (dt * intensity) / boostSecondsPerStack;
-      while (b.boostProgress >= 1 && b.boostStacks < cfg.downhillMaxStacks) { b.boostStacks++; b.boostProgress -= 1; }
-      b.boostProgress = Math.min(b.boostProgress, 1);
-      b.boostUntil = until;
+  /**
+   * Sprint and stamina for one tick. Sprinting needs the button held, the ball steering, and stamina: a sprint can only START with at least
+   * staminaStartMin, and ends when the button is let go or the stamina runs out. It uses stamina up; when not sprinting, stamina refills,
+   * but only after staminaRegenDelaySeconds since the last sprint, EXCEPT for a small ball in its escape window (it hit a bigger ball a
+   * moment ago): that refills straight away.
+   */
+  function updateStamina(b: Ball, steering: boolean, dt: number, now: number) {
+    const wants = b.sprintWanted && steering;
+    if (b.sprinting) { if (!wants || b.stamina <= 0) b.sprinting = false; }
+    else if (wants && b.stamina >= cfg.staminaStartMin) b.sprinting = true;
+    if (b.sprinting) {
+      b.stamina = Math.max(0, b.stamina - cfg.staminaDrainPerSecond * dt);
+      b.lastSprintAt = now;
+      if (b.stamina <= 0) b.sprinting = false;
+    } else if (b.escape || now - b.lastSprintAt >= cfg.staminaRegenDelaySeconds * 1000) {
+      b.stamina = Math.min(cfg.staminaMax, b.stamina + cfg.staminaRegenPerSecond * dt);
     }
   }
 
@@ -396,16 +388,17 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
     // 4) Damage. BOTH balls deal it, and it is FLAT: a fixed number of size points off the victim, whatever the
     //    speeds and sizes (only the leader hits harder). A ball that is still immune from an earlier hit is spared.
     if (closing < cfg.minImpactSpeed) return;
-    // The base hit (the leader's is bigger) plus a flat bonus for every fish the dealer carries.
-    const dealt = (dealer: Ball) => (dealer.leader ? cfg.leaderDamage : cfg.damage) + dealer.fish * cfg.fishDamage;
+    // The base hit (the leader's is bigger) plus a flat bonus for every fish the dealer carries, plus a flat bonus if the dealer is sprinting.
+    const dealt = (dealer: Ball) => (dealer.leader ? cfg.leaderDamage : cfg.damage) + dealer.fish * cfg.fishDamage + (dealer.sprinting ? cfg.sprintDamage : 0);
     const canBeHurt = (v: Ball) => now >= v.immuneUntil;
     // Damage shrinks the RADIUS (size points / 100) but never below the minimum; this is how much snow that removes.
     const snowLost = (victim: Ball, points: number) => {
       const smaller = Math.max(cfg.minRadius, radiusOf(victim) - points / 100);
       return Math.max(0, victim.snow - smaller * smaller);
     };
-    const lossA = canBeHurt(a) ? snowLost(a, dealt(b)) : 0; // b hurts a
-    const lossB = canBeHurt(b) ? snowLost(b, dealt(a)) : 0; // a hurts b
+    const hitOnA = dealt(b), hitOnB = dealt(a); // worked out now, while any fish are still on the balls (they are used up below)
+    const lossA = canBeHurt(a) ? snowLost(a, hitOnA) : 0; // b hurts a
+    const lossB = canBeHurt(b) ? snowLost(b, hitOnB) : 0; // a hurts b
 
     // A fish is used up by the hit it adds to, but only if that hit actually lands (a victim who is still immune is spared,
     // and then the fish stays on). The damage above has already counted them, so it is safe to remove them now.
@@ -420,8 +413,8 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
     if (aIsSmaller && canBeHurt(a)) { a.escapeUntil = escapeUntil; a.escape = true; }
     if (bIsSmaller && canBeHurt(b)) { b.escapeUntil = escapeUntil; b.escape = true; }
 
-    if (canBeHurt(a)) { a.snow -= lossA; a.immuneUntil = now + cfg.immunityMs; a.immune = true; }
-    if (canBeHurt(b)) { b.snow -= lossB; b.immuneUntil = now + cfg.immunityMs; b.immune = true; }
+    if (canBeHurt(a)) { a.snow -= lossA; a.immuneUntil = now + cfg.immunityMs; a.immune = true; a.lastHit = hitOnA; }
+    if (canBeHurt(b)) { b.snow -= lossB; b.immuneUntil = now + cfg.immunityMs; b.immune = true; b.lastHit = hitOnB; }
     if (cfg.damageIsStolen) { b.snow += lossA; a.snow += lossB; } // optional: the attacker keeps what the victim lost
   }
 
@@ -449,7 +442,7 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
           z: spawns[i].z,
           vx: 0, vz: 0,
           snow: cfg.startRadius ** 2,
-          slowStacks: 0, boostStacks: 0, slowProgress: 0, boostProgress: 0, slowUntil: 0, boostUntil: 0,
+          lastHit: 0, hillFactor: 1, stamina: cfg.staminaMax, sprintWanted: false, sprinting: false, lastSprintAt: -1e15,
           escapeUntil: 0, escape: false, leader: false,
           steerX: 0, steerZ: 0,
           immuneUntil: 0, immune: false,
@@ -462,9 +455,10 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
     },
 
     reduce(state, playerId, action, now) {
-      if (action.type !== 'steer') return state;
       const ball = state.balls[playerId];
       if (!ball || now >= state.endsAt) return state; // not in this round, or too late
+      if (action.type === 'sprint') return { ...state, balls: { ...state.balls, [playerId]: { ...ball, sprintWanted: action.on === true } } }; // hold to sprint
+      if (action.type !== 'steer') return state;
       // Never trust the payload: ignore non-numbers and clamp the length to 1.
       if (!Number.isFinite(action.x) || !Number.isFinite(action.z)) return state;
       const length = Math.hypot(action.x, action.z);
@@ -487,12 +481,13 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
       }
 
       for (const b of list) {
-        // The ground first: climbing earns slow stacks, descending earns boost stacks, old stacks expire.
-        updateStacks(b, state.terrain, dt, now);
+        // The ground first (a little slower uphill, faster downhill), then sprint and stamina.
+        updateHill(b, state.terrain);
+        const steering = Math.hypot(b.steerX, b.steerZ) > 0.01;
+        updateStamina(b, steering, dt, now);
 
         // Velocity eases toward "steering direction × top speed" (or toward 0 when not steering).
         const radius = radiusOf(b);
-        const steering = Math.hypot(b.steerX, b.steerZ) > 0.01;
         const targetSpeed = steering ? maxSpeedFor(radius) * speedFactorOf(b) : 0;
         const targetVx = steering ? b.steerX * targetSpeed : 0;
         const targetVz = steering ? b.steerZ * targetSpeed : 0;
@@ -591,19 +586,14 @@ export function createSnowball(overrides: Partial<SnowballConfig> = {}): GameEng
         // Rounded: smaller messages, and nobody needs more precision than this.
         balls[id] = {
           x: round(b.x), z: round(b.z), vx: round(b.vx), vz: round(b.vz), radius: round(radiusOf(b), 3), immune: b.immune,
-          speedFactor: round(speedFactorOf(b), 3), hillFactor: round(hillFactorOf(b), 3), slowStacks: b.slowStacks, boostStacks: b.boostStacks,
+          speedFactor: round(speedFactorOf(b), 3), hitDamage: b.lastHit, hillFactor: round(b.hillFactor, 3), stamina: round(b.stamina / cfg.staminaMax, 3), sprinting: b.sprinting,
           escape: b.escape, leader: b.leader, fish: b.fish,
         };
       }
       return {
         gameId: 'snowball', startsAt: state.startsAt, endsAt: state.endsAt, arenaRadius: state.arenaRadius,
-        speedRange: {
-          base: cfg.maxSpeed,
-          min: cfg.maxSpeed * cfg.uphillMinFactor,
-          hillMax: cfg.maxSpeed * cfg.downhillMaxFactor,
-          max: cfg.maxSpeed * maxFactor,
-          escapeBonus: cfg.escapeBoost,
-        },
+        speedRange: { base: cfg.maxSpeed, max: cfg.maxSpeed * (1 + cfg.hillSpeedEffect) * cfg.sprintFactor }, // (fastest: straight downhill AND sprinting)
+        staminaStart: cfg.staminaStartMin / cfg.staminaMax,
         terrain: state.features,
         items: state.items.map((item) => ({
           id: item.id, kind: item.kind, x: round(item.x), z: round(item.z),

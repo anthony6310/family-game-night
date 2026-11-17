@@ -201,8 +201,8 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       if (typeof ack === 'function') ack({ ok: true, data: null });
     });
     socket.on('game:action', (action) => {
-      // Never trust the payload shape: accept only the two known actions with sane numbers.
-      const valid = action?.type === 'tap' || (action?.type === 'steer' && Number.isFinite(action.x) && Number.isFinite(action.z));
+      // Never trust the payload shape: accept only the known actions with sane values.
+      const valid = action?.type === 'tap' || (action?.type === 'steer' && Number.isFinite(action.x) && Number.isFinite(action.z)) || (action?.type === 'sprint' && typeof action.on === 'boolean');
       if (!valid) return;
       const outcome = rooms.gameAction(player.id, action);
       if (!outcome) return;

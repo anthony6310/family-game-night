@@ -3,6 +3,8 @@ import type { GameAction, Player, RoundResult, SnowballView } from '@fgn/shared'
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './Joystick';
 import { SnowballScene, type BallStyle } from './snowball/SnowballScene';
+import { SprintButton, StaminaBar } from './snowball/SprintControls';
+import { useSprint } from './snowball/useSprint';
 import { useSteering } from './snowball/useSteering';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
 import { FALLBACK_COLOR } from './playerColors';
@@ -43,6 +45,7 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
   // Create the 3D scene once; tear it down (freeing GPU memory) when the round screen closes.
   useEffect(() => {
     const s = new SnowballScene(container.current!, game.arenaRadius, game.terrain, styles, selfId);
+    s.setBaseSpeed(game.speedRange.base);
     s.setMaxSpeedFactor(game.speedRange.max / game.speedRange.base);
     scene.current = s;
     return () => {
@@ -59,6 +62,7 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
   }, [game]);
 
   const setStick = useSteering(sendAction, !frozen);
+  const setSprintHeld = useSprint(sendAction, !frozen); // hold the button (or Shift / Space) to sprint
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   useEffect(() => {
     scene.current?.setSecondsLeft(remainingMs / 1000); // the last 5 seconds tick, then the whistle: the same countdown as every game
@@ -83,6 +87,9 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
     else if (!isPlayer) scene.current?.setCameraView({ mode: camera.mode, targetId: camera.targetId });
   }, [winnerMoment, winnerId, isPlayer, camera.mode, camera.targetId]);
 
+  // The stamina bar shows the ball you are playing (or, for a spectator, the one they follow).
+  const subjectBall = (isPlayer ? selfId : camera.targetId) ? game.balls[(isPlayer ? selfId : camera.targetId)!] : undefined;
+
   const standings = Object.entries(game.balls)
     .map(([id, ball]) => ({ id, size: Math.round(ball.radius * 100), style: styles[id], leader: ball.leader, fish: ball.fish }))
     .sort((a, b) => b.size - a.size);
@@ -103,12 +110,14 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
             </li>
           ))}
         </ul>
-        {isPlayer && !frozen && <p className="snow-hint">Drag to steer · or use WASD / arrow keys</p>}
+        {!frozen && subjectBall && <StaminaBar stamina={subjectBall.stamina} startAt={game.staminaStart} sprinting={subjectBall.sprinting} recovering={subjectBall.escape} />}
+        {isPlayer && !frozen && <p className="snow-hint">Drag to steer · WASD / arrows · hold Shift, Space or ⚡ to sprint</p>}
       </div>
 
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
       {isPlayer && !frozen && <Joystick onChange={setStick} />}
+      {isPlayer && !frozen && <SprintButton onHold={setSprintHeld} active={Boolean(subjectBall?.sprinting)} />}
       {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );

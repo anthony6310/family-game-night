@@ -56,7 +56,7 @@ const speedOf = (b: Ball) => Math.hypot(b.vx, b.vz);
 // ================= setup =================
 const s4 = fresh(engine, ['A', 'B', 'C', 'D']);
 check('init: one ball per player, all start at radius 1, standing still',
-  Object.keys(s4.balls).length === 4 && Object.values(s4.balls).every((b) => near(radius(b), 1) && b.vx === 0 && b.vz === 0 && b.slowStacks === 0 && b.boostStacks === 0));
+  Object.keys(s4.balls).length === 4 && Object.values(s4.balls).every((b) => near(radius(b), 1) && b.vx === 0 && b.vz === 0 && b.stamina === cfg.staminaMax && !b.sprinting));
 check('init: spawn points are inside the arena and well apart',
   Object.values(s4.balls).every((b) => Math.hypot(b.x, b.z) + 1 < s4.arenaRadius)
   && Object.values(s4.balls).every((b, i, all) => all.every((o, j) => i === j || Math.hypot(b.x - o.x, b.z - o.z) > 10)));
@@ -66,7 +66,7 @@ check('init: 8 players fit with room to spare', (() => {
   const b = Object.values(s8.balls);
   return b.every((x, i) => b.every((y, j) => i === j || Math.hypot(x.x - y.x, x.z - y.z) > 2 * 1 + 5));
 })());
-check('init: the base arena (2 players) has radius 45', cfg.arenaRadius === 45 && cfg.basePlayers === 2 && fresh(engine, ['A', 'B']).arenaRadius === 45);
+check('init: the base arena (2 players) has radius 51.75 (45 + 15%)', near(cfg.arenaRadius, 51.75) && cfg.basePlayers === 2 && near(fresh(engine, ['A', 'B']).arenaRadius, 51.75));
 
 // ================= steering input =================
 check('steer: NaN or infinite input is ignored', steer(engine, s4, 'A', NaN, 0, 1100) === s4 && steer(engine, s4, 'A', 0, Infinity, 1100) === s4);
@@ -149,11 +149,11 @@ check('friction: a ball that isn\'t steering coasts to a stop',
 // ================= the map grows with the number of players =================
 {
   const radius = (n: number) => arenaRadiusFor(n, cfg.arenaRadius, cfg.basePlayers);
-  check('size: 2 players get the base arena; the minimum never goes below it', near(radius(2), 45) && near(radius(1), 45) && near(radius(0), 45));
+  check('size: 2 players get the base arena; the minimum never goes below it', near(radius(2), cfg.arenaRadius) && near(radius(1), cfg.arenaRadius) && near(radius(0), cfg.arenaRadius));
   check('size: the AREA is proportional to the number of players (same room per player at every size)',
-    [2, 3, 4, 5, 6, 7, 8].every((n) => near((Math.PI * radius(n) ** 2) / n, (Math.PI * 45 ** 2) / 2, 1e-6)));
+    [2, 3, 4, 5, 6, 7, 8].every((n) => near((Math.PI * radius(n) ** 2) / n, (Math.PI * cfg.arenaRadius ** 2) / 2, 1e-6)));
   check('size: more players always means a bigger map', [2, 3, 4, 5, 6, 7].every((n) => radius(n + 1) > radius(n)));
-  check('size: 4 players ≈ 1.41x the radius, 8 players = 2x', near(radius(4) / 45, Math.SQRT2, 1e-9) && near(radius(8) / 45, 2, 1e-9));
+  check('size: 4 players ≈ 1.41x the radius, 8 players = 2x', near(radius(4) / cfg.arenaRadius, Math.SQRT2, 1e-9) && near(radius(8) / cfg.arenaRadius, 2, 1e-9));
   const sized = (n: number) => fresh(engine, Array.from({ length: n }, (_, i) => `P${i}`));
   check('size: a round really uses that radius (state and what phones are told)',
     [2, 3, 5, 8].every((n) => { const st = sized(n); const v = engine.view(st); return near(st.arenaRadius, radius(n)) && v.gameId === 'snowball' && near(v.arenaRadius, radius(n)); }));
@@ -171,7 +171,7 @@ check('friction: a ball that isn\'t steering coasts to a stop',
     st = steer(e, st, 'P0', 1, 0, 1000);
     return Math.max(...(() => { const xs: number[] = []; run(e, st, 12, 1000, (c) => xs.push(c.balls.P0.x)); return xs; })());
   };
-  check('size: the walls move with the map (the 8-player arena lets you roll farther than the 2-player one)', roll80(2) < 45 && roll80(8) > 60);
+  check('size: the walls move with the map (the 8-player arena lets you roll farther than the 2-player one)', roll80(2) < cfg.arenaRadius && roll80(8) > 60);
 }
 
 // ================= terrain: a random layout every round =================
@@ -276,7 +276,7 @@ check('friction: a ball that isn\'t steering coasts to a stop',
   const round2 = e.init(['A', 'B'], 2000);
   check('engine: each round (each init) gets a different random layout', JSON.stringify(round1.features) !== JSON.stringify(round2.features) && round1.features.length === 3);
   const eight = createSnowball({ random: mulberry32(5) }).init(Array.from({ length: 8 }, (_, i) => `P${i}`), 1000);
-  check('engine: an 8-player round has 9 features on a radius-90 map, each 12 units wider (radius) than the base', eight.features.length === 9 && near(eight.arenaRadius, 90) && eight.features.every((f) => near(f.radius, BASE[f.id].radius + 12, 0.01)) && eight.features.some((f) => near(f.radius, 34, 0.01)));
+  check('engine: an 8-player round has 9 features on a radius-103.5 map, each 12 units wider (radius) than the base', eight.features.length === 9 && near(eight.arenaRadius, 103.5) && eight.features.every((f) => near(f.radius, BASE[f.id].radius + 12, 0.01)) && eight.features.some((f) => near(f.radius, 34, 0.01)));
   check('engine: a 2-player round has exactly the base sizes', round1.features.every((f) => near(f.radius, BASE[f.id].radius, 0.01) && near(f.height, BASE[f.id].height, 0.01)));
   const before = JSON.stringify(round1.features);
   const later = run(e, steer(e, round1, 'A', 1, 1, 1000), 8).state;
@@ -292,154 +292,104 @@ check('friction: a ball that isn\'t steering coasts to a stop',
   check('engine: a fixed test terrain switches the random layout off', flatView.gameId === 'snowball' && flatView.terrain.length === 0);
 }
 
-// ================= terrain: uphill / downhill stacks =================
+// ================= terrain: a little slower uphill, a little faster downhill (instant) =================
 {
   const BIG = { arenaRadius: 100000, growthPerUnit: 0 }; // no walls, no growth: only the slope matters
   const base = cfg.maxSpeed;
-  const slowPerStack = (1 - cfg.uphillMinFactor) / cfg.uphillMaxStacks; // 1% of speed
-  const boostPerStack = (cfg.downhillMaxFactor - 1) / cfg.downhillMaxStacks; // 2% of speed
-  const lifetimeMs = cfg.stackLifetimeSeconds * 1000;
+  const effect = cfg.hillSpeedEffect;
 
-  /** Rolls a ball (already at `base` speed) over `terrain` and reports its state at the requested times. */
-  const roll = (terrain: Terrain, dirX: number, dirZ: number, seconds: number, at: number[] = [], extra: Partial<typeof cfg> = {}) => {
-    const e = createSnowball({ terrain, ...BIG, ...extra });
+  /** Rolls a ball (already at `base` speed) over `terrain` and reports its final speed and its view. */
+  const roll = (terrain: Terrain, dirX: number, dirZ: number, seconds: number) => {
+    const e = createSnowball({ terrain, ...BIG });
     let st = place(fresh(e, ['A']), 'A', { x: 0, z: 0, vx: dirX * base, vz: dirZ * base });
     st = steer(e, st, 'A', dirX, dirZ, 1000);
-    const seen: Ball[] = [];
-    let maxSlow = 0, maxBoost = 0, factorOk = true;
-    const { state, now } = run(e, st, seconds, 1000, (cur, _n, t) => {
-      const b = cur.balls.A;
-      maxSlow = Math.max(maxSlow, b.slowStacks);
-      maxBoost = Math.max(maxBoost, b.boostStacks);
-      const f = e.view(cur).gameId === 'snowball' ? (e.view(cur) as { balls: Record<string, { speedFactor: number }> }).balls.A.speedFactor : 1;
-      factorOk &&= f >= cfg.uphillMinFactor - 1e-9 && f <= cfg.downhillMaxFactor + 1e-9;
-      if (at.some((q) => near(q, t, DT / 2))) seen.push({ ...b });
-    });
-    return { e, ball: state.balls.A, seen, maxSlow, maxBoost, factorOk, state, now };
+    const { state } = run(e, st, seconds);
+    const v = e.view(state);
+    return { ball: state.balls.A, view: v.gameId === 'snowball' ? v.balls.A : null };
   };
 
-  // ---- uphill: slow stacks ----
-  const up = roll(plane(0.3), 1, 0, 4, [0.75, 1.5, 2]);
-  check('uphill: a steep climb earns a slow stack every uphillFullSlowSeconds ÷ maxStacks (about 5 after 0.75 s)', Math.abs(up.seen[0].slowStacks - 5) <= 1);
-  check('uphill: all 10 slow stacks are earned by 1.5 s of straight climbing', up.seen[1].slowStacks >= cfg.uphillMaxStacks - 1 && up.seen[2].slowStacks === cfg.uphillMaxStacks);
-  check('uphill: stacks never exceed the cap, and no boost stacks are earned', up.maxSlow === cfg.uphillMaxStacks && up.maxBoost === 0);
-  check('uphill: the stacks stay alive for as long as the climb continues (no flicker)', up.ball.slowStacks === cfg.uphillMaxStacks);
-  check('uphill: full stacks give exactly the 90% floor, and the ball settles at 90% of base speed',
-    near(1 - cfg.uphillMaxStacks * slowPerStack, cfg.uphillMinFactor) && near(speedOf(up.ball), base * cfg.uphillMinFactor, 0.15));
+  const flat = roll(FLAT, 1, 0, 6);
+  const up = roll(plane(0.3), 1, 0, 6);
+  const down = roll(plane(0.3), -1, 0, 6);
+  check('flat ground: base speed', near(speedOf(flat.ball), base, 0.05) && near(flat.view!.hillFactor, 1));
+  check(`uphill: a steep climb is ${effect * 100}% slower (the hill effect), instantly a factor of ${1 - effect}`, near(up.view!.hillFactor, 1 - effect, 1e-9) && near(speedOf(up.ball), base * (1 - effect), 0.1));
+  check(`downhill: a steep descent is ${effect * 100}% faster`, near(down.view!.hillFactor, 1 + effect, 1e-9) && near(speedOf(down.ball), base * (1 + effect), 0.1));
+  check('slope: downhill is faster than flat, flat is faster than uphill', speedOf(down.ball) > speedOf(flat.ball) && speedOf(flat.ball) > speedOf(up.ball));
+  const gentle = roll(plane(cfg.slopeFullEffect / 2), 1, 0, 6);
+  check('slope: a gentler slope changes speed proportionally less (half the steepness = half the effect)', near(gentle.view!.hillFactor, 1 - effect / 2, 1e-9));
+  check('slope: a slope below the dead zone counts as flat', near(roll(plane(cfg.slopeDeadzone / 2), 1, 0, 3).view!.hillFactor, 1, 1e-9));
+  const diagonal = roll(plane(0.3), Math.SQRT1_2, Math.SQRT1_2, 6);
+  check('slope: traversing diagonally still counts as climbing (0.3 x cos 45 is still steep)', near(diagonal.view!.hillFactor, 1 - effect, 1e-9));
+  check('slope: sideways across a slope is flat', near(roll(plane(0.3), 0, 1, 3).view!.hillFactor, 1, 1e-9));
 
-  // ---- downhill: boost stacks ----
-  const down = roll(plane(0.3), -1, 0, 6, [1.5, 3.2]);
-  check('downhill: boost stacks come more slowly (about 7 after 1.5 s)', Math.abs(down.seen[0].boostStacks - 7) <= 1);
-  check('downhill: all 15 boost stacks are earned after ~3 s of straight descending', down.seen[1].boostStacks === cfg.downhillMaxStacks);
-  check('downhill: stacks never exceed the cap, and no slow stacks are earned', down.maxBoost === cfg.downhillMaxStacks && down.maxSlow === 0);
-  check('downhill: full stacks give exactly the 130% ceiling, and the ball settles at 130% of base speed',
-    near(1 + cfg.downhillMaxStacks * boostPerStack, cfg.downhillMaxFactor) && near(speedOf(down.ball), base * cfg.downhillMaxFactor, 0.25));
-  check('stacks: from hills alone the speed factor can never leave the 0.9 - 1.3 range', up.factorOk && down.factorOk);
+  // It is INSTANT: no building up and no wearing off.
+  const e = createSnowball({ terrain: ((): Terrain => ({ height: (x) => (x < 20 ? 0.3 * x : 6), gradient: (x) => ({ x: x < 20 ? 0.3 : 0, z: 0 }) }))(), ...BIG });
+  let st = place(fresh(e, ['A']), 'A', { x: 0, z: 0, vx: base });
+  st = steer(e, st, 'A', 1, 0, 1000);
+  let firstTick = -1, afterRamp = -1;
+  run(e, st, 6, 1000, (cur, _n, t) => {
+    if (firstTick < 0) firstTick = cur.balls.A.hillFactor;
+    if (afterRamp < 0 && cur.balls.A.x >= 20.5) afterRamp = cur.balls.A.hillFactor;
+  });
+  check('instant: the very first tick on a steep climb already has the full slow-down (no stacks to build)', near(firstTick, 1 - effect, 1e-9));
+  check('instant: the tick after the ramp ends is back to normal (nothing lingers)', near(afterRamp, 1, 1e-9));
+}
 
-  // ---- no effect ----
-  const side = roll(plane(0.3), 0, 1, 3);
-  check('slope: rolling ACROSS a slope earns no stacks and keeps normal speed', side.maxSlow === 0 && side.maxBoost === 0 && near(speedOf(side.ball), base, 0.1));
-  const flat = roll(FLAT, 1, 0, 3);
-  check('slope: flat ground earns no stacks and gives exactly normal speed', flat.maxSlow === 0 && flat.maxBoost === 0 && near(speedOf(flat.ball), base, 0.1));
-  check('slope: downhill is faster than flat, flat is faster than uphill', speedOf(down.ball) > speedOf(flat.ball) + 1.5 && speedOf(flat.ball) > speedOf(up.ball) + 0.4);
-  check('slope: slopes below the dead zone count as flat', roll(plane(0.01), 1, 0, 3).maxSlow === 0);
-  const gentle = roll(plane(0.06), 1, 0, 3, [1.5]); // half of slopeFullEffect
-  check('slope: a gentler slope earns stacks proportionally more slowly (half steepness = half the stacks)', Math.abs(gentle.seen[0].slowStacks - 5) <= 1);
-  const diagonal = roll(plane(0.3), Math.SQRT1_2, Math.SQRT1_2, 2, [1.5]);
-  check('slope: traversing diagonally still counts as climbing (0.3 × cos45° is still a steep slope)', diagonal.seen[0].slowStacks >= 8);
+// ================= sprint and stamina =================
+{
+  const BIG = { terrain: FLAT, arenaRadius: 100000, growthPerUnit: 0 };
+  const base = cfg.maxSpeed;
+  const sprintE = createSnowball(BIG);
+  const sprint = (e: E, s: SnowballState, on: boolean, now: number) => e.reduce(s, 'A', { type: 'sprint', on }, now);
+  const view = (e: E, s: SnowballState) => { const v = e.view(s); return v.gameId === 'snowball' ? v.balls.A : null; };
 
-  // ---- falling off ----
-  {
-    // A ramp that ends at x = 20: steep uphill before it, perfectly flat after it.
-    const ramp: Terrain = { height: (x) => 0.3 * Math.min(x, 20), gradient: (x) => ({ x: x < 20 ? 0.3 : 0, z: 0 }) };
-    const e = createSnowball({ terrain: ramp, ...BIG });
-    let st = steer(e, place(fresh(e, ['A']), 'A', { x: 0, z: 0, vx: base }), 'A', 1, 0, 1000);
-    let crossedAt = -1, onFlat0 = -1, stacksAtCross = 0, stacksAfter100ms = -1, stacksAfter400ms = -1, speedLater = 0, factorAfter = 0;
-    run(e, st, 6, 1000, (cur, _n, t) => {
-      const b = cur.balls.A;
-      if (crossedAt < 0 && b.x >= 20) { crossedAt = t; stacksAtCross = b.slowStacks; }
-      if (crossedAt > 0 && near(t, crossedAt + 0.1, DT / 2)) stacksAfter100ms = b.slowStacks;
-      if (crossedAt > 0 && near(t, crossedAt + 0.4, DT / 2)) { stacksAfter400ms = b.slowStacks; factorAfter = (e.view(cur) as { balls: Record<string, { speedFactor: number }> }).balls.A.speedFactor; }
-      if (crossedAt > 0 && near(t, crossedAt + 2, DT / 2)) speedLater = speedOf(b);
-      onFlat0 = crossedAt;
-    });
-    check('falloff: just after the slope ends the stacks are still there (they have a 0.3 s lifetime)', stacksAtCross === cfg.uphillMaxStacks && stacksAfter100ms === cfg.uphillMaxStacks);
-    check('falloff: 0.3 s after leaving the slope every stack has fallen off by itself', stacksAfter400ms === 0 && near(factorAfter, 1));
-    check('falloff: on the flat the ball goes back to normal speed', near(speedLater, base, 0.1) && onFlat0 > 0);
-  }
-  {
-    // A longer lifetime is just a setting.
-    const ramp: Terrain = { height: (x) => 0.3 * Math.min(x, 20), gradient: (x) => ({ x: x < 20 ? 0.3 : 0, z: 0 }) };
-    const e = createSnowball({ terrain: ramp, ...BIG, stackLifetimeSeconds: 0.5 });
-    let st = steer(e, place(fresh(e, ['A']), 'A', { x: 0, z: 0, vx: base }), 'A', 1, 0, 1000);
-    let crossedAt = -1, at400 = -1, at600 = -1;
-    run(e, st, 6, 1000, (cur, _n, t) => {
-      if (crossedAt < 0 && cur.balls.A.x >= 20) crossedAt = t;
-      if (crossedAt > 0 && near(t, crossedAt + 0.4, DT / 2)) at400 = cur.balls.A.slowStacks;
-      if (crossedAt > 0 && near(t, crossedAt + 0.6, DT / 2)) at600 = cur.balls.A.slowStacks;
-    });
-    check('config: stackLifetimeSeconds changes how long stacks last (0.5 s: still there at 0.4 s, gone at 0.6 s)', at400 === cfg.uphillMaxStacks && at600 === 0);
-  }
+  check('stamina: a ball starts with a full bar and is not sprinting', (() => { const b = view(sprintE, fresh(sprintE, ['A']))!; return b.stamina === 1 && !b.sprinting; })());
+  check('sprint: the setting is +50% speed and a full bar lasts 2.5 s', cfg.sprintFactor === 1.5 && near(cfg.staminaMax / cfg.staminaDrainPerSecond, 2.5));
 
-  // ---- the lifetime is refreshed by traversing a slope ----
-  {
-    const e = createSnowball({ terrain: plane(0.3), ...BIG });
-    let st = place(fresh(e, ['A']), 'A', { x: 0, z: 0, vx: base, slowStacks: 4, slowUntil: 1000 + 50 }); // about to expire
-    const refreshed = e.tick!(st, DT, 1000 + 40).balls.A; // still climbing at t+40 ms
-    check('lifetime: still climbing resets the timer to a full lifetime, keeping the stacks', refreshed.slowStacks >= 4 && near(refreshed.slowUntil, 1040 + lifetimeMs, 1e-6));
-    const flatE = createSnowball({ terrain: FLAT, ...BIG });
-    const flatState = place(fresh(flatE, ['A']), 'A', { x: 0, z: 0, vx: base, slowStacks: 4, slowUntil: 1000 + 50 });
-    check('lifetime: not climbing, the same stacks simply expire', flatE.tick!(flatState, DT, 1000 + 40).balls.A.slowStacks === 4 && flatE.tick!(flatState, DT, 1000 + 60).balls.A.slowStacks === 0);
-  }
+  // Hold sprint while steering for 1 second.
+  let st = steer(sprintE, fresh(sprintE, ['A']), 'A', 1, 0, 1000);
+  st = sprint(sprintE, st, true, 1000);
+  const sampled: Record<string, { speed: number; stamina: number; sprinting: boolean }> = {};
+  const done = run(sprintE, st, 4, 1000, (cur, _n, t) => {
+    for (const mark of [0.5, 1, 2, 3, 4]) if (near(t, mark, DT / 2)) { const b = view(sprintE, cur)!; sampled[mark] = { speed: speedOf(cur.balls.A), stamina: b.stamina, sprinting: b.sprinting }; }
+  });
+  check('sprint: while there is stamina the ball runs 50% faster (settling at 150% of base speed)', near(sampled[2].speed, base * 1.5, 0.3) || near(sampled[1].speed, base * 1.5, 1.2));
+  check('sprint: it uses stamina up at 40 a second (about 60% left after 1 s)', near(sampled[1].stamina, 0.6, 0.03));
+  check('sprint: the stamina runs out after 2.5 s and the sprint ends by itself', sampled[2].sprinting && !sampled[3].sprinting && view(sprintE, done.state)!.stamina < 0.2);
+  check('sprint: after it runs out the ball is back to normal speed even with the button still held', near(sampled[4].speed, base, 0.3));
+  check('sprint: it does not start again while the bar is below the starting minimum', (() => { const b = view(sprintE, done.state)!; return b.stamina < cfg.staminaStartMin / cfg.staminaMax || !b.sprinting; })());
 
-  // ---- cresting a hill: slow stacks fade, boost stacks build ----
-  {
-    const crest = 20;
-    const ridge: Terrain = {
-      height: (x) => 0.3 * Math.min(x, 2 * crest - x),
-      gradient: (x) => ({ x: x < crest ? 0.3 : -0.3, z: 0 }),
-    };
-    const e = createSnowball({ terrain: ridge, ...BIG });
-    let st = steer(e, place(fresh(e, ['A']), 'A', { x: 0, z: 0, vx: base }), 'A', 1, 0, 1000);
-    let crossedAt = -1, slowGone = -1, boostBuilding = -1, boostMax = 0;
-    run(e, st, 10, 1000, (cur, _n, t) => {
-      const b = cur.balls.A;
-      if (crossedAt < 0 && b.x >= crest) crossedAt = t;
-      if (crossedAt > 0 && slowGone < 0 && b.slowStacks === 0) slowGone = t - crossedAt;
-      if (crossedAt > 0 && boostBuilding < 0 && b.boostStacks > 0) boostBuilding = t - crossedAt;
-      boostMax = Math.max(boostMax, b.boostStacks);
-    });
-    check('crest: after the top the slow stacks fade within their lifetime...', slowGone > 0 && slowGone <= cfg.stackLifetimeSeconds + 0.1);
-    check('crest: ...while boost stacks start building straight away and reach the ceiling', boostBuilding >= 0 && boostBuilding < 0.5 && boostMax === cfg.downhillMaxStacks);
-  }
+  // Sprint needs steering: holding the button while standing still uses nothing.
+  const still = run(sprintE, sprint(sprintE, fresh(sprintE, ['A']), true, 1000), 1).state;
+  check('sprint: holding sprint without steering uses no stamina', view(sprintE, still)!.stamina === 1 && !view(sprintE, still)!.sprinting);
 
-  // ---- what the speed gauge shows ----
-  {
-    const v = up.e.view(up.state);
-    check('gauge data: the view carries the ground\'s speed factor, both stack counts and the speed range',
-      v.gameId === 'snowball' && near(v.balls.A.speedFactor, cfg.uphillMinFactor, 1e-9) && near(v.balls.A.hillFactor, cfg.uphillMinFactor, 1e-9)
-      && v.balls.A.slowStacks === cfg.uphillMaxStacks && v.balls.A.boostStacks === 0 && !v.balls.A.escape && !v.balls.A.leader
-      && near(v.speedRange.base, base) && near(v.speedRange.min, base * cfg.uphillMinFactor) && near(v.speedRange.hillMax, base * cfg.downhillMaxFactor)
-      && near(v.speedRange.max, base * (cfg.downhillMaxFactor + cfg.escapeBoost)) && near(v.speedRange.escapeBonus, cfg.escapeBoost));
-  }
+  // You cannot START a sprint on a nearly empty bar.
+  const low = place(fresh(sprintE, ['A']), 'A', { stamina: cfg.staminaStartMin - 1 });
+  const lowRun = run(sprintE, sprint(sprintE, steer(sprintE, low, 'A', 1, 0, 1000), true, 1000), 0.05).state; // (it refills at 15 a second, so look right away)
+  check('sprint: below the starting minimum (20) a sprint cannot start', !view(sprintE, lowRun)!.sprinting);
+  const okRun = run(sprintE, sprint(sprintE, steer(sprintE, place(fresh(sprintE, ['A']), 'A', { stamina: cfg.staminaStartMin + 1 }), 'A', 1, 0, 1000), true, 1000), 0.2).state;
+  check('sprint: just above the minimum it can start', view(sprintE, okRun)!.sprinting);
 
-  // ---- the real arena: climb the big hill straight on, along z = -4, from its west foot, over the top and down ----
-  {
-    const e = createSnowball({ growthPerUnit: 0, arenaRadius: 100000, terrain: SAMPLE }); // a realistic hill-shaped ground
-    const bigHill = SAMPLE_FEATURES[0];
-    let st = steer(e, place(fresh(e, ['A']), 'A', { x: bigHill.x - bigHill.radius - 2, z: bigHill.z, vx: base }), 'A', 1, 0, 1000);
-    let slowest = Infinity, fastest = 0, onHill = false;
-    run(e, st, 12, 1000, (cur) => {
-      const b = cur.balls.A;
-      const inside = Math.hypot(b.x - bigHill.x, b.z - bigHill.z) < bigHill.radius;
-      if (!inside && !onHill) return;
-      onHill = true;
-      slowest = Math.min(slowest, speedOf(b));
-      fastest = Math.max(fastest, speedOf(b));
-    });
-    check('real hill: the big hill slows a ball on the way up and speeds it on the way down',
-      slowest < base * 0.95 && slowest >= base * cfg.uphillMinFactor - 0.1 && fastest > base * 1.1 && fastest <= base * cfg.downhillMaxFactor + 0.05);
-  }
+  // Refill: nothing for the first second after a sprint, then 15 a second.
+  const tired = place(fresh(sprintE, ['A']), 'A', { stamina: 40, lastSprintAt: 1000 });
+  const waiting = run(sprintE, tired, 0.9).state; // 0.9 s after the last sprint: still waiting
+  const refilling = run(sprintE, tired, 2).state; // 2 s: 1 s of waiting, then 1 s of refilling
+  check('stamina: it does not refill for the first second after a sprint', near(view(sprintE, waiting)!.stamina, 0.4, 0.001));
+  check('stamina: then it refills at 15 a second (1 s of refilling = +15)', near(view(sprintE, refilling)!.stamina, 0.4 + 0.15, 0.02));
+  const full = run(sprintE, place(fresh(sprintE, ['A']), 'A', { stamina: 90, lastSprintAt: -1e15 }), 3).state;
+  check('stamina: it never goes above full', view(sprintE, full)!.stamina === 1);
+
+  // Sprint works with the hills: downhill + sprint is the top speed, and the view says so.
+  const hillE = createSnowball({ terrain: plane(0.3), arenaRadius: 100000, growthPerUnit: 0 });
+  let hs = place(fresh(hillE, ['A']), 'A', { x: 0, z: 0, vx: -base });
+  hs = sprint(hillE, steer(hillE, hs, 'A', -1, 0, 1000), true, 1000);
+  const hv = hillE.view(run(hillE, hs, 1.5).state);
+  check('sprint: downhill and sprinting is the fastest a ball can go (the speed range max)', hv.gameId === 'snowball' && near(hv.balls.A.speedFactor, (1 + cfg.hillSpeedEffect) * cfg.sprintFactor, 1e-9)
+    && near(hv.speedRange.max, base * (1 + cfg.hillSpeedEffect) * cfg.sprintFactor) && near(hv.speedRange.base, base) && near(hv.staminaStart, cfg.staminaStartMin / cfg.staminaMax));
+
+  // Input safety
+  check('sprint: a bad value is not a sprint', !sprintE.reduce(fresh(sprintE, ['A']), 'A', { type: 'sprint', on: 'yes' as unknown as boolean }, 1000).balls.A.sprintWanted);
+  check('sprint: a player who is not in the round cannot sprint', sprintE.reduce(fresh(sprintE, ['A']), 'Z', { type: 'sprint', on: true }, 1000).balls.Z === undefined);
 }
 
 // ================= walls =================
@@ -600,13 +550,33 @@ const oneHit = (e: E, a: Partial<Ball>, b: Partial<Ball>, v: number, now = 2000)
   check('immunity: an immune ball is spared but the other one is still damaged', near(half.balls.A.snow, 1, 1e-12) && near(half.balls.B.snow, afterDamage(1, cfg.damage), 1e-9));
 }
 {
-  // ---- the small ball buff: the smaller ball of a fresh hit gets the escape boost ----
+  // ---- the small ball buff: the smaller ball of a fresh hit refills its stamina straight away ----
   const hit = oneHit(hitEngine, { snow: 4 }, { snow: 1 }, 6, 5000);
-  check('small ball buff: the smaller ball gets the escape boost when it hits a bigger one', hit.balls.B.escape && near(hit.balls.B.escapeUntil, 5000 + cfg.escapeSeconds * 1000));
+  check('small ball buff: the smaller ball gets the instant-refill window when it hits a bigger one', hit.balls.B.escape && near(hit.balls.B.escapeUntil, 5000 + cfg.escapeSeconds * 1000));
   check('small ball buff: the bigger ball does not', !hit.balls.A.escape);
+  // The damage of a hit is reported per ball (phones scale the impact's snow by it).
+  const dmg = hitEngine.view(hit);
+  check('hit damage: the view says how much each ball was hurt (the small ball took the leader\'s big hit, the leader the normal one)',
+    dmg.gameId === 'snowball' && dmg.balls.B.hitDamage === cfg.leaderDamage && dmg.balls.A.hitDamage === cfg.damage);
+  check('hit damage: a ball that has not been hit reports 0', (() => { const v0 = hitEngine.view(fresh(hitEngine, ['A', 'B'])); return v0.gameId === 'snowball' && v0.balls.A.hitDamage === 0; })());
+  const fishy = oneHit(hitEngine, { snow: 1, fish: 3 }, { snow: 1 }, 6);
+  const fv = hitEngine.view(fishy);
+  check('hit damage: fish add to it (the base hit + 5 for each of 3 fish = 20)', fv.gameId === 'snowball' && fv.balls.B.hitDamage === cfg.damage + 3 * cfg.fishDamage);
+  // (a ball only sprints if the button is held, it is steering and it has stamina: set all of that up)
+  const SPRINTING = { sprintWanted: true, sprinting: true, steerX: 1 };
+  // Sprinting adds 5 to the damage the sprinter DEALS: if only one of two equal balls sprints, the other takes 10 and the sprinter takes 5.
+  const oneSprints = oneHit(hitEngine, { snow: 1, ...SPRINTING }, { snow: 1 }, 6);
+  const sv = hitEngine.view(oneSprints);
+  check('sprint damage: the one that sprinted takes 5 and the one that did not takes 10',
+    sv.gameId === 'snowball' && sv.balls.A.hitDamage === cfg.damage && sv.balls.B.hitDamage === cfg.damage + cfg.sprintDamage && cfg.sprintDamage === 5);
+  check('sprint damage: it really takes that much size off (10 points = 0.1 of radius for the one that did not sprint)',
+    near(Math.sqrt(oneSprints.balls.B.snow), 1 - (cfg.damage + cfg.sprintDamage) / 100, 1e-9) && near(Math.sqrt(oneSprints.balls.A.snow), 1 - cfg.damage / 100, 1e-9));
+  const bothSprint = hitEngine.view(oneHit(hitEngine, { snow: 1, ...SPRINTING }, { snow: 1, ...SPRINTING, steerX: -1 }, 6));
+  check('sprint damage: if both sprint they both deal and take the extra 5 (10 each)', bothSprint.gameId === 'snowball' && bothSprint.balls.A.hitDamage === 10 && bothSprint.balls.B.hitDamage === 10);
+  const stacked = hitEngine.view(oneHit(hitEngine, { snow: 1, ...SPRINTING, fish: 2 }, { snow: 1 }, 6));
+  check('sprint damage: it adds to the fish bonus too (base 5 + 2 fish x 5 + sprint 5 = 20)', stacked.gameId === 'snowball' && stacked.balls.B.hitDamage === 20);
   const hv = hitEngine.view(hit);
-  check('small ball buff: instantly the full bonus (as if fully boosted downhill): +30% top speed',
-    hv.gameId === 'snowball' && near(hv.balls.B.speedFactor, 1 + cfg.escapeBoost, 1e-9) && near(cfg.escapeBoost, cfg.downhillMaxFactor - 1, 1e-9) && near(hv.balls.B.hillFactor, 1));
+  check('small ball buff: it is a stamina effect only: no speed bonus any more', hv.gameId === 'snowball' && near(hv.balls.B.speedFactor, 1, 1e-9) && hv.balls.B.escape);
   check('small ball buff: it is not given to equal-size balls', (() => { const e = oneHit(hitEngine, { snow: 1 }, { snow: 1 }, 6); return !e.balls.A.escape && !e.balls.B.escape; })());
   check('small ball buff: a ball that is still immune does not get a fresh buff (no spamming)', (() => {
     const e = hitEngine.tick!(place(place(fresh(hitEngine, ['A', 'B']), 'A', { x: 0, snow: 4, vx: 6 }), 'B', { x: 2.98, snow: 1, immuneUntil: 9999, immune: true }), DT, 2000);
@@ -615,36 +585,24 @@ const oneHit = (e: E, a: Partial<Ball>, b: Partial<Ball>, v: number, now = 2000)
   const second = hitEngine.tick!(place(place(hit, 'A', { x: 0, vx: 6 }), 'B', { x: 2.98, vx: 0 }), DT, 5000 + cfg.immunityMs + 100);
   check('small ball buff: hitting the big ball again after the immunity refreshes the 2 s', near(second.balls.B.escapeUntil, 5000 + cfg.immunityMs + 100 + cfg.escapeSeconds * 1000));
 
-  // What the boost does to actual speed (flat ground): up to +30% for 2 s, then back to normal.
-  const BIG = { arenaRadius: 100000, growthPerUnit: 0, terrain: FLAT } as const;
-  const e = createSnowball(BIG);
-  let st = place(fresh(e, ['A']), 'A', { x: 0, z: 0, vx: cfg.maxSpeed, escapeUntil: 1000 + cfg.escapeSeconds * 1000, escape: true });
-  st = steer(e, st, 'A', 1, 0, 1000);
-  let at15 = 0, at4 = 0, escapeOffAt = -1;
-  run(e, st, 6, 1000, (cur, _n, t) => {
-    if (near(t, 1.5, DT / 2)) at15 = speedOf(cur.balls.A);
-    if (near(t, 5, DT / 2)) at4 = speedOf(cur.balls.A);
-    if (escapeOffAt < 0 && !cur.balls.A.escape) escapeOffAt = t;
-  });
-  check('small ball buff: during the 2 s the ball really runs 30% faster', near(at15, cfg.maxSpeed * (1 + cfg.escapeBoost), 0.4));
-  check('small ball buff: it ends by itself after 2 s and speed falls back to normal', near(escapeOffAt, cfg.escapeSeconds, DT * 2) && near(at4, cfg.maxSpeed, 0.15));
-
-  // Stacking with hills: hill boost (up to +30%) and escape boost (+30%) add up to 160%; they never exceed it.
-  const withHill = (terrain: Terrain, dir: number, escape: boolean) => {
-    const eh = createSnowball({ arenaRadius: 100000, growthPerUnit: 0, terrain });
-    let s0 = place(fresh(eh, ['A']), 'A', { x: 0, z: 0, vx: dir * cfg.maxSpeed, ...(escape ? { escapeUntil: 1e9, escape: true } : {}) });
-    s0 = steer(eh, s0, 'A', dir, 0, 1000);
-    const { state } = run(eh, s0, 7);
-    return { speed: speedOf(state.balls.A), factor: (eh.view(state) as { balls: Record<string, { speedFactor: number }> }).balls.A.speedFactor };
-  };
-  const both = withHill(plane(0.3), -1, true);
-  check('speed limit: rolling downhill right after hitting a big ball goes beyond 130% - up to 160% of base speed',
-    both.speed > cfg.maxSpeed * cfg.downhillMaxFactor + 0.5 && near(both.speed, cfg.maxSpeed * 1.6, 0.4) && near(both.factor, 1.6, 1e-9));
-  check('speed limit: 160% is the hard ceiling (hill boost + escape boost)', both.factor <= cfg.downhillMaxFactor + cfg.escapeBoost + 1e-9);
-  const hillOnly = withHill(plane(0.3), -1, false);
-  check('speed limit: without the escape boost a downhill roll still tops out at 130%', near(hillOnly.speed, cfg.maxSpeed * cfg.downhillMaxFactor, 0.3));
-  const uphillEscape = withHill(plane(0.3), 1, true);
-  check('speed limit: escaping uphill nets the two together (90% + 30% = 120%)', near(uphillEscape.factor, cfg.uphillMinFactor + cfg.escapeBoost, 1e-9) && near(uphillEscape.speed, cfg.maxSpeed * 1.2, 0.3));
+  // What it does: a ball that has just sprinted normally waits a second before its stamina refills. In its escape window it does not wait.
+  const BIGF = { arenaRadius: 100000, growthPerUnit: 0, terrain: FLAT } as const;
+  const e = createSnowball(BIGF);
+  const stamina = (st: SnowballState) => { const v = e.view(st); return v.gameId === 'snowball' ? v.balls.A.stamina : -1; };
+  const justSprinted = (escape: boolean) => place(fresh(e, ['A']), 'A', { stamina: 30, lastSprintAt: 1000, ...(escape ? { escapeUntil: 1000 + cfg.escapeSeconds * 1000, escape: true } : {}) });
+  const control = run(e, justSprinted(false), 0.5).state;
+  const buffed = run(e, justSprinted(true), 0.5).state;
+  check('small ball buff: normally the stamina does not refill in the first 0.5 s after a sprint', near(stamina(control), 0.3, 0.001));
+  check('small ball buff: with the buff it starts refilling straight away (+15 a second: +7.5 in 0.5 s)', near(stamina(buffed), 0.3 + 0.075, 0.01));
+  const ends = run(e, justSprinted(true), cfg.escapeSeconds + 0.5, 1000);
+  check('small ball buff: it ends by itself after 2 s, then the usual wait applies again', (() => {
+    const v = e.view(ends.state);
+    return v.gameId === 'snowball' && !v.balls.A.escape;
+  })());
+  // While sprinting a ball cannot refill, buff or not.
+  let sp = place(fresh(e, ['A']), 'A', { stamina: 60, escapeUntil: 1e9, escape: true });
+  sp = e.reduce(steer(e, sp, 'A', 1, 0, 1000), 'A', { type: 'sprint', on: true }, 1000);
+  check('small ball buff: it does not let a ball refill WHILE it is sprinting', stamina(run(e, sp, 0.5).state) < 0.6);
 }
 {
   // ---- floors and options ----
@@ -718,7 +676,7 @@ check('init: a tie-breaker can start with just some of the players', Object.keys
   const v = engine.view(s);
   check('view: shaped for phones (game id, arena size, per-player ball)', v.gameId === 'snowball' && v.arenaRadius === cfg.arenaRadius && Object.keys(v.balls).join() === 'A,B');
   check('view: positions are rounded and radius is the real radius', v.gameId === 'snowball' && v.balls.A.x === 1.23 && near(v.balls.B.radius, 1.5, 1e-3));
-  check('view: includes the speed, buff and leader fields on every ball', (() => { const v2 = engine.view(s); return v2.gameId === 'snowball' && Object.values(v2.balls).every((x) => x.speedFactor === 1 && x.hillFactor === 1 && x.slowStacks === 0 && x.boostStacks === 0 && x.escape === false && x.leader === false); })());
+  check('view: includes the speed, stamina, buff and leader fields on every ball', (() => { const v2 = engine.view(s); return v2.gameId === 'snowball' && Object.values(v2.balls).every((x) => x.speedFactor === 1 && x.hillFactor === 1 && x.stamina === 1 && x.sprinting === false && x.escape === false && x.leader === false); })());
   check('view: carries the immune flash flag', v.gameId === 'snowball' && v.balls.A.immune === true && v.balls.B.immune === false);
 }
 

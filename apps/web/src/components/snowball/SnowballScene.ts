@@ -10,7 +10,7 @@ import { createRoundClock } from '../../audio/roundClock';
 import { collisionCrunch, rollCrunch, type SoundFn } from '../../audio/snowSounds';
 import { SpectatorRig } from '../../spectate/SpectatorRig';
 import type { CameraMode } from '../../spectate/useSpectatorCamera';
-import { FleckSystem, ShockRingSystem, StreakSystem } from './effects';
+import { FleckSystem, StreakSystem } from './effects';
 import { FishKit } from './fish';
 import { createNameTag, disposeNameTag } from '../labelTexture';
 import { createTerrain, type SnowballBall, type SnowballItem, type Terrain, type TerrainFeature } from '@fgn/shared';
@@ -22,6 +22,18 @@ export interface BallStyle {
   avatarUrl: string | null; // the player's profile picture, wrapped around the ball (null = plain white)
 }
 
+/**
+ * How dramatic an impact's snow is (how many flecks, how fast they are thrown) for a hit that took `damage` size points off a ball.
+ * The baseline (a normal leader hit, 10 points) is HIT_BASELINE, which is 20% less than the burst used to be. A weaker hit (the 5
+ * points of an ordinary hit) throws less than that and a stronger one (fish add 5 points each) throws more, growing steadily with
+ * the damage up to HIT_DRAMA_MAX. With no damage reported it falls back to the baseline.
+ */
+const HIT_REFERENCE_DAMAGE = 10;
+const HIT_BASELINE = 0.8;
+const HIT_DRAMA_EXPONENT = 0.75; // 5 points = 0.59 of the baseline, 20 points = 1.68 times it, 40 points = 2.8 times (capped below)
+const HIT_DRAMA_MAX = 2.6;
+const hitDrama = (damage: number) => HIT_BASELINE * Math.min(HIT_DRAMA_MAX, Math.max(0.3, ((damage > 0 ? damage : HIT_REFERENCE_DAMAGE) / HIT_REFERENCE_DAMAGE) ** HIT_DRAMA_EXPONENT));
+
 /** One ball's position at one moment (what we interpolate between). */
 interface Pose {
   x: number;
@@ -32,6 +44,7 @@ interface Pose {
   immune: boolean;
   speedFactor: number; // 1 = base speed; above 1.2 a ball sheds wind streaks
   fish: number; // how many fish are stuck to the ball
+  hitDamage: number; // size points the most recent hit took off this ball (the impact's snow is scaled by it)
   leader: boolean; // the single biggest ball: it wears the crown
 }
 
@@ -167,7 +180,6 @@ export class SnowballScene {
   // Effects: snow flecks on collisions, wind streaks behind fast balls, and the crunch sounds that go with the movement.
   private flecks = new FleckSystem();
   private streaks = new StreakSystem();
-  private rings = new ShockRingSystem();
   private fx = new Map<string, BallFx>();
   // Pick-ups lying in the arena: what the server last said is there, and one drawing for each.
   private itemList: SnowballItem[] = [];
@@ -183,6 +195,7 @@ export class SnowballScene {
   private clock = createRoundClock((sound, gain) => this.playHere(sound, gain));
   private shake = 0; // 0..1: how much the camera is shaking right now
   private readonly reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches; // people who ask their device for less motion get no shake
+  private baseSpeed = 11; // the speed a ball rolls at normally (set from the server's speed range): the swirl's strength follows speed / this
   private maxSpeedFactor = 1.6; // the highest speedFactor a ball can reach (set from the server's speed range)
   private zoom = 1; // pulls the camera back on narrow (portrait) screens
 
@@ -203,8 +216,8 @@ export class SnowballScene {
     this.rig = new SpectatorRig(this.camera, arenaRadius);
     this.buildWorld();
     this.flecks.groundAt = (x, z) => this.terrain.height(x, z); // flecks land on the real ground, hills included
-    this.scene.add(this.flecks.object, this.streaks.object, this.rings.object);
-    this.disposables.push(this.flecks, this.streaks, this.rings, this.fishKit, this.itemShadowMaterial);
+    this.scene.add(this.flecks.object, this.streaks.object);
+    this.disposables.push(this.flecks, this.streaks, this.fishKit, this.itemShadowMaterial);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -239,6 +252,10 @@ export class SnowballScene {
   }
 
   /** The top speed multiplier a ball can reach (server's max speed / base speed): wind is at its fullest there. */
+  setBaseSpeed(speed: number) {
+    this.baseSpeed = Math.max(1, speed);
+  }
+
   setMaxSpeedFactor(factor: number) {
     this.maxSpeedFactor = Math.max(WIND_START_FACTOR + 0.01, factor);
   }
@@ -451,7 +468,6 @@ export class SnowballScene {
     if (poses) this.updateEffects(dt, poses);
     this.flecks.update(dt);
     this.streaks.update(dt);
-    this.rings.update(dt);
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -597,7 +613,10 @@ export class SnowballScene {
         const other = this.touching(id, pose, poses);
         if (other && !hitPairs.has([id, other.id].sort().join('|'))) {
           hitPairs.add([id, other.id].sort().join('|'));
-          this.collide(id, pose, other.id, other.pose);
+          // How hard was this hit? The damage of whichever ball(s) just started flashing (not a stale value from an old hit).
+          const justHit = (p: Pose, pid: string) => p.immune && !this.fx.get(pid)?.immune;
+          const damage = Math.max(justHit(pose, id) ? pose.hitDamage : 0, justHit(other.pose, other.id) ? other.pose.hitDamage : 0);
+          this.collide(id, pose, other.id, other.pose, damage);
         }
       }
       state.immune = pose.immune;
@@ -658,7 +677,7 @@ export class SnowballScene {
   }
 
   /** Snow sprays from the point where two balls meet, with a loud crunch. */
-  private collide(aId: string, a: Pose, bId: string, b: Pose) {
+  private collide(aId: string, a: Pose, bId: string, b: Pose, damage: number) {
     // Both balls hop.
     for (const id of [aId, bId]) {
       const state = this.fx.get(id);
@@ -673,13 +692,11 @@ export class SnowballScene {
     const closing = Math.hypot(a.vx - b.vx, a.vz - b.vz); // how hard they met
     const power = Math.min(1.2, Math.max(0.35, closing / 14));
     const scale = Math.min(3, Math.max(0.6, (a.radius + b.radius) / 2));
-    this.flecks.burst(x, y, z, dx / distance, dz / distance, power, scale);
-    // The shockwave: an upright ring that spreads across the gap between the balls from the contact point (bigger for bigger balls and harder hits).
+    this.flecks.burst(x, y, z, dx / distance, dz / distance, power, scale, hitDrama(damage));
     // The screen shakes, more for a harder hit and less the farther it is from where the camera is looking.
     const away = Math.hypot(x - this.rig.focusX, z - this.rig.focusZ);
     const near = Math.min(1, Math.max(0, 1 - (away - SHAKE_NEAR) / (SHAKE_FAR - SHAKE_NEAR)));
     this.shake = Math.min(1, this.shake + 0.55 * Math.min(1, power) * near);
-    this.rings.spawn(x, y, z, dx / distance, dz / distance, 0.448 * (3.5 + 2.5 * power * Math.sqrt(scale))); // 44.8% of the original size (made 20%, 20% then 30% smaller)
     audio.play(collisionCrunch, x, z, 0.85 + 0.15 * Math.min(1, power), Math.min(1, power));
   }
 

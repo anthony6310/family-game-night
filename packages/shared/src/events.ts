@@ -38,7 +38,7 @@ export type RoomPhase = 'lobby' | 'countdown' | 'underdog' | 'playing' | 'finish
  * `steer` is a direction on the ground in world axes (x = east, z = south), each -1..1.
  * The server clamps its length to 1, so sending a bigger vector gains nothing.
  */
-export type GameAction = { type: 'tap' } | { type: 'steer'; x: number; z: number };
+export type GameAction = { type: 'tap' } | { type: 'steer'; x: number; z: number } | { type: 'sprint'; on: boolean };
 
 /** Tap Race, as phones see it. */
 export interface TapRaceView {
@@ -73,13 +73,17 @@ export interface SnowballBall {
   vz: number;
   radius: number;
   immune: boolean; // briefly true after being hit (drawn as a flash)
-  /** Current top-speed multiplier, everything included: 1 = normal, below 1 = climbing, above 1 = descending / escaping. */
+  /** Current top-speed multiplier, everything included: 1 = normal, below 1 = climbing, above 1 = descending and/or sprinting. */
   speedFactor: number;
-  /** The part of `speedFactor` that comes from the ground alone (hills and the ditch). */
+  /** The part of `speedFactor` that comes from the ground alone (a little slower uphill, a little faster downhill). */
   hillFactor: number;
-  slowStacks: number; // uphill slow stacks currently active
-  boostStacks: number; // downhill speed-up stacks currently active
-  /** True for 2 s after this (smaller) ball hit a bigger one: a speed boost to get away. */
+  /** The size points the most recent hit took off this ball (0 if it has not been hit yet): phones scale the impact's snow by how hard the hit was. */
+  hitDamage: number;
+  /** Stamina left, from 0 (empty) to 1 (full). Sprinting uses it up; it refills when you stop sprinting. */
+  stamina: number;
+  /** True while the ball is sprinting (+50% speed), which uses stamina up. */
+  sprinting: boolean;
+  /** True for 2 s after this (smaller) ball hit a bigger one: its stamina refills straight away (no waiting) while this lasts. */
   escape: boolean;
   /** True for the single biggest ball: its hits do double damage. */
   leader: boolean;
@@ -93,11 +97,10 @@ export interface SnowballView {
   startsAt: number;
   endsAt: number;
   arenaRadius: number;
-  /**
-   * The speeds the gauge is drawn against (world units per second): normal, slowest possible, fastest from
-   * hills alone, fastest possible with the escape boost on top, and how much that escape boost adds (a fraction).
-   */
-  speedRange: { base: number; min: number; hillMax: number; max: number; escapeBonus: number };
+  /** The speeds effects are drawn against (world units per second): normal, and the fastest possible (downhill AND sprinting). */
+  speedRange: { base: number; max: number };
+  /** You can only START a sprint with at least this much stamina (a fraction, 0..1). The stamina bar marks it. */
+  staminaStart: number;
   /** This round's hills and ditch. They are picked at random for each round and never move during it. */
   terrain: TerrainFeature[];
   /** Pick-ups lying in the arena right now (they appear at the start and in waves later; a collected one is gone). */

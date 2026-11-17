@@ -37,6 +37,8 @@ const snow = finishLength('snowball');
 check(`Snowball: it now ends with the same winner sequence, 5.5 s (got ${snow} ms)`, Math.abs(snow - 5500) <= 30);
 const lasso = finishLength('penguin-lasso');
 check(`Penguin Lasso: the same 5.5 s winner sequence (got ${lasso} ms)`, Math.abs(lasso - 5500) <= 30);
+const fishing = finishLength('fishing');
+check(`Fishing: 4.4 s for the hooks breaking the surface, then the same 5.5 s winner sequence = 9.9 s (got ${fishing} ms)`, Math.abs(fishing - 9900) <= 30);
 const forced = finishLength('tap-race', { finishMs: 500 });
 check(`a test override still applies to every game (got ${forced} ms)`, Math.abs(forced - 500) <= 30);
 

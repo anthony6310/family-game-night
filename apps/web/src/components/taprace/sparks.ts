@@ -1,5 +1,5 @@
 import {
-  AdditiveBlending, BufferAttribute, BufferGeometry, DynamicDrawUsage, Mesh, ShaderMaterial, type Object3D,
+  AdditiveBlending, BufferAttribute, BufferGeometry, DynamicDrawUsage, Mesh, NormalBlending, ShaderMaterial, type Object3D,
 } from 'three';
 
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
@@ -70,7 +70,12 @@ export class SparkSystem {
   /** Height of the floor at (x, z): sparks bounce on it. The scene sets this (the raised base is higher than the floor around it). */
   floorAt: (x: number, z: number) => number = () => 0;
 
-  constructor(capacity = 3000) {
+  /**
+   * `additive` (the default, what the Tap Race button uses) makes the sparks GLOW: they add light to what is behind them, which is only visible against
+   * something dark. With `additive: false` they are solid, ordinary-blended streaks that show their own color on any background (used for the
+   * fishing splash, where they are water-colored droplets against the sky).
+   */
+  constructor(capacity = 3000, additive = true) {
     this.capacity = capacity;
     this.centre = new Float32Array(capacity * 3);
     this.velocity = new Float32Array(capacity * 3);
@@ -110,7 +115,8 @@ export class SparkSystem {
     this.material = new ShaderMaterial({
       transparent: true,
       depthWrite: false,
-      blending: AdditiveBlending,
+      blending: additive ? AdditiveBlending : NormalBlending,
+      uniforms: { uSolid: { value: additive ? 0 : 1 } },
       vertexShader: `
         attribute vec3 aVelocity;
         attribute vec3 aColor;
@@ -134,6 +140,7 @@ export class SparkSystem {
           gl_Position = projectionMatrix * view;
         }`,
       fragmentShader: `
+        uniform float uSolid;
         varying vec3 vColor;
         varying float vAlpha;
         varying vec2 vCorner;
@@ -154,6 +161,10 @@ export class SparkSystem {
           float heat = smoothstep(0.1, 0.65, along) * (1.0 - smoothstep(0.0, 0.3, across));
           vec3 color = vColor * halo + mix(vColor, hot, heat) * body;
           // (No brightness multiplier on purpose: scaling all three channels clips the red first and drags orange and red towards yellow. The solid body is what makes it bright.)
+          if (uSolid > 0.5) { // solid streaks: the color itself (a little lighter at the hot head), faded by alpha only
+            gl_FragColor = vec4(mix(vColor, vec3(1.0), 0.35 * heat), vAlpha * min(1.0, glow * 1.6));
+            return;
+          }
           gl_FragColor = vec4(color, vAlpha * min(1.0, glow));
         }`,
     });
@@ -190,6 +201,33 @@ export class SparkSystem {
         r, g, bl,
         bouncer,
       );
+    }
+  }
+
+  /**
+   * A SPLASH: droplets thrown up and out in a fan from (x, y, z), which then fall back under gravity (give the system a `floorAt` far below so
+   * nothing bounces). `power` (0..1+) makes it bigger: more droplets, flung higher and wider, and thicker. `palette` is the droplets' colors
+   * (each is picked from it at random), as [r, g, b] in 0..1.
+   */
+  splash(x: number, y: number, z: number, power: number, palette: [number, number, number][], amount = 1) {
+    const k = Math.max(0, power);
+    // `amount` scales the whole splash on top of `power`: 0.5 = half as many droplets, thrown half as high (height goes with speed squared).
+    const count = Math.round(mix(24, 170, Math.min(1, k)) * (k > 1 ? k : 1) * amount);
+    for (let i = 0; i < count; i++) {
+      const angle = rand(-1, 1) * mix(0.55, 1.15, Math.min(1, k)); // from straight up, towards either side (radians)
+      const speed = rand(0.4, 1) * mix(7, 17, Math.min(1, k)) * (k > 1 ? Math.sqrt(k) : 1) * Math.sqrt(amount);
+      const [r, g, b] = palette[Math.floor(Math.random() * palette.length)];
+      this.spawn(
+        x + rand(-0.25, 0.25) * (1 + k), y, z + rand(-0.4, 0.4),
+        Math.sin(angle) * speed, Math.cos(angle) * speed, rand(-0.2, 0.2) * speed,
+        rand(0.07, 0.14) * mix(1, 1.8, Math.min(1, k)), // thicker droplets for a bigger splash
+        rand(0.8, 1.5) * mix(0.9, 1.3, Math.min(1, k)),
+        r, g, b,
+        true, // (a "bouncer" only in that it falls under gravity: it never bounces, see below)
+      );
+      const slot = (this.next - 1 + this.capacity) % this.capacity;
+      this.bouncesLeft[slot] = 0;
+      this.flightEnd[slot] = rand(0.02, 0.07);
     }
   }
 

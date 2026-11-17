@@ -27,7 +27,7 @@ To add a rule: give it the next number, say what it is, say why, and name the co
 1. Make a clock in the scene: `createRoundClock((sound, gain) => audio.play(sound, listenerX, listenerZ, gain, 1))`, playing at the listener so the volume is the same everywhere.
 2. From the game screen, call `clock.update(secondsLeft)` whenever the timer updates (the screens already re-render about 10 times a second).
 
-Games that have it so far: **Tap Race**, **Snowball** and **Penguin Lasso**.
+Games that have it so far: **Tap Race**, **Snowball**, **Penguin Lasso** and **Fishing**.
 
 ---
 
@@ -65,7 +65,7 @@ Then the normal results screen follows. Together the two steps are the game's fi
 3. While `winnerMoment` is true, point the scene's camera at `result.winnerId` for everyone, and render `<WinnerBanner result={result} players={players} />`.
 4. Set `finishSeconds: WINNER_FINISH_SECONDS` on the game in `games.ts`.
 
-Games that have it so far: **Tap Race**, **Snowball** and **Penguin Lasso** (all of them). The older generic "you won / you lost" overlay has been removed.
+Games that have it so far: **Tap Race**, **Snowball**, **Penguin Lasso** and **Fishing** (all of them). The older generic "you won / you lost" overlay has been removed.
 
 ---
 
@@ -98,7 +98,7 @@ Games are almost always made with three.js, so spectating is the same everywhere
 5. Show `<SpectatorControls camera={camera} />` to spectators, and hide the game's own controls from them.
 6. Make sure the game's server code ignores actions from non-players.
 
-Games that have it so far: **Tap Race**, **Snowball** and **Penguin Lasso** (all of them).
+Games that have it so far: **Tap Race**, **Snowball**, **Penguin Lasso** and **Fishing** (all of them). Fishing is a flat side view with no free camera: a spectator picks whose lane to follow with the ‹ › buttons (`allowFree={false}`).
 
 **Seats and betting (part of the room, not of any one game).** Spectating is the same in every game, so these room rules apply to all of them too:
 
@@ -147,7 +147,7 @@ Games that have it so far: **Tap Race**, **Snowball** and **Penguin Lasso** (all
 
 **Why.** Names clipped into other models (the penguin sack, for example) and became unreadable. Names are the most important text on the board.
 
-**How it is done.** One shared helper, `createNameTag(name, color)` in `apps/web/src/components/labelTexture.ts` (with `disposeNameTag` for cleanup), makes the name as a camera-facing sprite with depth testing off and a very high render order. Every game that floats a name above a character uses it: **Snowball** and **Penguin Lasso** (Tap Race paints its names flat on the floor, so they can't be cut into). A game also lifts its name above anything tall that is attached to a character (Penguin Lasso raises it above a big sack).
+**How it is done.** One shared helper, `createNameTag(name, color)` in `apps/web/src/components/labelTexture.ts` (with `disposeNameTag` for cleanup), makes the name as a camera-facing sprite with depth testing off and a very high render order. Every game that floats a name above a character uses it: **Snowball**, **Penguin Lasso** and **Fishing** (Tap Race paints its names flat on the floor, so they can't be cut into). A game also lifts its name above anything tall that is attached to a character (Penguin Lasso raises it above a big sack).
 
 **The one trade-off.** Because a name ignores depth, it can show through something that is in front of its owner (for example a Snowball name through a hill). We accept that: a readable name matters more.
 

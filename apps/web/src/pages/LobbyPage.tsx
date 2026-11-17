@@ -17,6 +17,8 @@ const loadTapRaceScreen = () => import('../components/TapRaceScreen'); // Tap Ra
 const TapRaceScreen = lazy(loadTapRaceScreen);
 const loadPenguinScreen = () => import('../components/PenguinScreen');
 const PenguinScreen = lazy(loadPenguinScreen);
+const loadFishingScreen = () => import('../components/FishingScreen');
+const FishingScreen = lazy(loadFishingScreen);
 
 /** A picture of each game for the game picker, taken from the real game (files in public/games). A game with no picture yet shows a plain tile. */
 const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-race.png', snowball: '/games/snowball.png', 'penguin-lasso': '/games/penguin-lasso.png' };
@@ -33,6 +35,7 @@ export function LobbyPage() {
     if (pickedGame === 'snowball') void loadSnowballScreen();
     if (pickedGame === 'tap-race') void loadTapRaceScreen();
     if (pickedGame === 'penguin-lasso') void loadPenguinScreen();
+    if (pickedGame === 'fishing') void loadFishingScreen();
   }, [pickedGame]);
 
   // No room (refresh, lost connection, or the host closed it): back to the hub.
@@ -60,6 +63,11 @@ export function LobbyPage() {
       ) : room.game.gameId === 'penguin-lasso' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
           <PenguinScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
+            serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+        </Suspense>
+      ) : room.game.gameId === 'fishing' ? (
+        <Suspense fallback={<p className="center">Loading…</p>}>
+          <FishingScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
             serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : (

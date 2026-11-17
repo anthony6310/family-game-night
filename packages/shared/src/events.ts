@@ -179,8 +179,36 @@ export interface PenguinLassoView {
   loops: LoopView[];
 }
 
+/** A fish in the ocean (Fishing). `y` is its depth below the surface (0 = the surface). Its mouth is at the front: x + dir x (size / 2). */
+export interface FishView {
+  id: number;
+  x: number;
+  y: number;
+  dir: 1 | -1; // which way it swims along the width (1 = right); fish swim the same way all round, and come back in from the other side
+  speed: number; // units per second (phones move it on between snapshots)
+  size: number; // its length
+  variant: number; // which of the colorful looks it has (0..5)
+  caughtBy?: string; // set for ~1.2 s after a catch, so phones can show it being reeled in
+}
+
+/** Fishing, as phones see it. Only the fish near the hooks are listed. */
+export interface FishingView {
+  gameId: 'fishing';
+  startsAt: number; // the round begins: the cast sequence plays
+  ascentStartsAt: number; // the hooks are at the bottom and start to rise (input counts from here)
+  endsAt: number; // the hooks reach the surface
+  depth: number; // how deep the ocean is
+  endDepth: number; // the finish line: the hooks rise from `depth` to this depth ("0 m", a little under the surface). When they reach it the round is over.
+  hookDepth: number; // how deep the hooks are right now (all of them, always the same)
+  ascentSpeed: number; // how fast they rise (units per second), so phones can carry on between snapshots
+  laneWidth: number;
+  lanes: string[]; // each player's lane, left to right (a player who left keeps an empty lane)
+  hooks: Record<string, { x: number; fish: number }>; // where each hook is along the width, and how many fish it has caught
+  fish: FishView[];
+}
+
 /** What phones are told about a running round: one shape per game, told apart by `gameId`. */
-export type GameView = TapRaceView | SnowballView | PenguinLassoView;
+export type GameView = TapRaceView | SnowballView | PenguinLassoView | FishingView;
 
 /** A spectator's bet on one player to win a round. With no stake it is a free bet worth 1 victory point if it wins. With a stake, the spectator puts up victory points of their own and wins (or loses) exactly that many. */
 export interface Bet {

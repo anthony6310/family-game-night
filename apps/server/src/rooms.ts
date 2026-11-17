@@ -7,6 +7,7 @@ import {
   type RoundResult, type Bet, type BetResult, type Underdog,
 } from '@fgn/shared';
 import { createPenguinLasso } from './games/penguinLasso';
+import { createFishing } from './games/fishing';
 import { createSnowball } from './games/snowball';
 import { createTapRace } from './games/tapRace';
 import type { GameEngine } from './games/types';
@@ -82,6 +83,8 @@ export class RoomManager {
       'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000),
       snowball: createSnowball({ durationMs: options.snowballMs ?? SNOWBALL_SECONDS * 1000 }),
       'penguin-lasso': createPenguinLasso({ durationMs: options.snowballMs ?? PENGUIN_SECONDS * 1000 }),
+      // (tests shorten the rise and the cast the same way they shorten the other games' rounds)
+      fishing: createFishing(options.snowballMs !== undefined ? { ascentMs: options.snowballMs, castMs: Math.min(1000, options.snowballMs / 4) } : {}),
     };
   }
 

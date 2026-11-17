@@ -83,3 +83,9 @@ export const PLAYER_COLORS = [
   '#ef4444', '#3b82f6', '#22c55e', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#f97316',
   '#facc15', '#84cc16', '#06b6d4', '#6366f1', '#d946ef', '#92400e', '#64748b', '#be123c',
 ] as const;
+
+/** Fishing: how long the hooks rise (the round's clock), and the longest the opening cast sequence may take (it plays before the rise starts). */
+export const FISHING_SECONDS = 60;
+export const FISHING_CAST_SECONDS = 7.5;
+/** Fishing's closing shot: after the hooks reach the surface the camera pans up to show them (and the fish on them) coming out of the water. It plays before the overhead shot of the piles, so it makes the round's finish sequence this much longer. */
+export const FISHING_BREACH_SECONDS = 4.4;

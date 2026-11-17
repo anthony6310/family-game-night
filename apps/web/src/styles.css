@@ -217,3 +217,7 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .fishing-screen { background: #0a2b52; }
 .fish-hint { animation: fade-out 1s 7s forwards; }
 .fish-depth { position: absolute; left: 0.8rem; bottom: 1.2rem; margin: 0; padding: 0.25rem 0.6rem; border-radius: 0.5rem; background: rgba(8, 30, 60, 0.55); color: #fff; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+
+/* The "starting" step before a round: a plain pale page (the same color as the start flash) that the flash fades away from, like a loading screen. */
+.starting-screen { position: fixed; inset: 0; z-index: 10; background: #eafcff; display: flex; align-items: center; justify-content: center; }
+.starting-screen p { margin: 0; font-size: 1.6rem; font-weight: bold; color: #5a7d99; letter-spacing: 0.05em; }

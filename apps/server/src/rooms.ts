@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import {
   PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
   COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
-  PENGUIN_SECONDS, SNOWBALL_SECONDS, TAP_RACE_SECONDS, getGame,
+  PENGUIN_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, getGame,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult, type Bet, type BetResult, type Underdog,
 } from '@fgn/shared';
@@ -26,6 +26,7 @@ interface Room {
   countdownEndsAt: number | null;
   underdog: Underdog | null; // this round's underdog (decided when the countdown ends), if there is one
   underdogEndsAt: number | null; // when the underdog announcement ends
+  startingEndsAt: number | null; // when the 'starting' (flash) step ends and the round begins
   wins: Record<string, number>; // rounds won this session, by player id (kept when a player leaves)
   sessionSaved: boolean; // this session's winner has already been handed out for saving (never save twice)
   game: { engine: GameEngine; state: unknown; lastTickAt: number } | null; // set while phase is 'playing' or 'finish' (frozen in 'finish')
@@ -71,13 +72,16 @@ export class RoomManager {
   private roomOfPlayer = new Map<string, string>(); // playerId -> room code
   private countdownMs: number;
   private resultsMs: number;
+  private startingMs: number; // how long the flash step before every round lasts (0 = none)
   private finishMsOverride: number | undefined; // set by tests: every game's finish sequence lasts this long
   private engines: Record<GameId, GameEngine>;
 
   /** Durations are injectable so tests can run fast. */
-  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number } = {}) {
+  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number; startingMs?: number } = {}) {
     this.countdownMs = options.countdownMs ?? COUNTDOWN_SECONDS * 1000;
     this.resultsMs = options.resultsMs ?? RESULTS_SECONDS * 1000;
+    // The flash step lasts STARTING_MS, except in tests: a test that shortens the countdown wants fast rounds too, so it gets no flash step unless it asks for one.
+    this.startingMs = options.startingMs ?? (options.countdownMs !== undefined ? 0 : STARTING_MS);
     this.finishMsOverride = options.finishMs;
     this.engines = {
       'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000),
@@ -104,6 +108,7 @@ export class RoomManager {
       countdownEndsAt: null,
       underdog: null,
       underdogEndsAt: null,
+      startingEndsAt: null,
       wins: {},
       sessionSaved: false,
       game: null,
@@ -129,7 +134,7 @@ export class RoomManager {
     const room = this.rooms.get(rawCode.trim().toUpperCase()); // codes are case-insensitive
     if (!room) return fail('ROOM_NOT_FOUND');
     if (room.players.size >= MAX_PLAYERS + MAX_SPECTATORS) return fail('ROOM_FULL');
-    const midRound = room.phase === 'underdog' || room.phase === 'playing' || room.phase === 'finish';
+    const midRound = room.phase === 'underdog' || room.phase === 'starting' || room.phase === 'playing' || room.phase === 'finish';
     if (midRound || room.players.size >= MAX_PLAYERS) room.watching.add(player.id); // (size = how many are already in: their place in line)
     room.players.set(player.id, player);
     room.roster.set(player.id, player);
@@ -163,8 +168,8 @@ export class RoomManager {
     if (room.hostId === playerId) room.hostId = room.players.keys().next().value!;
 
     if (room.underdog?.playerId === playerId) room.underdog = null; // the underdog left: there is nobody to win the bonus
-    // Between the countdown and the start (the underdog announcement): too few players left means the round is called off.
-    if (room.phase === 'underdog' && this.participants(room).length < this.minPlayers(room)) this.abortRound(room);
+    // Between the countdown and the start (the underdog announcement, the flash): too few players left means the round is called off.
+    if ((room.phase === 'underdog' || room.phase === 'starting') && this.participants(room).length < this.minPlayers(room)) this.abortRound(room);
     // Mid-round: the leaver forfeits. If too few players remain for the game, call the round off.
     if (room.phase === 'playing' && room.game) {
       room.game.state = room.game.engine.removePlayer(room.game.state, playerId);
@@ -303,14 +308,33 @@ export class RoomManager {
       room.underdogEndsAt = Date.now() + UNDERDOG_SECONDS * 1000;
       return toState(room);
     }
-    this.startRound(room);
+    this.beginStarting(room);
     return toState(room);
   }
 
-  /** The underdog announcement is over: the round starts now. Same stale-timer guard as the countdown. */
+  /** The underdog announcement is over: the flash step begins. Same stale-timer guard as the countdown. */
   finishUnderdog(code: string, expectedEndsAt: number): RoomState | null {
     const room = this.rooms.get(code);
     if (!room || room.phase !== 'underdog' || room.underdogEndsAt !== expectedEndsAt) return null;
+    room.underdogEndsAt = null;
+    this.beginStarting(room);
+    return toState(room);
+  }
+
+  /**
+   * The flash step (see START_FLASH_* in config.ts): phones flash and fade to a plain page, and the round begins when it is almost over. With no
+   * flash time configured (the tests turn it off) the round simply starts.
+   */
+  private beginStarting(room: Room) {
+    if (this.startingMs <= 0) { this.startRound(room); return; }
+    room.phase = 'starting';
+    room.startingEndsAt = Date.now() + this.startingMs;
+  }
+
+  /** The flash step is over: the round starts now. Same stale-timer guard as the countdown. */
+  finishStarting(code: string, expectedEndsAt: number): RoomState | null {
+    const room = this.rooms.get(code);
+    if (!room || room.phase !== 'starting' || room.startingEndsAt !== expectedEndsAt) return null;
     this.startRound(room);
     return toState(room);
   }
@@ -320,6 +344,7 @@ export class RoomManager {
     room.phase = 'playing';
     room.countdownEndsAt = null;
     room.underdogEndsAt = null;
+    room.startingEndsAt = null;
     const now = Date.now();
     room.game = { engine, state: engine.init(this.participants(room), now), lastTickAt: now };
   }
@@ -398,7 +423,7 @@ export class RoomManager {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.hostId !== playerId) return fail('NOT_HOST');
-    if (room.phase === 'playing' || room.phase === 'underdog') {
+    if (room.phase === 'playing' || room.phase === 'underdog' || room.phase === 'starting') {
       this.abortRound(room);
       return ok(room);
     }
@@ -509,6 +534,7 @@ export class RoomManager {
     room.bets = {}; // bets are for one round only
     room.underdog = null;
     room.underdogEndsAt = null;
+    room.startingEndsAt = null;
     room.ready.clear();
   }
 
@@ -628,6 +654,7 @@ function toState(room: Room): RoomState {
     bets: { ...room.bets }, // (everyone's, for the server's own use: `personalize` cuts it down to the recipient's before it is sent)
     underdog: room.underdog,
     underdogEndsAt: room.underdogEndsAt,
+    startingEndsAt: room.startingEndsAt,
     settings: { ...room.settings },
     readyIds: [...room.ready],
     phase: room.phase,

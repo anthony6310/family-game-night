@@ -9,6 +9,7 @@ import { ResultsScreen } from '../components/ResultsScreen';
 import { SessionOverScreen } from '../components/SessionOverScreen';
 import { UnderdogReveal } from '../components/UnderdogReveal';
 import { useRoom } from '../room/RoomContext';
+import { useScreenFlash } from '../components/screenFlash';
 
 // three.js is big, so the 3D game screens are their own downloads, fetched only when needed.
 const loadSnowballScreen = () => import('../components/SnowballScreen');
@@ -26,8 +27,11 @@ const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-r
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
   const navigate = useNavigate();
-  const { room, selfId, leaveRoom, endSession, updateSettings, setReady, setWatching, setColor, placeBet, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
+  const { room: liveRoom, selfId, leaveRoom, endSession, updateSettings, setReady, setWatching, setColor, placeBet, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
   const [error, setError] = useState<string | null>(null);
+  // Before every round the screen flashes over the countdown and fades to a plain "starting" page, and the round begins almost at the end of the flash.
+  // The server runs that as its own step (phase 'starting') so the game never starts under the flash; the flash itself is the same for every game (see screenFlash.ts).
+  const room = useScreenFlash(liveRoom, (from, to) => from !== null && to !== null && from.phase !== 'starting' && to.phase === 'starting');
 
   // As soon as the host picks a game, start downloading its code so the round can begin instantly.
   const pickedGame = room?.settings.gameId;
@@ -81,6 +85,10 @@ export function LobbyPage() {
   // Between the countdown and the start of the round: everyone is shown the underdog (only happens when there is one).
   if (room.phase === 'underdog' && room.underdog && room.underdogEndsAt !== null) {
     return <UnderdogReveal underdog={room.underdog} players={room.players} endsAt={room.underdogEndsAt} serverNow={serverNow} />;
+  }
+  // The flash step: a plain page under the flash (like a loading screen) until the round begins.
+  if (room.phase === 'starting') {
+    return <div className="starting-screen"><p>{getGame(room.settings.gameId)?.name ?? ''}</p></div>;
   }
   if (room.phase === 'results' && room.result) {
     return <ResultsScreen room={room} selfId={selfId} error={error} serverNow={serverNow} onSkip={() => run(returnToLobby())} />;

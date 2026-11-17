@@ -29,9 +29,11 @@ export interface RoomSettings {
  * 'results'   the round summary screen (moves on by itself after a few seconds)
  * 'underdog'  (only when there is an underdog) the countdown is over and everyone is shown the underdog for a few seconds
  *             before the round starts
+ * 'starting'  the flash step (like a loading screen): the screen flashes and fades to a plain page, and the round begins almost at the end of the
+ *             flash (see START_FLASH_* in config.ts). Nobody can play yet.
  * 'session-over' the host ended the session (or the room emptied): the player with the most wins is crowned
  */
-export type RoomPhase = 'lobby' | 'countdown' | 'underdog' | 'playing' | 'finish' | 'results' | 'session-over';
+export type RoomPhase = 'lobby' | 'countdown' | 'underdog' | 'starting' | 'playing' | 'finish' | 'results' | 'session-over';
 
 /**
  * What a phone may send during a round. The server decides what it actually means.
@@ -277,6 +279,8 @@ export interface RoomState {
   underdog: Underdog | null;
   /** Server clock when the 'underdog' announcement ends and the round starts, or null. */
   underdogEndsAt: number | null;
+  /** Server clock when the 'starting' (flash) step ends and the round begins, or null. */
+  startingEndsAt: number | null;
   settings: RoomSettings;
   readyIds: string[]; // ids of players who tapped Ready
   phase: RoomPhase;

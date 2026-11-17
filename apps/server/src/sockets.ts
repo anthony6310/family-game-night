@@ -36,6 +36,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   const finishTimers = new Map<string, ScheduledTimer>();
   const resultsTimers = new Map<string, ScheduledTimer>();
   const underdogTimers = new Map<string, ScheduledTimer>();
+  const startingTimers = new Map<string, ScheduledTimer>();
   const flushPending = new Set<string>(); // rooms with a batched tap broadcast already scheduled
 
   /**
@@ -71,7 +72,11 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     });
     syncTimer(underdogTimers, state.code, state.phase === 'underdog' ? state.underdogEndsAt : null, (endsAt) => {
       const started = rooms.finishUnderdog(state.code, endsAt);
-      if (started) publish(started); // the underdog announcement is over: the round begins
+      if (started) publish(started); // the underdog announcement is over: the flash step begins (or the round, with no flash step)
+    });
+    syncTimer(startingTimers, state.code, state.phase === 'starting' ? state.startingEndsAt : null, (endsAt) => {
+      const started = rooms.finishStarting(state.code, endsAt);
+      if (started) publish(started); // the flash is almost over: the round begins
     });
     syncTimer(roundTimers, state.code, state.phase === 'playing' ? (state.game?.endsAt ?? null) : null, (endsAt) => {
       const outcome = rooms.finishRound(state.code, endsAt);
@@ -88,7 +93,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   }
 
   function clearTimers(code: string) {
-    for (const timers of [countdownTimers, underdogTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
+    for (const timers of [countdownTimers, underdogTimers, startingTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
   }
 
   function publishOutcome({ room, round, session }: Outcome) {

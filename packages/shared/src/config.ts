@@ -89,3 +89,14 @@ export const FISHING_SECONDS = 60;
 export const FISHING_CAST_SECONDS = 7.5;
 /** Fishing's closing shot: after the hooks reach the surface the camera pans up to show them (and the fish on them) coming out of the water. It plays before the overhead shot of the piles, so it makes the round's finish sequence this much longer. */
 export const FISHING_BREACH_SECONDS = 4.4;
+
+/**
+ * The START FLASH: when a round is about to begin, the screen flashes (fades to a pale color over the countdown, then fades away). It is its own step
+ * ("starting") between the countdown (or the underdog announcement) and the round, like a loading screen: the round does NOT start until the flash is
+ * almost over. The flash takes START_FLASH_IN_MS to cover the screen and START_FLASH_OUT_MS to fade away again; the round starts START_FLASH_OVERLAP_MS
+ * before the flash has finished fading, so the flash reaches just a little way into the game.
+ */
+export const START_FLASH_IN_MS = 600;
+export const START_FLASH_OUT_MS = 1400;
+export const START_FLASH_OVERLAP_MS = 300;
+export const STARTING_MS = START_FLASH_IN_MS + START_FLASH_OUT_MS - START_FLASH_OVERLAP_MS; // how long the 'starting' step lasts: 1.7 s

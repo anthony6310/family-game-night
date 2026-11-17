@@ -166,3 +166,14 @@ Games that have it so far: **Tap Race**, **Snowball**, **Penguin Lasso** and **F
 **How it is done.** The server keeps the colors (`setColor` in `apps/server/src/rooms.ts`) and sends them in the room state as `colors` (player id to color). The game screens get a `colors` prop from the lobby page and give it to their scene. The picker is `apps/web/src/components/ColorPicker.tsx`.
 
 **Adding it to a new game's screen:** take the `colors` prop and use `colors[player.id]` (with `FALLBACK_COLOR` from `playerColors.ts` if one is somehow missing) wherever the game needs a color for a player.
+
+---
+
+## 8. Every game starts with a screen flash, as its own step (nothing to add per game)
+
+**The rule.** Before a round, the screen flashes: it fades to a pale flash over the countdown (or the underdog announcement), becomes a plain "starting" page like a loading screen, and the flash fades away (2 seconds in all: 0.6 s in, 1.4 s out). **The round does not start until the flash is almost over**: it begins 0.3 s before the flash has finished fading, so the flash only just reaches into the game. No game ever starts under the flash.
+
+**How it is done.**
+- The server runs it as its own phase, **`'starting'`**, between the countdown (or `'underdog'`) and `'playing'`. It lasts `STARTING_MS` (1.7 s = flash in + flash out - overlap, all from `START_FLASH_*` in `packages/shared/src/config.ts`). The game state is only created when the step ends, so the game's own clock (`startsAt`) starts then. A player leaving during it can call the round off, like during the underdog announcement. (Tests that shorten the countdown get no flash step unless they pass `startingMs`; `STARTING_MS=0` in the dev server's environment turns it off.)
+- On the phones, one reusable hook, `useScreenFlash` in `apps/web/src/components/screenFlash.ts`, is used once, in `LobbyPage`: when the room enters `'starting'` it keeps showing the old screen while the flash fades in, then switches to the plain starting page; the game screen replaces that when the round begins, still under the last of the flash. Because it sits above every game screen, **a new game gets all of this for free**.
+- This is separate from any flash a game does inside its own scene (Fishing flashes when it cuts from the pier to the water and from the water to the dock): those have their own timings and are not affected.

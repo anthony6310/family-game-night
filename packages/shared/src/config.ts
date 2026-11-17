@@ -100,3 +100,13 @@ export const START_FLASH_IN_MS = 600;
 export const START_FLASH_OUT_MS = 1400;
 export const START_FLASH_OVERLAP_MS = 300;
 export const STARTING_MS = START_FLASH_IN_MS + START_FLASH_OUT_MS - START_FLASH_OVERLAP_MS; // how long the 'starting' step lasts: 1.7 s
+
+/**
+ * Rooms are found in a LIST (not by a code). The host names the room (this name is used if they don't), and may add a password. Names and
+ * passwords have length limits (the server also strips control and direction-changing characters from names), and the server holds at most
+ * MAX_ROOMS rooms at a time.
+ */
+export const DEFAULT_ROOM_NAME = 'Game Room';
+export const ROOM_NAME_MAX = 30;
+export const ROOM_PASSWORD_MAX = 64;
+export const MAX_ROOMS = 200;

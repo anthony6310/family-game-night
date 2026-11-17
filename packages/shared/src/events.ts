@@ -254,6 +254,8 @@ export interface RoundResult {
 /** Everything a phone needs to draw the lobby. The server sends a fresh copy on every change. */
 export interface RoomState {
   code: string;
+  name: string; // what the room is called in the list
+  hasPassword: boolean; // (the password itself never leaves the server)
   hostId: string;
   /** Everyone in the room, in join order: those playing AND those watching (see `watchingIds`). */
   players: Player[];
@@ -318,11 +320,39 @@ export type RoomError =
   | 'NOT_IN_ROOM'
   | 'NOT_HOST'
   | 'INVALID_SETTING'
+  | 'WRONG_PASSWORD' // the room has a password and it was missing or wrong
+  | 'TOO_MANY_ATTEMPTS' // too many wrong passwords (or requests) in a short time: wait a little
+  | 'TOO_MANY_ROOMS' // the server is full of rooms, or you are making them too fast
   | 'WRONG_PHASE'
   | 'NO_GAME_SELECTED';
 
 /** Reply shape for events that expect an answer (Socket.io "acknowledgements"). */
 export type Ack<T> = { ok: true; data: T } | { ok: false; error: RoomError };
+
+/** One room in the list of joinable rooms. Only public things: never the password, only whether there is one. */
+export interface RoomListing {
+  code: string; // the room's id (what `room:join` needs; players never type it)
+  name: string;
+  hasPassword: boolean;
+  hostName: string;
+  members: number; // everyone in it: players and spectators
+  capacity: number; // MAX_PLAYERS + MAX_SPECTATORS
+  full: boolean;
+  gameName: string | null;
+  phase: RoomPhase;
+}
+
+/** What a host can set when making a room. */
+export interface CreateRoomOptions {
+  name?: string; // default: DEFAULT_ROOM_NAME
+  password?: string; // default: none
+}
+
+/** What someone sends to join a room: its id, and the password if it has one. */
+export interface JoinRequest {
+  code: string;
+  password?: string;
+}
 
 export interface JoinResult {
   playerId: string; // which entry in `room.players` is "me"
@@ -336,15 +366,19 @@ export interface HandshakeAuth {
 }
 
 export interface ClientToServerEvents {
-  'room:create': (ack: (res: Ack<JoinResult>) => void) => void;
-  'room:join': (code: string, ack: (res: Ack<JoinResult>) => void) => void;
+  /** Make a room (options are optional: `room:create` with just an ack makes a "Game Room" with no password). */
+  'room:create': (optionsOrAck: CreateRoomOptions | ((res: Ack<JoinResult>) => void), ack?: (res: Ack<JoinResult>) => void) => void;
+  /** Join a room from the list: its id (a plain string works too, for a room with no password), and the password if it has one. */
+  'room:join': (target: string | JoinRequest, ack: (res: Ack<JoinResult>) => void) => void;
+  /** The list of rooms anyone can try to join. */
+  'rooms:list': (ack: (res: Ack<RoomListing[]>) => void) => void;
   /** Switch between playing (false) and watching (true). Lobby/countdown only. Your points are kept either way. */
   'player:watching': (watching: boolean, ack?: (res: Ack<null>) => void) => void;
   'room:leave': () => void;
   /** Host only, in the lobby: end the session. The player with the most wins is crowned and saved. */
   'session:end': (ack?: (res: Ack<null>) => void) => void;
-  /** Host only: pick the game. Changing it cancels a countdown and clears every Ready. */
-  'room:settings': (settings: { gameId?: GameId }, ack?: (res: Ack<null>) => void) => void;
+  /** Host only, in the lobby: pick the game (cancels a countdown and clears every Ready), rename the room, or set (a string) or remove (null) its password. */
+  'room:settings': (settings: { gameId?: GameId; name?: string; password?: string | null }, ack?: (res: Ack<null>) => void) => void;
   /** Pick your color (one of PLAYER_COLORS that nobody else has). Lobby/countdown only. It is your color in every game. */
   'player:color': (color: string, ack?: (res: Ack<null>) => void) => void;
   'player:ready': (ready: boolean, ack?: (res: Ack<null>) => void) => void;

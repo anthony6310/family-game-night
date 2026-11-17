@@ -221,3 +221,23 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 /* The "starting" step before a round: a plain pale page (the same color as the start flash) that the flash fades away from, like a loading screen. */
 .starting-screen { position: fixed; inset: 0; z-index: 10; background: #eafcff; display: flex; align-items: center; justify-content: center; }
 .starting-screen p { margin: 0; font-size: 1.6rem; font-weight: bold; color: #5a7d99; letter-spacing: 0.05em; }
+
+/* The room list (hub) and the room's name and password (lobby): everything centered, with each thing's buttons stacked under it. */
+.rooms-section { width: 100%; max-width: 32rem; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.5rem; margin-top: 1rem; }
+.rooms-section h2 { margin: 0; font-size: 1.1rem; }
+.room-list { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 0.6rem; }
+.room-item { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 0.8rem 1rem; border-radius: 0.75rem; background: rgba(255, 255, 255, 0.07); text-align: center; }
+.room-info { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; min-width: 0; }
+.room-name { overflow-wrap: anywhere; } /* (a name is only ever plain text) */
+.room-password { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; width: 100%; }
+.room-password input { width: min(100%, 20rem); }
+.room-item button, .room-password button { min-width: 8rem; }
+.room-form { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; width: 100%; text-align: center; }
+.room-form label, .room-settings label { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; width: min(100%, 20rem); }
+.room-form input, .room-settings input { width: 100%; text-align: center; }
+.room-title { margin: 0.2rem 0; overflow-wrap: anywhere; text-align: center; }
+.room-settings { width: 100%; max-width: 32rem; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.room-settings summary { cursor: pointer; margin-bottom: 0.4rem; }
+.room-settings form { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; width: min(100%, 20rem); margin-top: 0.6rem; }
+.room-settings button { width: 100%; }
+.rooms-section .error, .rooms-section .muted { text-align: center; margin: 0; }

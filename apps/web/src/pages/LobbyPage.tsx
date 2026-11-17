@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { GAMES, MAX_PLAYERS, getGame, type GameId } from '@fgn/shared';
+import { DEFAULT_ROOM_NAME, GAMES, MAX_PLAYERS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, getGame, type GameId } from '@fgn/shared';
 import { Avatar } from '../components/Avatar';
 import { BetPanel } from '../components/BetPanel';
 import { ColorPicker } from '../components/ColorPicker';
@@ -29,6 +29,8 @@ export function LobbyPage() {
   const navigate = useNavigate();
   const { room: liveRoom, selfId, leaveRoom, endSession, updateSettings, setReady, setWatching, setColor, placeBet, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
   const [error, setError] = useState<string | null>(null);
+  const [nameDraft, setNameDraft] = useState<string | null>(null); // the host's room name while they are editing it (null = not editing)
+  const [passwordDraft, setPasswordDraft] = useState('');
   // Before every round the screen flashes over the countdown and fades to a plain "starting" page, and the round begins almost at the end of the flash.
   // The server runs that as its own step (phase 'starting') so the game never starts under the flash; the flash itself is the same for every game (see screenFlash.ts).
   const room = useScreenFlash(liveRoom, (from, to) => from !== null && to !== null && from.phase !== 'starting' && to.phase === 'starting');
@@ -117,12 +119,32 @@ export function LobbyPage() {
 
   return (
     <main className="page">
-      <p className="muted">Room code</p>
-      <h1 className="room-code">{room.code}</h1>
+      <h1 className="room-title">{room.hasPassword && <span title="This room has a password">🔒 </span>}{room.name}</h1>
       <p className="muted">
-        Share this code so others can join ({playingCount} playing{watchingIds.length > 0 && ` · ${watchingIds.length} watching`})
+        Others can find this room in the room list ({playingCount} playing{watchingIds.length > 0 && ` · ${watchingIds.length} watching`})
       </p>
 
+      {/* The host can rename the room and add, change or remove its password (new joiners need it; people already here stay). */}
+      {isHost && room.phase === 'lobby' && (
+        <details className="room-settings">
+          <summary>Room name and password</summary>
+          <form onSubmit={(e) => { e.preventDefault(); void run(updateSettings({ name: (nameDraft ?? room.name).trim() || DEFAULT_ROOM_NAME })).then(() => setNameDraft(null)); }}>
+            <label>
+              Room name
+              <input value={nameDraft ?? room.name} maxLength={ROOM_NAME_MAX} onChange={(e) => setNameDraft(e.target.value)} />
+            </label>
+            <button disabled={nameDraft === null}>Save name</button>
+          </form>
+          <form onSubmit={(e) => { e.preventDefault(); void run(updateSettings({ password: passwordDraft })).then(() => setPasswordDraft('')); }}>
+            <label>
+              {room.hasPassword ? 'New password' : 'Password'}
+              <input type="password" value={passwordDraft} maxLength={ROOM_PASSWORD_MAX} autoComplete="new-password" placeholder="Type a password" onChange={(e) => setPasswordDraft(e.target.value)} />
+            </label>
+            <button disabled={passwordDraft.length === 0}>{room.hasPassword ? 'Change password' : 'Add password'}</button>
+            {room.hasPassword && <button type="button" className="link" onClick={() => void run(updateSettings({ password: null }))}>Remove password</button>}
+          </form>
+        </details>
+      )}
 
       {/* The session has no fixed length: it runs until the host ends it. */}
       <p className="session-line">Round {room.roundsPlayed + 1}</p>

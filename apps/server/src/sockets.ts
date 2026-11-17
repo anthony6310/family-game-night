@@ -1,6 +1,7 @@
 import type { Server } from 'socket.io';
-import type { Ack, ClientToServerEvents, Player, RoomState, ServerToClientEvents } from '@fgn/shared';
+import type { Ack, ClientToServerEvents, CreateRoomOptions, JoinRequest, Player, RoomState, ServerToClientEvents } from '@fgn/shared';
 import { AuthError, authenticate } from './auth';
+import { AttemptLimiter } from './limits';
 import { RoomManager, personalize, type Outcome, type Result, type RoundRecord, type SessionRecord } from './rooms';
 
 /** Per-connection data the server keeps on each socket. */
@@ -37,6 +38,10 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   const resultsTimers = new Map<string, ScheduledTimer>();
   const underdogTimers = new Map<string, ScheduledTimer>();
   const startingTimers = new Map<string, ScheduledTimer>();
+  // Slowing down abuse (each keyed by the connection's network address, which a guest can't just change by making a new name):
+  const wrongPasswords = new AttemptLimiter(8, 5 * 60_000); // wrong room passwords: 8 in 5 minutes
+  const roomsMade = new AttemptLimiter(6, 10 * 60_000); // rooms created: 6 in 10 minutes
+  const listRequests = new AttemptLimiter(60, 60_000); // refreshing the room list: 60 a minute
   const flushPending = new Set<string>(); // rooms with a batched tap broadcast already scheduled
 
   /**
@@ -175,11 +180,33 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       if (typeof ack === 'function') ack(result.ok ? { ok: true, data: null } : result);
     };
 
-    socket.on('room:create', (ack) => {
-      if (typeof ack === 'function') enter(rooms.create(player), ack);
+    const address = socket.handshake.address; // (behind a proxy this is the proxy's address: see the note in the deployment docs)
+
+    // Make a room: `room:create(ack)` (a default room) or `room:create({ name, password }, ack)`.
+    socket.on('room:create', (optionsOrAck, maybeAck) => {
+      const ack = typeof optionsOrAck === 'function' ? optionsOrAck : maybeAck;
+      if (typeof ack !== 'function') return;
+      const options: CreateRoomOptions = optionsOrAck && typeof optionsOrAck === 'object' ? optionsOrAck : {};
+      if (roomsMade.blocked(address)) return ack({ ok: false, error: 'TOO_MANY_ROOMS' });
+      const result = rooms.create(player, options);
+      if (result.ok) roomsMade.record(address);
+      enter(result, ack);
     });
-    socket.on('room:join', (code, ack) => {
-      if (typeof ack === 'function') enter(rooms.join(String(code), player), ack);
+    // Join a room from the list: `room:join(id, ack)` or `room:join({ code, password }, ack)`.
+    socket.on('room:join', (target, ack) => {
+      if (typeof ack !== 'function') return;
+      const request: Partial<JoinRequest> = typeof target === 'string' ? { code: target } : target && typeof target === 'object' ? target : {};
+      if (wrongPasswords.blocked(address)) return ack({ ok: false, error: 'TOO_MANY_ATTEMPTS' }); // (checked before the password is even looked at)
+      const result = rooms.join(String(request.code ?? ''), player, request.password);
+      if (!result.ok && result.error === 'WRONG_PASSWORD') wrongPasswords.record(address);
+      enter(result, ack);
+    });
+    // The rooms anyone can try to join.
+    socket.on('rooms:list', (ack) => {
+      if (typeof ack !== 'function') return;
+      if (listRequests.blocked(address)) return ack({ ok: false, error: 'TOO_MANY_ATTEMPTS' });
+      listRequests.record(address);
+      ack({ ok: true, data: rooms.list() });
     });
     socket.on('player:watching', (watching, ack) => command(rooms.setWatching(player.id, watching === true), ack));
     socket.on('room:leave', leave);

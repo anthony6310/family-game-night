@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { io, type Socket } from 'socket.io-client';
 import {
   MAX_PLAYERS,
-  type Ack, type ClientToServerEvents, type GameAction, type GameId, type JoinResult, type RoomError, type RoomState,
+  type Ack, type ClientToServerEvents, type CreateRoomOptions, type GameAction, type GameId, type JoinResult, type RoomError, type RoomListing, type RoomState,
   type ServerToClientEvents,
 } from '@fgn/shared';
 import { useAuth } from '../auth/AuthContext';
@@ -12,7 +12,10 @@ import { supabase } from '../lib/supabase';
 type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 const ERROR_TEXT: Record<RoomError, string> = {
-  ROOM_NOT_FOUND: 'No room with that code.',
+  ROOM_NOT_FOUND: 'That room is gone. Try another one.',
+  WRONG_PASSWORD: 'Wrong password.',
+  TOO_MANY_ATTEMPTS: 'Too many tries in a short time. Wait a minute and try again.',
+  TOO_MANY_ROOMS: 'Too many rooms right now, or you made rooms too fast. Try again in a bit.',
   ROOM_FULL: 'That room is full.',
   NO_SEAT: `The first ${MAX_PLAYERS} people in a room can play. You're a spectator until a seat opens up.`,
   NOT_A_SPECTATOR: 'Only spectators can bet. Players are playing for the win!',
@@ -34,8 +37,11 @@ interface RoomContextValue {
   /** My player id, to find "me" in room.players. */
   selfId: string | null;
   /** Each returns an error message to display, or null on success. */
-  createRoom: () => Promise<string | null>;
-  joinRoom: (code: string) => Promise<string | null>;
+  createRoom: (options?: CreateRoomOptions) => Promise<string | null>;
+  /** Join a room from the list (its id), with its password if it has one. */
+  joinRoom: (code: string, password?: string) => Promise<string | null>;
+  /** The rooms that can be joined right now. */
+  listRooms: () => Promise<{ rooms: RoomListing[] } | { error: string }>;
   /** Switch between playing and watching (between rounds). Points are kept either way. */
   setWatching: (watching: boolean) => Promise<string | null>;
   /** Pick my color (one nobody else has). It is my color in every game. */
@@ -46,7 +52,7 @@ interface RoomContextValue {
   /** Host, step 1: lock in how many rounds the session lasts (once per session). */
   endSession: () => Promise<string | null>;
   /** Host, step 2: pick the game. */
-  updateSettings: (change: { gameId?: GameId }) => Promise<string | null>;
+  updateSettings: (change: { gameId?: GameId; name?: string; password?: string | null }) => Promise<string | null>;
   setReady: (ready: boolean) => Promise<string | null>;
   /** Host: end the current game and go back to the lobby. */
   returnToLobby: () => Promise<string | null>;
@@ -156,8 +162,18 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const value: RoomContextValue = {
     room,
     selfId,
-    createRoom: () => request((s, ack) => s.emit('room:create', ack)),
-    joinRoom: (code) => request((s, ack) => s.emit('room:join', code, ack)),
+    createRoom: (options) => request((s, ack) => (options ? s.emit('room:create', options, ack) : s.emit('room:create', ack))),
+    joinRoom: (code, password) => request((s, ack) => s.emit('room:join', password ? { code, password } : code, ack)),
+    listRooms: () => new Promise((resolve) => {
+      const socket = getSocket(); // (the connection is made if there isn't one yet: being logged in is all it takes to see the list)
+      const onConnectError = (err: Error) => { disconnect(); resolve({ error: err.message }); };
+      socket.once('connect_error', onConnectError);
+      socket.emit('rooms:list', (res) => {
+        socket.off('connect_error', onConnectError);
+        resolve(res.ok ? { rooms: res.data } : { error: ERROR_TEXT[res.error] });
+      });
+      socket.connect();
+    }),
     setWatching: (watching) => command((s, ack) => s.emit('player:watching', watching, ack)),
     setColor: (color) => command((s, ack) => s.emit('player:color', color, ack)),
     placeBet: (targetId, stake) => command((s, ack) => s.emit('player:bet', targetId, stake, ack)),

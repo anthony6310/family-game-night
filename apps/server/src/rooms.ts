@@ -1,8 +1,10 @@
 import { randomInt } from 'node:crypto';
+import { hashPassword, verifyPassword } from './passwords';
 import {
   PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
   COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
   PENGUIN_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, getGame,
+  DEFAULT_ROOM_NAME, MAX_ROOMS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult, type Bet, type BetResult, type Underdog,
 } from '@fgn/shared';
@@ -23,6 +25,9 @@ interface Room {
   bets: Record<string, Bet>; // spectators' bets on who wins the coming round (stakes are locked in when it starts)
   ready: Set<string>;
   phase: RoomPhase;
+  name: string; // what the room is called in the list
+  passwordHash: string | null; // a salted hash of the room's password, or null for none (the password itself is never kept)
+  badGuesses: number[]; // when wrong passwords were tried on this room (to slow down guessing)
   countdownEndsAt: number | null;
   underdog: Underdog | null; // this round's underdog (decided when the countdown ends), if there is one
   underdogEndsAt: number | null; // when the underdog announcement ends
@@ -92,10 +97,16 @@ export class RoomManager {
     };
   }
 
-  create(host: Player): Result {
+  create(host: Player, options: { name?: unknown; password?: unknown } = {}): Result {
     if (this.roomOfPlayer.has(host.id)) return fail('ALREADY_IN_ROOM');
+    if (this.rooms.size >= MAX_ROOMS) return fail('TOO_MANY_ROOMS');
+    const password = cleanPassword(options.password);
+    if (password === false) return fail('INVALID_SETTING');
     const room: Room = {
       code: this.newCode(),
+      name: cleanName(options.name),
+      passwordHash: password ? hashPassword(password) : null,
+      badGuesses: [],
       hostId: host.id,
       players: new Map([[host.id, host]]),
       colors: new Map([[host.id, PLAYER_COLORS[0]]]), // the host gets the first color
@@ -129,11 +140,21 @@ export class RoomManager {
    * Someone arriving mid-round (the finish sequence still belongs to the round) simply starts out WATCHING; with a seat,
    * they can switch to playing between rounds (see setWatching).
    */
-  join(rawCode: string, player: Player): Result {
+  join(rawCode: string, player: Player, password?: unknown): Result {
     if (this.roomOfPlayer.has(player.id)) return fail('ALREADY_IN_ROOM');
     const room = this.rooms.get(rawCode.trim().toUpperCase()); // codes are case-insensitive
     if (!room) return fail('ROOM_NOT_FOUND');
     if (room.players.size >= MAX_PLAYERS + MAX_SPECTATORS) return fail('ROOM_FULL');
+    if (room.passwordHash) {
+      // Whoever is guessing, only so many wrong guesses are allowed against one room in a minute (on top of the per-connection limit in sockets.ts).
+      const now = Date.now();
+      room.badGuesses = room.badGuesses.filter((t) => now - t < 60_000);
+      if (room.badGuesses.length >= 12) return fail('TOO_MANY_ATTEMPTS');
+      if (typeof password !== 'string' || password.length > ROOM_PASSWORD_MAX || !verifyPassword(password, room.passwordHash)) {
+        room.badGuesses.push(now);
+        return fail('WRONG_PASSWORD');
+      }
+    }
     const midRound = room.phase === 'underdog' || room.phase === 'starting' || room.phase === 'playing' || room.phase === 'finish';
     if (midRound || room.players.size >= MAX_PLAYERS) room.watching.add(player.id); // (size = how many are already in: their place in line)
     room.players.set(player.id, player);
@@ -142,6 +163,25 @@ export class RoomManager {
     this.roomOfPlayer.set(player.id, room.code);
     this.reconcile(room); // the newcomer isn't ready, so a running countdown is cancelled
     return ok(room);
+  }
+
+  /**
+   * The rooms anyone can try to join, for the list. Only public things go in it: never the password, only whether there is one. Rooms that are
+   * open to joining come first, then full ones; within each, the oldest first.
+   */
+  list(): RoomListing[] {
+    const listings = [...this.rooms.values()].map((room): RoomListing => ({
+      code: room.code,
+      name: room.name,
+      hasPassword: room.passwordHash !== null,
+      hostName: room.players.get(room.hostId)?.name ?? '',
+      members: room.players.size,
+      capacity: MAX_PLAYERS + MAX_SPECTATORS,
+      full: room.players.size >= MAX_PLAYERS + MAX_SPECTATORS,
+      gameName: getGame(room.settings.gameId)?.name ?? null,
+      phase: room.phase,
+    }));
+    return listings.sort((a, b) => Number(a.full) - Number(b.full)).slice(0, 100);
   }
 
   /** Removes a player. `room` is null if the room is now empty and deleted. */
@@ -196,12 +236,20 @@ export class RoomManager {
   }
 
   /** The host picks the game (any time between rounds). A real change resets everyone's Ready. */
-  setSettings(playerId: string, change: { gameId?: string | null }): Result {
+  setSettings(playerId: string, change: { gameId?: string | null; name?: unknown; password?: unknown }): Result {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.hostId !== playerId) return fail('NOT_HOST');
     if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
 
+    // The room's name and password. (An empty name goes back to the default; an empty password, or null, removes it.)
+    if (change.name !== undefined) room.name = cleanName(change.name);
+    if (change.password !== undefined) {
+      const password = change.password === null ? '' : cleanPassword(change.password);
+      if (password === false) return fail('INVALID_SETTING');
+      room.passwordHash = password ? hashPassword(password) : null;
+      room.badGuesses = [];
+    }
     if (change.gameId !== undefined) {
       if (!GAMES.some((g) => g.id === change.gameId)) return fail('INVALID_SETTING');
       if (change.gameId !== room.settings.gameId) {
@@ -646,6 +694,8 @@ const ok = (room: Room): Result => ({ ok: true, room: toState(room) });
 function toState(room: Room): RoomState {
   return {
     code: room.code,
+    name: room.name,
+    hasPassword: room.passwordHash !== null,
     hostId: room.hostId,
     players: [...room.players.values()],
     watchingIds: [...room.watching],
@@ -681,4 +731,28 @@ export function personalize(state: RoomState, playerId: string): RoomState {
     bets: mine ? { [playerId]: mine } : {},
     result: state.result ? { ...state.result, bets: state.result.bets.filter((b) => b.bettorId === playerId) } : null,
   };
+}
+
+
+/**
+ * A room name from whatever a phone sent: only text, with control characters and the invisible direction-changing ones removed (so a name can't
+ * be hidden or flipped), whitespace tidied, cut to ROOM_NAME_MAX. Nothing usable left (or not text at all) means the default name. (Names are
+ * always drawn as plain text, never as markup.)
+ */
+export function cleanName(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_ROOM_NAME;
+  const name = raw
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, ROOM_NAME_MAX)
+    .trim();
+  return name || DEFAULT_ROOM_NAME;
+}
+
+/** A password from whatever a phone sent: '' (none), the text, or false if it isn't text or is too long. */
+function cleanPassword(raw: unknown): string | false {
+  if (raw === undefined || raw === null) return '';
+  if (typeof raw !== 'string' || raw.length > ROOM_PASSWORD_MAX) return false;
+  return raw;
 }

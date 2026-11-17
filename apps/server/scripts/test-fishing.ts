@@ -102,9 +102,10 @@ const passDepth = cfg.depth - (cfg.depth - cfg.endDepth) * (20 / 60); // where t
   check('a fish above the finish line is never caught (the hooks stop short of it)', runTo(st, 0, st.endsAt + 3000).hooks.a.fish === 0);
   const over = fresh();
   check('steering after the finish line is ignored', engine.reduce(over, 'a', { type: 'steer', x: 1, z: 0 }, over.endsAt + 1).hooks.a.steer === 0);
-  check('no fish are placed above the finish line', fresh().fish.every((f) => f.baseY > cfg.endDepth + 1));
-  const fast = { min: Math.min(...fresh().fish.map((f) => f.speed)), max: Math.max(...fresh().fish.map((f) => f.speed)) };
-  check('fish speeds are 60% of the original 3.5 to 7.5', fast.min >= 2.1 - 1e-9 && fast.max <= 4.5 + 1e-9);
+  check('no fish are placed above the finish line', fresh().fish.every((f) => f.baseY >= cfg.endDepth + 1));
+  const regulars = fresh().fish.filter((f) => (f.kind ?? 'regular') === 'regular');
+  const fast = { min: Math.min(...regulars.map((f) => f.speed)), max: Math.max(...regulars.map((f) => f.speed)) };
+  check('regular fish speeds are 60% of the original 3.5 to 7.5', fast.min >= 2.1 - 1e-9 && fast.max <= 4.5 + 1e-9);
 }
 
 // ---- fish keep swimming, and wrap round ----
@@ -119,14 +120,16 @@ const passDepth = cfg.depth - (cfg.depth - cfg.endDepth) * (20 / 60); // where t
 // ---- winner, scores, leaving ----
 {
   const st = fresh();
-  st.hooks.a.fish = 3; st.hooks.b.fish = 2;
-  check('most fish wins', engine.getWinner(st) === 'a');
-  st.hooks.b.fish = 3;
+  st.hooks.a.points = 3; st.hooks.b.points = 2;
+  check('most points wins', engine.getWinner(st) === 'a');
+  st.hooks.b.points = 3;
   check('a tie is a draw', engine.getWinner(st) === null);
-  st.hooks.a.fish = 0; st.hooks.b.fish = 0;
+  st.hooks.a.points = 0; st.hooks.b.points = 0;
   check('nobody catching anything is a draw', engine.getWinner(st) === null);
-  st.hooks.a.fish = 4;
-  check('scores are the fish counts', JSON.stringify(engine.scores(st)) === '{"a":4,"b":0}');
+  st.hooks.a.points = 4;
+  check('scores are the points', JSON.stringify(engine.scores(st)) === '{"a":4,"b":0}');
+  st.hooks.a.points = 5; st.hooks.a.fish = 1; st.hooks.b.points = 6; st.hooks.b.fish = 2;
+  check('the winner is whoever has the most POINTS, not the most fish', engine.getWinner(st) === 'b');
   const left = engine.removePlayer(st, 'a');
   check('a player leaving removes their hook but keeps the lanes where they are', !('a' in left.hooks) && viewOf(left).lanes.join() === 'a,b');
   check('the round is over at the end time', !engine.isOver(st, st.endsAt - 1) && engine.isOver(st, st.endsAt));
@@ -140,5 +143,78 @@ const passDepth = cfg.depth - (cfg.depth - cfg.endDepth) * (20 / 60); // where t
   check('the view says where every hook is', Object.keys(v.hooks).join() === 'a,b');
 }
 
+// ---- fish kinds: schools, regular fish, big fish ----
+{
+  const many = createFishing({ bigFishCount: 0 });
+  const st = many.init(['a', 'b', 'c', 'd'], 0);
+  const schools = st.fish.filter((f) => f.kind === 'school');
+  const regulars = st.fish.filter((f) => (f.kind ?? 'regular') === 'regular');
+  check('there are schools, and they are made of 8 to 16 small fish', schools.length > 0 && schools.length >= 8 * 4 * cfg.schoolsPerLane * 0.9 - 1);
+  check('school fish are smaller than the smallest regular size', schools.every((f) => f.size < cfg.fishSizeMin && f.size >= cfg.schoolSizeMin));
+  check('school fish swim 25% slower than the regular range', schools.every((f) => f.speed <= cfg.fishSpeedMax * cfg.schoolSpeedFactor + 1e-9 && f.speed >= cfg.fishSpeedMin * cfg.schoolSpeedFactor - 1e-9));
+  // group sizes: fish sharing one speed and direction and ids in a row are one school
+  const bySpeed = new Map<string, number>();
+  schools.forEach((f) => bySpeed.set(`${f.speed}/${f.dir}`, (bySpeed.get(`${f.speed}/${f.dir}`) ?? 0) + 1));
+  check('each school has 8 to 16 fish swimming together (same speed and direction)', [...bySpeed.values()].every((n) => n >= cfg.schoolMin && n <= cfg.schoolMax));
+  check('regular fish are still the bulk of the ocean', regulars.length > schools.length);
+  check('with a big fish count of 0 there are none', st.fish.every((f) => f.kind !== 'big'));
+}
+{
+  // points: a school fish is 1, a regular fish 3, a big fish 5
+  const pass = cfg.depth - (cfg.depth - cfg.endDepth) * (20 / 60);
+  const catchOne = (kind: 'school' | 'regular' | 'big') => {
+    const e = createFishing();
+    const st = e.init(['a', 'b'], 0);
+    st.fish = [{ id: 1, x: 4.5 - 1, baseY: pass, phase: 0, dir: 1, speed: 0, size: 2, variant: 0, kind }]; // (held still)
+    let t = st;
+    for (let ms = 0; ms < st.endsAt; ms += DT * 1000) t = e.tick!(t, DT, ms);
+    return t.hooks.a;
+  };
+  const sch = catchOne('school'), reg = catchOne('regular'), big = catchOne('big');
+  check('a school fish is worth 1 point, a regular fish 3, a big fish 5', sch.points === 1 && reg.points === 3 && big.points === 5);
+  check('...and the kinds are counted: [school, regular, big]', sch.kinds.join() === '1,0,0' && reg.kinds.join() === '0,1,0' && big.kinds.join() === '0,0,1');
+}
+{
+  // big fish: a few every game, bigger and 40% faster than regular fish, swimming like them (wrapping round), spread down the ocean
+  const st = createFishing().init(['a', 'b'], 0);
+  const big = st.fish.filter((f) => f.kind === 'big');
+  check(`every game has ${cfg.bigFishCount} big fish`, big.length === cfg.bigFishCount && cfg.bigFishCount === 5);
+  check('a big fish is bigger than the biggest regular fish', big.every((f) => f.size > cfg.fishSizeMax));
+  check('a big fish swims 40% faster than a regular fish', big.every((f) => f.speed >= cfg.fishSpeedMin * 1.4 - 1e-9 && f.speed <= cfg.fishSpeedMax * 1.4 + 1e-9));
+  const depths = big.map((f) => f.baseY).sort((a, b) => a - b);
+  check('big fish are spread down the ocean (no two in the same slice)', depths.every((d, i) => i === 0 || d > depths[i - 1]));
+  let t = st;
+  const id = big[0].id; let wrapped = false, prev = big[0].x;
+  for (let ms = 0; ms < 60000; ms += DT * 1000) { t = engine.tick!(t, DT, ms); const f = t.fish.find((q) => q.id === id); if (f && Math.abs(f.x - prev) > 5) wrapped = true; if (f) prev = f.x; }
+  check('a big fish wraps round the ends like the other fish', wrapped);
+}
+{
+  // lifting the hook: up (stick up = negative z) raises it up to the limit, without changing the ascent; down lowers it again; ignored before the ascent
+  const e = createFishing({ fishPerLane: 0, schoolsPerLane: 0, bigFishCount: 0 });
+  let st = e.init(['a', 'b'], 0);
+  st = e.reduce(st, 'a', { type: 'steer', x: 0, z: -1 }, 100);
+  st = e.tick!(st, 1, 1000);
+  check('the hook can not be lifted during the cast', st.hooks.a.lift === 0);
+  const t0 = st.ascentStartsAt;
+  st = e.tick!(st, DT, t0 + 100);
+  st = e.tick!(st, 0.2, t0 + 300);
+  check('stick up lifts the hook, at the lift speed', Math.abs(st.hooks.a.lift - (DT + 0.2) * cfg.hookLiftSpeed) < 1e-6 || st.hooks.a.lift > 0.5);
+  for (let i = 0; i < 40; i++) st = e.tick!(st, 0.1, t0 + 400 + i * 100);
+  check('the lift stops at the maximum', st.hooks.a.lift === cfg.hookLiftMax && st.hooks.b.lift === 0);
+  const v = e.view({ ...st, clock: t0 + 4400 }) as FishingView;
+  check('the view carries each hook\'s lift, and the ascent depth is unchanged by it', v.hooks.a.lift === cfg.hookLiftMax && Math.abs(v.hookDepth - (cfg.depth - ((4400) / cfg.ascentMs) * (cfg.depth - cfg.endDepth))) < 0.05);
+  st = e.reduce(st, 'a', { type: 'steer', x: 0, z: 1 }, t0 + 4500);
+  for (let i = 0; i < 40; i++) st = e.tick!(st, 0.1, t0 + 4500 + i * 100);
+  check('stick down lowers it again, never below the steady ascent', st.hooks.a.lift === 0);
+  // a lifted hook catches a fish above the steady ascent depth
+  const e2 = createFishing({ fishPerLane: 0, schoolsPerLane: 0, bigFishCount: 0 });
+  let s2 = e2.init(['a'], 0);
+  const at = s2.ascentStartsAt + 20000;
+  const hookDepth = cfg.depth - (cfg.depth - cfg.endDepth) * (20000 / cfg.ascentMs);
+  s2.fish = [{ id: 1, x: 4.5 - 1, baseY: hookDepth - cfg.hookLiftMax, phase: 0, dir: 1, speed: 0, size: 2, variant: 0 }];
+  s2 = { ...s2, hooks: { a: { ...s2.hooks.a, lift: cfg.hookLiftMax } } };
+  s2 = e2.tick!(s2, DT, at);
+  check('a lifted hook catches a fish that is above the steady ascent depth', s2.hooks.a.fish === 1);
+}
 console.log(failures === 0 ? '\nAll fishing checks passed.' : `\n${failures} check(s) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

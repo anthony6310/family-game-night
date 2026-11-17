@@ -177,3 +177,11 @@ Games that have it so far: **Tap Race**, **Snowball**, **Penguin Lasso** and **F
 - The server runs it as its own phase, **`'starting'`**, between the countdown (or `'underdog'`) and `'playing'`. It lasts `STARTING_MS` (1.7 s = flash in + flash out - overlap, all from `START_FLASH_*` in `packages/shared/src/config.ts`). The game state is only created when the step ends, so the game's own clock (`startsAt`) starts then. A player leaving during it can call the round off, like during the underdog announcement. (Tests that shorten the countdown get no flash step unless they pass `startingMs`; `STARTING_MS=0` in the dev server's environment turns it off.)
 - On the phones, one reusable hook, `useScreenFlash` in `apps/web/src/components/screenFlash.ts`, is used once, in `LobbyPage`: when the room enters `'starting'` it keeps showing the old screen while the flash fades in, then switches to the plain starting page; the game screen replaces that when the round begins, still under the last of the flash. Because it sits above every game screen, **a new game gets all of this for free**.
 - This is separate from any flash a game does inside its own scene (Fishing flashes when it cuts from the pier to the water and from the water to the dock): those have their own timings and are not affected.
+
+---
+
+## 9. Every game has a tile picture made from the models only (no UI)
+
+**The rule.** The picture on a game's tile (`apps/web/public/games/<game-id>.png`, 720 x 450) is a screenshot of the game's **3D models only**: no HUD, timer, scoreboard, names, buttons, joysticks or hints, and no player names on anything. (Penguin Lasso's picture had a player's name in it and was retouched to remove it.) Fishing's picture is a hook in the water with a random assortment of school and regular fish, and never a big fish.
+
+**How it is done.** Make a short-lived preview page that builds only the game's scene (no React screen around it) in a fixed pose, screenshot that, then delete the preview. Register the file in `GAME_IMAGES` in `apps/web/src/pages/LobbyPage.tsx`.

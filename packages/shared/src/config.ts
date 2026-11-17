@@ -110,3 +110,11 @@ export const DEFAULT_ROOM_NAME = 'Game Room';
 export const ROOM_NAME_MAX = 30;
 export const ROOM_PASSWORD_MAX = 64;
 export const MAX_ROOMS = 200;
+
+/**
+ * The kinds of fish in the ocean (Fishing) and what each is worth. A SCHOOL is a bunch of small, slower fish that swim together (1 point each);
+ * REGULAR fish are the usual ones (3 points); a BIG fish is bigger than any regular one, swims 40% faster and is worth 5 points (a few in every game).
+ */
+export type FishKind = 'school' | 'regular' | 'big';
+export const FISH_POINTS: Record<FishKind, number> = { school: 1, regular: 3, big: 5 };
+export const FISH_KINDS: FishKind[] = ['school', 'regular', 'big']; // (the order of `kinds` counts in the view)

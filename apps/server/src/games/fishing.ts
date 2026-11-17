@@ -1,4 +1,4 @@
-import { FISHING_CAST_SECONDS, FISHING_SECONDS, type FishView, type FishingView } from '@fgn/shared';
+import { FISH_POINTS, FISHING_CAST_SECONDS, FISHING_SECONDS, type FishKind, type FishView, type FishingView } from '@fgn/shared';
 import type { GameEngine } from './types';
 
 /**
@@ -25,6 +25,27 @@ export interface FishingConfig {
   catchX: number; // a hook catches a fish when it is within this far of its mouth sideways...
   catchY: number; // ...and this far in depth
   caughtShowMs: number; // a caught fish stays in the view this long (for the reel-in animation)
+
+  // ----- schools of small fish -----
+  schoolsPerLane: number; // how many schools for each player in the room (a school is 8..16 fish, so they are the rarer, lighter catch)
+  schoolMin: number;
+  schoolMax: number;
+  schoolSpeedFactor: number; // a school swims at this fraction of a regular fish's speed (0.75 = 25% slower)
+  schoolSizeMin: number; // smaller than the smallest regular fish
+  schoolSizeMax: number;
+  schoolSpreadX: number; // the fish of a school are scattered this far (each way) sideways from its middle...
+  schoolSpreadY: number; // ...and this far in depth
+
+  // ----- the big fish -----
+  bigFishCount: number; // how many big fish are in every game (spread evenly down the ocean, like the regular fish)
+  bigSize: number; // bigger than the biggest regular fish
+  bigSpeedFactor: number; // it swims like a regular fish, but this many times faster (1.4 = 40% faster)
+  bigCatchX: number; // a bigger mouth: it is caught within this far sideways and in depth
+  bigCatchY: number;
+
+  // ----- lifting the hook -----
+  hookLiftMax: number; // while rising, a player can lift their hook this far above the steady ascent (world units; about halfway up a landscape screen)...
+  hookLiftSpeed: number; // ...moving it up or down at this speed (the ascent itself is not affected)
 }
 
 export const DEFAULT_FISHING: FishingConfig = {
@@ -45,6 +66,24 @@ export const DEFAULT_FISHING: FishingConfig = {
   catchX: 0.45, // (about the size of the drawn hook's opening: a fish is only caught when its mouth is really on the hook)
   catchY: 0.75,
   caughtShowMs: 1200,
+
+  schoolsPerLane: 2,
+  schoolMin: 8,
+  schoolMax: 16,
+  schoolSpeedFactor: 0.75,
+  schoolSizeMin: 0.75,
+  schoolSizeMax: 1.05,
+  schoolSpreadX: 2.2,
+  schoolSpreadY: 1.1,
+
+  bigFishCount: 5,
+  bigSize: 3.6,
+  bigSpeedFactor: 1.4,
+  bigCatchX: 0.7,
+  bigCatchY: 1.1,
+
+  hookLiftMax: 4,
+  hookLiftSpeed: 6,
 };
 
 interface Fish {
@@ -56,11 +95,12 @@ interface Fish {
   speed: number;
   size: number;
   variant: number;
+  kind?: FishKind; // (missing = regular)
   caughtBy?: string;
   caughtAt?: number;
 }
 
-interface Hook { x: number; steer: number; fish: number }
+interface Hook { x: number; steer: number; vsteer: number; lift: number; fish: number; points: number; kinds: [number, number, number] }
 
 interface FishingState {
   startsAt: number;
@@ -87,7 +127,9 @@ export function createFishing(overrides: Partial<FishingConfig> = {}): GameEngin
     const i = state.lanes.indexOf(id);
     return { lo: i * cfg.laneWidth + cfg.hookMargin, hi: (i + 1) * cfg.laneWidth - cfg.hookMargin };
   };
+  const kindOf = (f: Fish): FishKind => f.kind ?? 'regular';
   const fishDepth = (f: Fish, now: number) => f.baseY + cfg.bob * Math.sin(now / 1000 * 1.3 + f.phase);
+  const catchBox = (f: Fish) => (kindOf(f) === 'big' ? { x: cfg.bigCatchX, y: cfg.bigCatchY } : { x: cfg.catchX, y: cfg.catchY });
   const mouthX = (f: Fish) => f.x + f.dir * f.size * 0.5; // the mouth is at the front
 
   return {
@@ -112,13 +154,44 @@ export function createFishing(overrides: Partial<FishingConfig> = {}): GameEngin
           variant: Math.floor(Math.random() * 6),
         });
       }
+      // SCHOOLS: a few groups of small fish that swim together (same direction, same slower speed), each fish scattered a little round the school's middle.
+      // Their depths are spread evenly down the ocean too (one school per slice of depth), so no part of the ocean is without them.
+      const schools = Math.max(1, Math.round(lanes.length * cfg.schoolsPerLane));
+      let nextId = count + 1;
+      for (let i = 0; i < schools; i++) {
+        const middleY = cfg.endDepth + 1.5 + ((i + Math.random()) / schools) * usable;
+        const middleX = rand(-cfg.fishMargin, total + cfg.fishMargin);
+        const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1;
+        const speed = rand(cfg.fishSpeedMin, cfg.fishSpeedMax) * cfg.schoolSpeedFactor;
+        const members = Math.round(rand(cfg.schoolMin, cfg.schoolMax));
+        for (let m = 0; m < members; m++) {
+          fish.push({
+            id: nextId++, kind: 'school',
+            x: middleX + rand(-cfg.schoolSpreadX, cfg.schoolSpreadX),
+            baseY: clamp(middleY + rand(-cfg.schoolSpreadY, cfg.schoolSpreadY), cfg.endDepth + 1, cfg.depth - 1),
+            phase: rand(0, Math.PI * 2), dir, speed,
+            size: rand(cfg.schoolSizeMin, cfg.schoolSizeMax), variant: 0,
+          });
+        }
+      }
+      // BIG FISH: a few in every game. They swim exactly like regular fish (sideways, wrapping round), only bigger and 40% faster, and are worth 5 points.
+      // Their depths are spread evenly down the ocean too (one per slice).
+      for (let b = 0; b < cfg.bigFishCount; b++) {
+        fish.push({
+          id: nextId++, kind: 'big',
+          x: rand(-cfg.fishMargin, total + cfg.fishMargin),
+          baseY: cfg.endDepth + 1.5 + ((b + Math.random()) / cfg.bigFishCount) * usable,
+          phase: rand(0, Math.PI * 2), dir: Math.random() < 0.5 ? 1 : -1,
+          speed: rand(cfg.fishSpeedMin, cfg.fishSpeedMax) * cfg.bigSpeedFactor, size: cfg.bigSize, variant: 0,
+        });
+      }
       const ascentStartsAt = now + cfg.castMs;
       return {
         startsAt: now,
         ascentStartsAt,
         endsAt: ascentStartsAt + cfg.ascentMs,
         lanes,
-        hooks: Object.fromEntries(lanes.map((id, i) => [id, { x: (i + 0.5) * cfg.laneWidth, steer: 0, fish: 0 }])),
+        hooks: Object.fromEntries(lanes.map((id, i) => [id, { x: (i + 0.5) * cfg.laneWidth, steer: 0, vsteer: 0, lift: 0, fish: 0, points: 0, kinds: [0, 0, 0] as [number, number, number] }])),
         fish,
         clock: now,
       };
@@ -130,7 +203,7 @@ export function createFishing(overrides: Partial<FishingConfig> = {}): GameEngin
       const hook = state.hooks[playerId];
       if (!hook || now >= state.endsAt) return state; // not playing, or the round is over
       if (!Number.isFinite(action.x)) return state; // never trust the payload
-      return { ...state, hooks: { ...state.hooks, [playerId]: { ...hook, steer: clamp(action.x, -1, 1) } } };
+      return { ...state, hooks: { ...state.hooks, [playerId]: { ...hook, steer: clamp(action.x, -1, 1), vsteer: Number.isFinite(action.z) ? clamp(-action.z, -1, 1) : 0 } } }; // (z is down on the stick, so up is -z)
     },
 
     tick(state, dt, now) {
@@ -139,35 +212,42 @@ export function createFishing(overrides: Partial<FishingConfig> = {}): GameEngin
       for (const [id, h] of Object.entries(state.hooks)) {
         const { lo, hi } = laneBounds(state, id);
         // Hooks can only be steered once the ascent has started (during the cast they hang at the lane's middle).
-        hooks[id] = { ...h, x: now >= state.ascentStartsAt ? clamp(h.x + h.steer * cfg.hookSpeed * dt, lo, hi) : h.x };
+        const rising = now >= state.ascentStartsAt;
+        hooks[id] = { ...h, x: rising ? clamp(h.x + h.steer * cfg.hookSpeed * dt, lo, hi) : h.x, lift: rising ? clamp(h.lift + h.vsteer * cfg.hookLiftSpeed * dt, 0, cfg.hookLiftMax) : 0 }; // (lift: the hook is held a little above the steady ascent)
       }
+      const depth = hookDepthAt(state, now);
       // Fish swim on; off one end, they come back in from the other (the margin keeps that out of sight).
       let fish = state.fish
         .filter((f) => f.caughtAt === undefined || now - f.caughtAt < cfg.caughtShowMs)
         .map((f) => {
           if (f.caughtBy) return f; // a caught fish is reeled in: it no longer swims
-          let x = f.x + f.dir * f.speed * dt;
+          const next = f;
+          let x = next.x + next.dir * next.speed * dt;
           if (x > total + cfg.fishMargin) x -= total + 2 * cfg.fishMargin;
           if (x < -cfg.fishMargin) x += total + 2 * cfg.fishMargin;
-          return { ...f, x };
+          return { ...next, x };
         });
 
       // Catches: only while the hooks are rising and still in the water (the last stretch is the pull-out). A fish whose mouth is within reach of a hook is caught by the CLOSEST such hook
       // (two hooks side by side at a lane's edge can both reach it).
-      const depth = hookDepthAt(state, now);
       if (now >= state.ascentStartsAt && now < state.endsAt) {
         fish = fish.map((f) => {
           if (f.caughtBy) return f;
-          if (Math.abs(fishDepth(f, now) - depth) > cfg.catchY) return f;
+          const box = catchBox(f);
+          const fy = fishDepth(f, now);
           const mx = mouthX(f);
           let best: string | null = null;
-          let bestGap = cfg.catchX;
+          let bestGap = box.x;
           for (const [id, h] of Object.entries(hooks)) {
+            if (Math.abs(fy - (depth - h.lift)) > box.y) continue; // (each hook may be lifted a different amount above the steady ascent)
             const gap = Math.abs(h.x - mx);
             if (gap <= bestGap) { best = id; bestGap = gap; }
           }
           if (best === null) return f;
-          hooks[best] = { ...hooks[best], fish: hooks[best].fish + 1 };
+          const kind = kindOf(f);
+          const kinds = [...hooks[best].kinds] as [number, number, number];
+          kinds[kind === 'school' ? 0 : kind === 'regular' ? 1 : 2] += 1;
+          hooks[best] = { ...hooks[best], fish: hooks[best].fish + 1, points: hooks[best].points + FISH_POINTS[kind], kinds };
           return { ...f, caughtBy: best, caughtAt: now };
         });
       }
@@ -178,12 +258,12 @@ export function createFishing(overrides: Partial<FishingConfig> = {}): GameEngin
 
     getWinner(state) {
       const entries = Object.entries(state.hooks);
-      const best = Math.max(0, ...entries.map(([, h]) => h.fish));
-      const leaders = entries.filter(([, h]) => h.fish === best);
-      return best > 0 && leaders.length === 1 ? leaders[0][0] : null; // nobody caught one, or a tie: draw
+      const best = Math.max(0, ...entries.map(([, h]) => h.points));
+      const leaders = entries.filter(([, h]) => h.points === best);
+      return best > 0 && leaders.length === 1 ? leaders[0][0] : null; // nobody scored, or a tie: draw (most POINTS wins, not most fish)
     },
 
-    scores: (state) => Object.fromEntries(Object.entries(state.hooks).map(([id, h]) => [id, h.fish])),
+    scores: (state) => Object.fromEntries(Object.entries(state.hooks).map(([id, h]) => [id, h.points])),
 
     removePlayer(state, playerId) {
       const { [playerId]: _gone, ...hooks } = state.hooks;
@@ -194,8 +274,8 @@ export function createFishing(overrides: Partial<FishingConfig> = {}): GameEngin
       const hookDepth = hookDepthAt(state, state.clock);
       // Only the fish anywhere near what the cameras can see are sent (the rest of the ocean is far above or below every hook).
       const fish: FishView[] = state.fish
-        .filter((f) => f.baseY > hookDepth - 14 && f.baseY < hookDepth + 8)
-        .map((f) => ({ id: f.id, x: round(f.x), y: round(fishDepth(f, state.clock)), dir: f.dir, speed: round(f.speed), size: round(f.size), variant: f.variant, caughtBy: f.caughtBy }));
+        .filter((f) => { const y = fishDepth(f, state.clock); return y > hookDepth - 14 && y < hookDepth + 8; })
+        .map((f) => ({ id: f.id, x: round(f.x), y: round(fishDepth(f, state.clock)), dir: f.dir, speed: round(f.speed), size: round(f.size), kind: kindOf(f), variant: f.variant, caughtBy: f.caughtBy }));
       return {
         gameId: 'fishing',
         startsAt: state.startsAt,
@@ -207,7 +287,7 @@ export function createFishing(overrides: Partial<FishingConfig> = {}): GameEngin
         ascentSpeed: round(ascentSpeed, 3),
         laneWidth: cfg.laneWidth,
         lanes: state.lanes,
-        hooks: Object.fromEntries(Object.entries(state.hooks).map(([id, h]) => [id, { x: round(h.x), fish: h.fish }])),
+        hooks: Object.fromEntries(Object.entries(state.hooks).map(([id, h]) => [id, { x: round(h.x), lift: round(h.lift), fish: h.fish, points: h.points, kinds: h.kinds }])),
         fish,
       };
     },

@@ -47,10 +47,10 @@ export const GAMES = [
   {
     id: 'fishing',
     name: 'Fishing',
-    description: 'Everyone casts a line off the pier and your hook sinks to the bottom of the ocean. Then all the hooks are reeled up at the same speed for one minute. Slide your hook left and right (inside your own lane) to line it up with a fish\'s mouth and hook it. The fish swim across every lane, so you are all fishing the same ocean. When the hooks break the surface your catch is piled up on the dock, and the biggest pile wins!',
+    description: 'Everyone casts a line off the pier and your hook sinks to the bottom of the ocean. Then all the hooks are reeled up at the same speed for one minute. Slide your hook left and right (inside your own lane) to line it up with a fish\'s mouth and hook it. The fish swim across every lane, so you are all fishing the same ocean. When the hooks break the surface your catch is piled up on the dock, and the biggest pile wins! Fish in a school are worth 1 point each, regular fish 3, and a rare, wily big fish 5.',
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
-    scoreLabel: 'fish',
+    scoreLabel: 'points', // (a small fish in a school is 1, a regular fish 3, a rare big fish 5)
     finishSeconds: WINNER_FINISH_SECONDS + FISHING_BREACH_SECONDS, // the hooks breaking the surface, then the piles (own view), then the winner
   },
 ] as const satisfies readonly GameInfo[];

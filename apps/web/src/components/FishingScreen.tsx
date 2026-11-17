@@ -26,7 +26,7 @@ interface Props {
 
 /**
  * The Fishing round: a full-screen three.js ocean (see FishingScene), a small HUD (the clock and each player's fish count) and a
- * left / right control (the same joystick / A D keys as the other games; only the sideways part matters here, the hook rises by itself).
+ * left / right control (the same joystick / A D keys as the other games; sideways slides the hook, up lifts it a little; the ascent itself is automatic).
  * Players follow their own lane; spectators pick whose lane to watch. The ending is the shared winner moment (GAME_RULES.md #2).
  * Loaded on demand (see LobbyPage) so the landing page doesn't download three.js.
  */
@@ -76,8 +76,8 @@ export default function FishingScreen({ game, players, colors, selfId, serverNow
   }, [winnerMoment, winnerId, isPlayer, selfId, camera.targetId]);
 
   const standings = Object.entries(game.hooks)
-    .map(([id, h]) => ({ id, fish: h.fish, style: styles[id] }))
-    .sort((a, b) => b.fish - a.fish);
+    .map(([id, h]) => ({ id, fish: h.fish, points: h.points, style: styles[id] }))
+    .sort((a, b) => b.points - a.points);
 
   return (
     <div className="snow-screen fishing-screen">
@@ -86,16 +86,16 @@ export default function FishingScreen({ game, players, colors, selfId, serverNow
       <div className="snow-hud">
         <div className="snow-timer">{casting ? 'Cast!' : remainingMs <= 0 ? 'Time!' : Math.min(Math.ceil(ascentMs / 1000), Math.ceil(remainingMs / 1000))}</div>
         <ul className="snow-standings">
-          {standings.map(({ id, fish, style }) => (
+          {standings.map(({ id, fish, points, style }) => (
             <li key={id} className={id === selfId ? 'me' : ''}>
               <span className="dot" style={{ background: style?.color }} />
               <span className="snow-name">{style?.name ?? '?'}</span>
-              <span className="snow-size" title="Fish caught">🐟 {fish}</span>
+              <span className="snow-size" title={`${fish} fish caught`}>{points} pts</span>
             </li>
           ))}
         </ul>
         {!casting && !frozen && <p className="fish-depth" title="How deep your hook is">Depth {Math.max(0, Math.round(((game.hookDepth - game.endDepth) / (game.depth - game.endDepth)) * 100))} m</p>}
-        {isPlayer && !frozen && !casting && <p className="snow-hint fish-hint">Slide your hook left and right to line it up with a fish&apos;s mouth · drag or A / D</p>}
+        {isPlayer && !frozen && !casting && <p className="snow-hint fish-hint">Slide your hook left and right to line it up with a fish&apos;s mouth, and up a little to reach higher · drag or WASD</p>}
       </div>
 
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}

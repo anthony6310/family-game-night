@@ -1,6 +1,6 @@
 import type { TerrainFeature } from './terrain';
 import type { GameId } from './games';
-import type { CreatureKind } from './config';
+import type { CreatureKind, FishKind } from './config';
 
 /**
  * The Socket.io contract between phones and server. Both sides import these types, so
@@ -189,7 +189,8 @@ export interface FishView {
   dir: 1 | -1; // which way it swims along the width (1 = right); fish swim the same way all round, and come back in from the other side
   speed: number; // units per second (phones move it on between snapshots)
   size: number; // its length
-  variant: number; // which of the colorful looks it has (0..5)
+  kind: FishKind; // a school fish, a regular fish or a big fish
+  variant: number; // which of the colorful looks a REGULAR fish has (0..5)
   caughtBy?: string; // set for ~1.2 s after a catch, so phones can show it being reeled in
 }
 
@@ -205,7 +206,8 @@ export interface FishingView {
   ascentSpeed: number; // how fast they rise (units per second), so phones can carry on between snapshots
   laneWidth: number;
   lanes: string[]; // each player's lane, left to right (a player who left keeps an empty lane)
-  hooks: Record<string, { x: number; fish: number }>; // where each hook is along the width, and how many fish it has caught
+  /** Where each hook is along the width, how many fish it has caught, how many POINTS they are worth (the score), and how many of each kind (in FISH_KINDS order: school, regular, big). */
+  hooks: Record<string, { x: number; lift: number; fish: number; points: number; kinds: [number, number, number] }>;
   fish: FishView[];
 }
 

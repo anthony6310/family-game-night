@@ -5,13 +5,14 @@ import {
   Vector3, WebGLRenderer, type Material,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { FISHING_BREACH_SECONDS, type FishView, type FishingView } from '@fgn/shared';
+import { FISHING_BREACH_SECONDS, FISH_POINTS, type FishView, type FishingView } from '@fgn/shared';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
 import { fishCatch, rodSwish, splash } from '../../audio/fishSounds';
 import type { SoundFn } from '../../audio/snowSounds';
 import { createNameTag, disposeNameTag } from '../labelTexture';
 import { FISH_LENGTH, FishKit } from '../snowball/fish';
+import type { FishKind } from '@fgn/shared';
 import { SparkSystem } from '../taprace/sparks';
 
 /** How a player is drawn: their name tag and the color of their weight and lane. */
@@ -191,6 +192,7 @@ function outroInverse(fraction: number): number {
 }
 
 interface FishObject {
+  kind: FishKind;
   group: Group;
   tail: Mesh;
   x: number; // where it is drawn now
@@ -217,6 +219,8 @@ interface Angler {
   tag: Sprite;
   x: number; // where the hook is drawn (sideways)
   targetX: number;
+  lift: number; // how far the player has lifted their hook above the steady ascent (drawn, smoothed)...
+  targetLift: number; // ...and what the server says
   seenAt: boolean;
   chain: Mesh[]; // the line from the reel, through each guide, to the rod tip (the line from the tip to the hook is `line`)
   hookPos: Vector3 | null; // the hook in the air before it lands (swinging from the rod tip, then flying)
@@ -300,7 +304,8 @@ export class FishingScene {
   private pileFishMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 0.55, side: DoubleSide });
 
   // The fish are the Snowball fish model (see snowball/fish.ts), in six colors, with real eyes. One kit per color shares its geometry and materials.
-  private fishKits = FISH_COLORS.map((c) => new FishKit({ body: c.body, fin: c.fin, eyes: 'round' }));
+  // Kits 0..5 are the regular colors; 6 is the school fish (small, pale blue) and 7 the big fish (deep blue with pink fins).
+  private fishKits = [...FISH_COLORS.map((c) => ({ body: c.body, fin: c.fin })), { body: '#9fd8ff', fin: '#4f9fe0' }, { body: '#2f3f9e', fin: '#e0407a' }].map((c) => new FishKit({ ...c, eyes: 'round' }));
 
   constructor(
     private container: HTMLElement,
@@ -340,6 +345,7 @@ export class FishingScene {
       if (!angler) continue;
       if (!angler.seenAt) { angler.x = hook.x; angler.seenAt = true; }
       angler.targetX = hook.x;
+      angler.targetLift = hook.lift ?? 0;
     }
     // A player who left: their rod and hook go away (the lane stays).
     for (const [id, angler] of this.anglers) if (!(id in view.hooks)) this.removeAngler(id, angler);
@@ -357,8 +363,14 @@ export class FishingScene {
     // Someone who joined (or looked) late has not seen these fish being caught: put the missing ones on the hook straight away.
     for (const [id, angler] of this.anglers) {
       const caught = view.hooks[id]?.fish ?? 0;
+      const have: Record<FishKind, number> = { school: 0, regular: 0, big: 0 };
+      for (const h of angler.hooked) have[h.obj.kind] += 1;
+      const wanted = view.hooks[id]?.kinds ?? [0, caught, 0];
       for (let n = angler.hooked.length; n < caught; n++) {
-        const made = this.addFish({ id: -(this.hookedIds.size + 1) * 1000 - n, x: angler.x, y: -view.hookDepth, dir: 1, speed: 0, size: 1.3 + Math.random() * 1.3, variant: Math.floor(Math.random() * 6) }, now);
+        const kind: FishKind = have.school < wanted[0] ? 'school' : have.regular < wanted[1] ? 'regular' : have.big < wanted[2] ? 'big' : 'regular';
+        have[kind] += 1;
+        const size = kind === 'school' ? 0.75 + Math.random() * 0.3 : kind === 'big' ? 3.6 : 1.3 + Math.random() * 1.3;
+        const made = this.addFish({ id: -(this.hookedIds.size + 1) * 1000 - n, x: angler.x, y: -view.hookDepth, dir: 1, speed: 0, size, kind, variant: Math.floor(Math.random() * 6) }, now);
         this.fish.forEach((o, key) => { if (o === made) this.fish.delete(key); });
         this.attach(angler, made, now - 1000, false);
       }
@@ -747,23 +759,28 @@ export class FishingScene {
       const tag = createNameTag(this.styles[id]?.name ?? '?', color);
       tag.scale.set(3.6, 0.9, 1);
       this.scene.add(tag);
-      this.anglers.set(id, { id, color, laneIndex: i, rod, rodSway: rand() * 6, hook, line, tag, x: laneX, targetX: laneX, seenAt: false, chain, hookPos: null, hookPrev: new Vector3(), released: null, hookQuat: new Quaternion(), hooked: [], prevX: laneX, vx: 0, sprayed: false });
+      this.anglers.set(id, { id, color, laneIndex: i, rod, rodSway: rand() * 6, hook, line, tag, x: laneX, targetX: laneX, lift: 0, targetLift: 0, seenAt: false, chain, hookPos: null, hookPrev: new Vector3(), released: null, hookQuat: new Quaternion(), hooked: [], prevX: laneX, vx: 0, sprayed: false });
     });
   }
 
   // ---------- fish ----------
 
+  /** Which kit draws a fish: its color for a regular fish, the school kit, or the big-fish kit. */
+  private kitIndex(kind: FishKind, variant: number): number {
+    return kind === 'school' ? 6 : kind === 'big' ? 7 : variant % 6;
+  }
+
   private addFish(f: FishView, now: number): FishObject {
     const size = f.size; // its length: the model's body is FISH_LENGTH long, so it is scaled to fit (its nose, the mouth, is at the front: x + dir x size / 2)
     const group = new Group();
-    const model = this.fishKits[f.variant % 6].create();
+    const model = this.fishKits[this.kitIndex(f.kind, f.variant)].create();
     model.scale.setScalar(size / FISH_LENGTH);
     group.add(model);
     const tail = model.userData.tail as Mesh;
     group.rotation.y = f.dir === 1 ? 0 : Math.PI;
     group.position.z = ((f.id % 7) - 3) * 0.06;
     this.ocean.add(group);
-    const obj: FishObject = { group, tail, x: f.x, y: f.y, serverX: f.x, serverY: f.y, serverAt: now, dir: f.dir, speed: f.speed, size, caughtSince: 0, caughtFrom: { x: f.x, y: f.y } };
+    const obj: FishObject = { kind: f.kind, group, tail, x: f.x, y: f.y, serverX: f.x, serverY: f.y, serverAt: now, dir: f.dir, speed: f.speed, size, caughtSince: 0, caughtFrom: { x: f.x, y: f.y } };
     this.fish.set(f.id, obj);
     return obj;
   }
@@ -773,7 +790,7 @@ export class FishingScene {
     const cached = this.pileFishGeometries[variant];
     if (cached) return cached;
     // Build one model, then bake every part (in its place, colored per vertex from its material) into a single mesh of length 1.
-    const model = this.fishKits[variant % 6].create();
+    const model = this.fishKits[variant].create();
     model.scale.setScalar(1 / FISH_LENGTH);
     model.updateMatrixWorld(true);
     const parts: BufferGeometry[] = [];
@@ -795,16 +812,16 @@ export class FishingScene {
     return merged;
   }
 
-  /** A fish was just hooked: it leaves the swimming fish and goes onto the hook for good (see `updateHooked`), with the catch sound and a "+1". */
+  /** A fish was just hooked: it leaves the swimming fish and goes onto the hook for good (see `updateHooked`), with the catch sound and a "+N" for its points (1, 3 or 5). */
   private onCaught(obj: FishObject, id: number, by: string, now: number) {
     const angler = this.anglers.get(by);
     if (!angler || !this.latest) return;
     this.fish.delete(id);
     this.hookedIds.add(id);
     this.attach(angler, obj, now, true);
-    const hookY = -this.hookDepthNow();
+    const hookY = -this.hookDepthNow() + angler.lift;
     audio.play(fishCatch, angler.x, hookY, by === this.view.targetId ? 0.9 : 0.4, 1);
-    const sprite = createNameTag('+1', angler.color);
+    const sprite = createNameTag(`+${FISH_POINTS[obj.kind]}`, angler.color);
     sprite.scale.set(2.4, 0.6, 1);
     this.scene.add(sprite);
     this.floaters.push({ sprite, age: 0, x: angler.x, y: hookY + 1.2 });
@@ -830,9 +847,14 @@ export class FishingScene {
       const radius = count === 0 ? 1 : Math.min(this.laneWidth * 0.47, 0.62 * Math.sqrt(count) + 0.9); // a heap this wide (never wider than its lane)
       if (count > 0) this.pileGroup.add(this.wetPatch(x, radius, count, rand));
       const fish: PileFish[] = [];
+      // One fish in the pile for each fish caught, of the right kind (school fish are small, big fish big), in the kinds' colors.
+      const kindsList: FishKind[] = [];
+      (['school', 'regular', 'big'] as FishKind[]).forEach((k, ki) => { for (let q = 0; q < (hook.kinds?.[ki] ?? 0); q++) kindsList.push(k); });
+      while (kindsList.length < count) kindsList.push('regular');
       for (let n = 0; n < count; n++) {
-        const mesh = new Mesh(this.pileFishGeometry(Math.floor(rand() * 6)), this.pileFishMaterial);
-        const size = 1.1 + rand() * 0.9;
+        const kind = kindsList[n];
+        const mesh = new Mesh(this.pileFishGeometry(this.kitIndex(kind, Math.floor(rand() * 6))), this.pileFishMaterial);
+        const size = kind === 'school' ? 0.6 + rand() * 0.3 : kind === 'big' ? 3 : 1.1 + rand() * 0.9;
         mesh.scale.setScalar(size);
         // Scatter over a disc, with the middle of the heap piled higher; each fish lies on its side, pointing a random way.
         const angle = rand() * Math.PI * 2, r = Math.sqrt(rand()) * (radius - size * 0.4);
@@ -846,9 +868,10 @@ export class FishingScene {
       }
       const color = this.styles[id]?.color ?? '#ffffff';
       // Only the COUNT is shown, above the pile (between the pile and the front edge): just the number, drawn bigger the more fish there are
-      // (from 0.8 to 3.2 units tall). No name or label.
-      const numberHeight = clamp(0.8 + 0.35 * Math.sqrt(count), 0.8, 3.2);
-      const total = createNameTag(`${count}`, color);
+      // (from 0.8 to 3.2 units tall). No name or label. It shows the player's POINTS.
+      const points = hook.points ?? count;
+      const numberHeight = clamp(0.8 + 0.35 * Math.sqrt(points / 3), 0.8, 3.2); // (the number is the POINTS, drawn bigger the more there are)
+      const total = createNameTag(`${points}`, color);
       total.scale.set(numberHeight * 2.1 * 4, numberHeight * 2.1, 1); // (the picture is 4 times as wide as tall, and the digits fill about half its height)
       total.position.set(x, DECK_Y + 2.2, PILE_Z - radius - numberHeight * 0.55 - 0.7);
       this.pileGroup.add(total);
@@ -1134,7 +1157,10 @@ export class FishingScene {
       }
 
       // After the splash the hook is in the plane the fishing happens in: sideways it follows the server (smoothed), its height is the shared depth.
-      if (t >= LAND * k) { a.x += (a.targetX - a.x) * Math.min(1, dt * (a.id === this.view.targetId ? HOOK_FOLLOW_RATE : HOOK_FOLLOW_RATE * 0.7)); hx = a.x; hy = hookY; hz = PLAY_Z; }
+      if (t >= LAND * k) { a.x += (a.targetX - a.x) * Math.min(1, dt * (a.id === this.view.targetId ? HOOK_FOLLOW_RATE : HOOK_FOLLOW_RATE * 0.7)); hx = a.x; hz = PLAY_Z;
+        // A player's own lifting of the hook (a little up from the steady ascent, smoothed); it fades out over the last moment, before the finish line's own motion takes over.
+        a.lift += (a.targetLift - a.lift) * Math.min(1, dt * 10);
+        hy = hookY + a.lift * (1 - smooth(this.latest!.endsAt - 800, this.latest!.endsAt, serverMs)); }
       if (t >= length && this.latest && serverMs >= this.latest.endsAt) hy = this.hookWorldY(serverMs, this.latest.hooks[a.id]?.fish ?? 0); // (after the finish line each hook has its own height: a heavier catch drops further)
 
       // Which way the hook faces: before it lands, its bend points away from the rod along the line (so in the cast it looks like it is pointing out

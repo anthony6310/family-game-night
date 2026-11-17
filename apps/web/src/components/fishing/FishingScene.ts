@@ -1,5 +1,5 @@
 import {
-  AmbientLight, BoxGeometry, BufferAttribute, BufferGeometry, CanvasTexture, CatmullRomCurve3, Color, CylinderGeometry, DirectionalLight, DoubleSide, BackSide,
+  AmbientLight, BoxGeometry, ConeGeometry, BufferAttribute, BufferGeometry, CanvasTexture, CatmullRomCurve3, Color, CylinderGeometry, DirectionalLight, DoubleSide, BackSide,
   Float32BufferAttribute, Fog, Group, IcosahedronGeometry, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, PerspectiveCamera, PlaneGeometry, Points,
   PointsMaterial, Quaternion, RepeatWrapping, RingGeometry, Scene, Shape, ShapeGeometry, SphereGeometry, SRGBColorSpace, Sprite, TorusGeometry, TubeGeometry,
   Vector3, WebGLRenderer, type Material,
@@ -8,7 +8,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { FISHING_BREACH_SECONDS, FISH_POINTS, type FishView, type FishingView } from '@fgn/shared';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
-import { fishCatch, rodSwish, splash } from '../../audio/fishSounds';
+import { fishCatch, mineBoom, rodSwish, splash } from '../../audio/fishSounds';
 import type { SoundFn } from '../../audio/snowSounds';
 import { createNameTag, disposeNameTag } from '../labelTexture';
 import { FISH_LENGTH, FishKit } from '../snowball/fish';
@@ -122,6 +122,8 @@ function wetSize(fish: number): number {
 
 const WATER_PALETTE: [number, number, number][] = [[0.78, 0.95, 1], [0.5, 0.84, 0.94], [0.27, 0.7, 0.9], [1, 1, 1]]; // splash droplets: the colors of the water and its foam
 
+const BLAST_PALETTE: [number, number, number][] = [[1, 0.27, 0.08], [1, 0.4, 0.1], [1, 0.52, 0.12], [0.95, 0.2, 0.06]]; // a mine's sparks: reddish orange
+
 const DOCK_SEA_FRACTION = 0.2; // in the overhead shot the ocean takes up this much of the picture, at the top (so 80% is pier)
 const PILE_Z = Z_EDGE + 9; // where each player's pile of fish lies on the dock: well back from the front edge, leaving room for the count between the pile and the edge
 
@@ -221,6 +223,7 @@ interface Angler {
   targetX: number;
   lift: number; // how far the player has lifted their hook above the steady ascent (drawn, smoothed)...
   targetLift: number; // ...and what the server says
+  points: number; // their points as last told (a drop means a mine shook fish off)
   seenAt: boolean;
   chain: Mesh[]; // the line from the reel, through each guide, to the rod tip (the line from the tip to the hook is `line`)
   hookPos: Vector3 | null; // the hook in the air before it lands (swinging from the rod tip, then flying)
@@ -240,6 +243,16 @@ interface PileFish { mesh: Mesh; baseY: number; baseRotX: number; flops: boolean
 interface Pile { id: string; x: number; radius: number; above: number; below: number; fish: PileFish[]; tags: Sprite[] } // (above/below: how far the pile and its count reach towards the sea / away from it, from the middle of the pile)
 
 interface Ripple { mesh: Mesh; age: number }
+/** A mine drawn in the ocean. `exploded` is set once its blast has been shown (it is hidden by then). */
+interface MineObject { group: Group; x: number; y: number; serverX: number; serverY: number; owner: string; exploded: boolean; phase: number; light: Mesh }
+/** A fish that has just been shaken off a hook by a mine: it tumbles away and sinks, fading out. */
+interface Falling { obj: FishObject; vx: number; vy: number; spin: number; age: number }
+/** The flash of a blast: an orange ball and a ring that swell and fade. */
+interface Blast { ball: Mesh; ring: Mesh; age: number }
+
+const SHAKE_DRAIN = 2.4; // the screen shake (as in Snowball): a hit adds to `shake` (0..1), which drains away at this rate per second
+const SHAKE_FRACTION = 0.035; // the camera is jiggled by this fraction of its distance from what it looks at, times shake squared
+
 interface Floater { sprite: Sprite; age: number; x: number; y: number }
 
 export class FishingScene {
@@ -263,6 +276,16 @@ export class FishingScene {
   private sparks = new SparkSystem(2500, false); // the splashes: the Tap Race sparks, made solid and water-colored
   private ripples: Ripple[] = [];
   private floaters: Floater[] = [];
+  private mines = new Map<number, MineObject>();
+  private falling: Falling[] = [];
+  private blasts: Blast[] = [];
+  private shake = 0; // 0..1: how much the camera is shaking right now (a mine going off in the followed lane)
+  private readonly reduceMotion = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches; // people who ask for less motion get no shake
+  private mineBody = new SphereGeometry(0.5, 16, 12);
+  private mineSpike = new ConeGeometry(0.11, 0.34, 6);
+  private mineLightBody = new SphereGeometry(0.12, 8, 6);
+  private mineMaterial = new MeshStandardMaterial({ color: '#444c58', metalness: 0.4, roughness: 0.45, flatShading: true });
+  private mineLightMaterial = new MeshBasicMaterial({ color: '#ff3b2e' });
   private view: { targetId: string | null; winner: boolean } = { targetId: null, winner: false };
 
   // The parts of the world, so each mode can show only what it needs.
@@ -318,7 +341,7 @@ export class FishingScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
     this.disposables.push(
-      this.renderer, this.pileFishMaterial, ...this.fishKits,
+      this.renderer, this.pileFishMaterial, ...this.fishKits, this.mineBody, this.mineSpike, this.mineLightBody, this.mineMaterial, this.mineLightMaterial,
     );
     this.scene.add(new AmbientLight(0xffffff, 1.6));
     const sun = new DirectionalLight(0xffffff, 2.2);
@@ -375,6 +398,38 @@ export class FishingScene {
         this.attach(angler, made, now - 1000, false);
       }
     }
+    // Fish shaken off by a mine: the server's counts went DOWN, so take that many (of that kind) off the hook and let them tumble away.
+    for (const [id, angler] of this.anglers) {
+      const wanted = view.hooks[id]?.kinds;
+      if (!wanted) continue;
+      (['school', 'regular', 'big'] as FishKind[]).forEach((kind, ki) => {
+        let have = angler.hooked.filter((h) => h.obj.kind === kind).length;
+        while (have > wanted[ki]) {
+          const at = angler.hooked.map((h) => h.obj.kind).lastIndexOf(kind);
+          const [gone] = angler.hooked.splice(at, 1);
+          this.falling.push({ obj: gone.obj, vx: (Math.random() - 0.5) * 7, vy: 1 + Math.random() * 3, spin: (Math.random() - 0.5) * 10, age: 0 });
+          have--;
+        }
+      });
+      const points = view.hooks[id]?.points ?? 0;
+      if (points < angler.points && angler.seenAt) { // "-N" over the hook
+        const sprite = createNameTag(`-${angler.points - points}`, '#ff5a4d');
+        sprite.scale.set(2.4, 0.6, 1);
+        this.scene.add(sprite);
+        this.floaters.push({ sprite, age: 0, x: angler.x, y: -this.hookDepthNow() + angler.lift + 1.2 });
+      }
+      angler.points = points;
+    }
+    // Mines: draw them where the server says (the drifting ones glide), and when one goes off, show the blast.
+    const seenMines = new Set<number>();
+    for (const m of view.mines ?? []) {
+      seenMines.add(m.id);
+      let obj = this.mines.get(m.id);
+      if (!obj) obj = this.addMine(m);
+      obj.serverX = m.x; obj.serverY = m.y;
+      if (m.hit && !obj.exploded) this.explode(obj, m.owner);
+    }
+    for (const [id, obj] of this.mines) if (!seenMines.has(id)) { this.ocean.remove(obj.group); this.mines.delete(id); }
     for (const [id, obj] of this.fish) if (!present.has(id)) { this.ocean.remove(obj.group); this.fish.delete(id); } // swam out of range, or was reeled in
   }
 
@@ -588,21 +643,9 @@ export class FishingScene {
     }
   }
 
-  /** Lanes: a tinted strip for each player and dashed lines at the edges (the limits of how far a hook can move). */
+  /** Lanes: a tinted strip for each player (the difference in the water's color shows where each lane is; there are no lines at the edges). */
   private buildLanes(view: FishingView) {
-    const { depth } = this;
-    const dashCanvas = document.createElement('canvas');
-    dashCanvas.width = 8; dashCanvas.height = 64;
-    const g = dashCanvas.getContext('2d')!;
-    g.fillStyle = '#ffffff';
-    g.fillRect(0, 0, 8, 36);
-    const dashTexture = this.track(new CanvasTexture(dashCanvas));
-    dashTexture.wrapT = RepeatWrapping;
-    dashTexture.colorSpace = SRGBColorSpace;
-    const laneHeight = depth + 1.2;
-    dashTexture.repeat.set(1, laneHeight / 1.6);
-    const dashMaterial = this.track(new MeshBasicMaterial({ map: dashTexture, transparent: true, opacity: 0.6, depthWrite: false }));
-    const dashGeometry = this.track(new PlaneGeometry(0.14, laneHeight));
+    const laneHeight = this.depth + 1.2;
     const laneGeometry = this.track(new PlaneGeometry(this.laneWidth, laneHeight));
     view.lanes.forEach((id, i) => {
       const color = this.styles[id]?.color ?? '#ffffff';
@@ -610,11 +653,6 @@ export class FishingScene {
       tint.position.set((i + 0.5) * this.laneWidth, -laneHeight / 2, -1);
       this.ocean.add(tint);
     });
-    for (let i = 0; i <= view.lanes.length; i++) {
-      const line = new Mesh(dashGeometry, dashMaterial);
-      line.position.set(i * this.laneWidth, -laneHeight / 2, -0.5);
-      this.ocean.add(line);
-    }
   }
 
   /** The pier: a plank deck on posts, with a railing along the front edge. */
@@ -759,7 +797,7 @@ export class FishingScene {
       const tag = createNameTag(this.styles[id]?.name ?? '?', color);
       tag.scale.set(3.6, 0.9, 1);
       this.scene.add(tag);
-      this.anglers.set(id, { id, color, laneIndex: i, rod, rodSway: rand() * 6, hook, line, tag, x: laneX, targetX: laneX, lift: 0, targetLift: 0, seenAt: false, chain, hookPos: null, hookPrev: new Vector3(), released: null, hookQuat: new Quaternion(), hooked: [], prevX: laneX, vx: 0, sprayed: false });
+      this.anglers.set(id, { id, color, laneIndex: i, rod, rodSway: rand() * 6, hook, line, tag, x: laneX, targetX: laneX, lift: 0, targetLift: 0, points: 0, seenAt: false, chain, hookPos: null, hookPrev: new Vector3(), released: null, hookQuat: new Quaternion(), hooked: [], prevX: laneX, vx: 0, sprayed: false });
     });
   }
 
@@ -1098,6 +1136,15 @@ export class FishingScene {
     this.seaTexture.offset.set(seconds * 0.004, seconds * 0.002); // the sea's wave marks drift
     for (const k2 of this.kelp) k2.mesh.rotation.z = Math.sin(seconds * 0.9 + k2.phase) * 0.12;
     if (atPlayArea) this.moveBubbles(dt);
+    for (const mine of this.mines.values()) { // mines glide to where the server says (the drifting ones), bob a little, and blink their light
+      mine.x += (mine.serverX - mine.x) * Math.min(1, dt * 12); mine.y += (mine.serverY - mine.y) * Math.min(1, dt * 12);
+      mine.group.position.set(mine.x, -mine.y + Math.sin(seconds * 1.6 + mine.phase) * 0.08, 0.2); // (z 0.2: the ocean group already sits at PLAY_Z, so this is just in front of the fish plane)
+      mine.group.rotation.z = Math.sin(seconds * 0.9 + mine.phase) * 0.12;
+      mine.light.visible = Math.sin(seconds * 5 + mine.phase) > -0.2;
+    }
+    this.moveBlasts(dt);
+    this.moveFalling(dt);
+    if (atPlayArea) this.applyShake(dt, performance.now()); else this.shake = 0;
     this.sparks.update(dt);
     this.moveRipples(dt);
     this.moveFloaters(dt);
@@ -1115,13 +1162,13 @@ export class FishingScene {
       let hs = HOOK_SCALE; // the hook is small while it is up near the rod (and close to the camera), and grows to full size as it flies out
       if (t < length) {
         // The cast. The rod's angle over time: rest, wind BACK (the hook swings along with it), whip FORWARD (it stays forward) and, at the very
-        // moment it gets there, the hook is let go and flies out to sea; only after it lands does the rod ease back to rest.
+        // moment it gets there, the hook is let go and flies out to sea; after it lands the rod stays at full extension forward.
         if (t < WIND_START * k) { pitch = ROD_REST_PITCH; yaw = ROD_REST_YAW; }
         else if (t < WIND_BACK * k) { const u = smooth(WIND_START * k, WIND_BACK * k, t); pitch = lerp(ROD_REST_PITCH, ROD_BACK_PITCH, u); yaw = lerp(ROD_REST_YAW, 8, u); }
         else if (t < RELEASE * k) { const u = smooth(WIND_BACK * k, RELEASE * k, t) ** 0.7; pitch = lerp(ROD_BACK_PITCH, ROD_FORWARD_PITCH, u); yaw = lerp(8, ROD_FORWARD_YAW, u); }
         else if (t < LAND * k) { pitch = ROD_FORWARD_PITCH; yaw = ROD_FORWARD_YAW; }
-        else { const u = smooth(0, 1, (t - LAND * k) / (0.9 * k)); pitch = lerp(ROD_FORWARD_PITCH, ROD_REST_PITCH, u); yaw = lerp(ROD_FORWARD_YAW, ROD_REST_YAW, u); }
-      }
+        else { pitch = ROD_FORWARD_PITCH; yaw = ROD_FORWARD_YAW; } // after the hook lands the rod STAYS at full extension forward (it does not return to rest)
+      } else { pitch = ROD_FORWARD_PITCH; yaw = ROD_FORWARD_YAW; } // (and it stays there for the rest of the round)
       this.rodQuaternion(pitch, yaw, a.rod.quaternion);
       a.rod.updateMatrixWorld();
       const tip = this.rodTip(a, pitch, yaw);
@@ -1248,9 +1295,9 @@ export class FishingScene {
     const wantWidth = followed >= 0
       ? clamp(UNDER_VIEW_HEIGHT * this.aspect, this.laneWidth * MIN_VIEW_LANES, Math.min(total + 2, this.laneWidth * MAX_VIEW_LANES))
       : total + 2;
-    let wantX = followedX;
-    if (total + 2 > wantWidth) wantX = clamp(wantX, wantWidth / 2 - 1, total - wantWidth / 2 + 1);
-    else wantX = total / 2;
+    // A player's camera is ALWAYS centered on their own lane, even at the ends of the pier (where there is just open water beyond, and on a wide screen more of it)
+    // or when the whole pier would fit on screen. Only someone watching the whole ocean (no lane to follow) is centered on the middle of the pier.
+    const wantX = followed >= 0 ? followedX : total / 2;
     const vh = wantWidth / this.aspect;
     // The closing shot: as the hooks reach the surface the camera pans up (it does not turn) until the surface is low in the picture,
     // with room above it for the hooks to come out into.
@@ -1340,6 +1387,85 @@ export class FishingScene {
    * A splash where the hook meets the surface: a fan of water-colored spark streaks (the Tap Race sparks) thrown up and out. A hook coming out of the
    * water with fish on it makes a bigger one: the more fish, the more, higher and thicker the droplets. A hook just landing from the cast is small.
    */
+  /** A mine: a dark ball with spikes all round and a blinking red light on top. */
+  private addMine(m: { id: number; x: number; y: number; owner: string }): MineObject {
+    const group = new Group();
+    group.add(new Mesh(this.mineBody, this.mineMaterial));
+    const dirs = new IcosahedronGeometry(1, 0).getAttribute('position'); // (the corners of an icosahedron: 12 evenly spread directions, a spike on each)
+    const seen = new Set<string>();
+    for (let i = 0; i < dirs.count; i++) {
+      const d = new Vector3().fromBufferAttribute(dirs, i).normalize();
+      const key = d.toArray().map((n) => n.toFixed(2)).join();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const spike = new Mesh(this.mineSpike, this.mineMaterial);
+      spike.position.copy(d).multiplyScalar(0.58);
+      spike.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), d);
+      group.add(spike);
+    }
+    const light = new Mesh(this.mineLightBody, this.mineLightMaterial);
+    light.position.set(0, 0.62, 0.05);
+    group.add(light);
+    group.scale.setScalar(1.4); // (about the size of the area that sets it off)
+    group.position.set(m.x, -m.y, 0.2); // (inside the ocean group, which is already at PLAY_Z: putting PLAY_Z here again hid mines behind the near wall near the surface)
+    this.ocean.add(group);
+    const obj: MineObject = { group, x: m.x, y: m.y, serverX: m.x, serverY: m.y, owner: m.owner, exploded: false, phase: Math.random() * 6, light };
+    this.mines.set(m.id, obj);
+    return obj;
+  }
+
+  /** A mine went off: hide it, flash a blast, boom, and shake the screen (hard if it is in the lane being watched, only a little for others). */
+  private explode(obj: MineObject, owner: string) {
+    obj.exploded = true;
+    obj.group.visible = false;
+    const ball = new Mesh(new SphereGeometry(0.6, 16, 12), new MeshBasicMaterial({ color: '#ffb23d', transparent: true, opacity: 0.9, depthWrite: false }));
+    const ring = new Mesh(new RingGeometry(0.5, 0.65, 32), new MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.8, side: DoubleSide, depthWrite: false }));
+    for (const m of [ball, ring]) { m.position.set(obj.x, -obj.y, 0.4); this.ocean.add(m); } // (ocean-local z, as for the mines)
+    this.blasts.push({ ball, ring, age: 0 });
+    this.sparks.blast(obj.x, -obj.y, PLAY_Z + 0.5, owner === this.view.targetId ? 1 : 0.6, BLAST_PALETTE); // reddish-orange sparks flying out
+    const mine = owner === this.view.targetId;
+    audio.play(mineBoom, obj.x, -obj.y, mine ? 0.9 : 0.35, 1);
+    this.shake = Math.min(1, this.shake + (mine ? 0.5 : 0.15));
+  }
+
+  private moveBlasts(dt: number) {
+    for (let i = this.blasts.length - 1; i >= 0; i--) {
+      const b = this.blasts[i];
+      b.age += dt;
+      const u = b.age / 0.55;
+      b.ball.scale.setScalar(1 + u * 4); (b.ball.material as MeshBasicMaterial).opacity = Math.max(0, 0.9 * (1 - u));
+      b.ring.scale.setScalar(1 + u * 9); (b.ring.material as MeshBasicMaterial).opacity = Math.max(0, 0.8 * (1 - u));
+      if (u >= 1) {
+        for (const m of [b.ball, b.ring]) { this.ocean.remove(m); m.geometry.dispose(); (m.material as Material).dispose(); }
+        this.blasts.splice(i, 1);
+      }
+    }
+  }
+
+  /** Fish shaken off a hook tumble away and sink, shrinking out of sight. */
+  private moveFalling(dt: number) {
+    for (let i = this.falling.length - 1; i >= 0; i--) {
+      const f = this.falling[i];
+      f.age += dt;
+      f.vy -= 9 * dt;
+      const g = f.obj.group;
+      g.position.x += f.vx * dt; g.position.y += f.vy * dt;
+      g.rotation.z += f.spin * dt;
+      g.scale.setScalar(Math.max(0.01, g.scale.x * (1 - 1.2 * dt)));
+      if (f.age > 1.4) { this.ocean.remove(g); this.falling.splice(i, 1); }
+    }
+  }
+
+  /** A light jiggle of the camera while `shake` lasts (as in Snowball): smooth uneven sine waves, run after the camera is placed so it never builds up. */
+  private applyShake(dt: number, time: number) {
+    this.shake = Math.max(0, this.shake - SHAKE_DRAIN * dt);
+    if (this.shake === 0 || this.reduceMotion) return;
+    const t = time / 1000;
+    const amount = this.camera.position.distanceTo(new Vector3(this.cx, this.cy, PLAY_Z)) * SHAKE_FRACTION * this.shake * this.shake;
+    this.camera.position.x += Math.sin(t * 47 + 1) * amount;
+    this.camera.position.y += Math.sin(t * 61 + 2) * amount * 0.8;
+  }
+
   private splashAt(x: number, fish = 0, ring = true) {
     const power = fish === 0 ? 0.3 : Math.min(2.2, 0.4 + fish * 0.03);
     this.sparks.splash(x, 0.05, PLAY_Z + 0.5, power, WATER_PALETTE, fish === 0 ? 1 : splashAmount(fish));

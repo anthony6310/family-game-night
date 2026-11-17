@@ -208,6 +208,8 @@ export interface FishingView {
   lanes: string[]; // each player's lane, left to right (a player who left keeps an empty lane)
   /** Where each hook is along the width, how many fish it has caught, how many POINTS they are worth (the score), and how many of each kind (in FISH_KINDS order: school, regular, big). */
   hooks: Record<string, { x: number; lift: number; fish: number; points: number; kinds: [number, number, number] }>;
+  /** The mines near the hooks: whose lane each hangs in, where it is now (drifting ones move), and whether it has just gone off (for the explosion). */
+  mines: { id: number; owner: string; x: number; y: number; hit: boolean }[];
   fish: FishView[];
 }
 

@@ -44,3 +44,19 @@ export const fishCatch: SoundFn = (ctx, out, t) => {
     osc.stop(start + 0.42);
   });
 };
+
+/** A mine going off underwater: a deep thump (a quick downward sine sweep) with a muffled burst of noise. */
+export const mineBoom: SoundFn = (ctx, out, t) => {
+  const thump = ctx.createOscillator();
+  thump.type = 'sine';
+  thump.frequency.setValueAtTime(160, t);
+  thump.frequency.exponentialRampToValueAtTime(40, t + 0.35);
+  const env = ctx.createGain();
+  env.gain.setValueAtTime(0.0001, t);
+  env.gain.linearRampToValueAtTime(0.9, t + 0.01);
+  env.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+  thump.connect(env).connect(out);
+  thump.start(t);
+  thump.stop(t + 0.5);
+  grain(ctx, out, t, { type: 'lowpass', freq: 900, q: 0.7, gain: 0.7, duration: 0.4 });
+};

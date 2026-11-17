@@ -231,6 +231,21 @@ export class SparkSystem {
     }
   }
 
+  /**
+   * A blast: sparks thrown out in every direction (in the screen's plane), fast at first and slowing as they fly, each a color picked at random from `palette`
+   * ([r, g, b] in 0..1). `power` (0..1) makes it bigger: more sparks, thrown faster and further. (They are not pulled down by gravity: it is used underwater.)
+   */
+  blast(x: number, y: number, z: number, power: number, palette: [number, number, number][]) {
+    const k = Math.min(1, Math.max(0, power));
+    const count = Math.round(mix(40, 110, k));
+    for (let i = 0; i < count; i++) {
+      const angle = rand(0, Math.PI * 2);
+      const speed = rand(0.3, 1) * mix(7, 14, k);
+      const [r, g, b] = palette[Math.floor(Math.random() * palette.length)];
+      this.spawn(x, y, z, Math.cos(angle) * speed, Math.sin(angle) * speed, rand(-0.2, 0.2) * speed, rand(0.08, 0.17), rand(0.45, 0.95), r, g, b, false);
+    }
+  }
+
   private spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number, width: number, life: number, r: number, g: number, b: number, bouncer: boolean) {
     // find a free slot, or recycle the oldest one if the pool is full
     let slot = -1;

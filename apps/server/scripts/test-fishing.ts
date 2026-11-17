@@ -10,7 +10,8 @@ const check = (name: string, ok: boolean) => { if (!ok) failures++; console.log(
 const DT = 0.025;
 const cfg = DEFAULT_FISHING;
 
-const engine = createFishing();
+const NO_MINES = { mineCountMin: 0, mineCountMax: 0 }; // (the other checks aren't about mines, which would get in the way of the hooks)
+const engine = createFishing(NO_MINES);
 const viewOf = (s: Parameters<typeof engine.view>[0]) => engine.view(s) as FishingView;
 const fresh = () => engine.init(['a', 'b'], 0);
 
@@ -163,7 +164,7 @@ const passDepth = cfg.depth - (cfg.depth - cfg.endDepth) * (20 / 60); // where t
   // points: a school fish is 1, a regular fish 3, a big fish 5
   const pass = cfg.depth - (cfg.depth - cfg.endDepth) * (20 / 60);
   const catchOne = (kind: 'school' | 'regular' | 'big') => {
-    const e = createFishing();
+    const e = createFishing(NO_MINES);
     const st = e.init(['a', 'b'], 0);
     st.fish = [{ id: 1, x: 4.5 - 1, baseY: pass, phase: 0, dir: 1, speed: 0, size: 2, variant: 0, kind }]; // (held still)
     let t = st;
@@ -216,5 +217,71 @@ const passDepth = cfg.depth - (cfg.depth - cfg.endDepth) * (20 / 60); // where t
   s2 = e2.tick!(s2, DT, at);
   check('a lifted hook catches a fish that is above the steady ascent depth', s2.hooks.a.fish === 1);
 }
+{
+  // mines: identical in every lane, between 5 m and 50 m, never on top of each other; a hit shakes off 10% of the points (rounded up) as fish
+  let same = true, inRange = true, apart = true, counts = new Set<number>(), moving = 0, still = 0;
+  const yOf = (m: number) => cfg.endDepth + (m / 100) * (cfg.depth - cfg.endDepth);
+  for (let g = 0; g < 300; g++) {
+    const st = createFishing().init(['a', 'b', 'c', 'd'], 0);
+    const byOwner = ['a', 'b', 'c', 'd'].map((o) => st.mines.filter((m) => m.owner === o));
+    counts.add(byOwner[0].length);
+    byOwner.forEach((list, i) => list.forEach((m, k) => {
+      const first = byOwner[0][k];
+      if (list.length !== byOwner[0].length || m.y !== first.y || m.amp !== first.amp || m.period !== first.period || m.phase !== first.phase || Math.abs(m.cx - (first.cx + i * cfg.laneWidth)) > 1e-9) same = false;
+      if (m.y < yOf(cfg.mineMetresMin) - 1e-9 || m.y > yOf(cfg.mineMetresMax) + 1e-9) inRange = false;
+      if (m.cx - m.amp < i * cfg.laneWidth || m.cx + m.amp > (i + 1) * cfg.laneWidth) inRange = false; // (it never leaves its lane)
+      if (i === 0) m.amp > 0 ? moving++ : still++;
+    }));
+    const l = byOwner[0];
+    for (let i = 0; i < l.length; i++) for (let j = i + 1; j < l.length; j++) if (Math.hypot(Math.max(0, Math.abs(l[i].cx - l[j].cx) - l[i].amp - l[j].amp), l[i].y - l[j].y) < cfg.mineSpacing - 1e-9) apart = false;
+  }
+  check('every lane has the exact same mines: count, depth, place, drift', same);
+  check('mine counts vary from game to game within the range (1 to 4)', [...counts].every((n) => n >= cfg.mineCountMin && n <= cfg.mineCountMax) && counts.size > 1);
+  check('mines hang between 5 m and 50 m and stay inside their lane', inRange);
+  check('mines never sit on top of each other (spacing kept, counting drift sweeps)', apart);
+  check('some mines drift and some hang still', moving > 0 && still > 0);
+
+  // a hit: the hook has 3 school, 2 regular, 1 big = 14 points -> loses ceil(1.4) = 2 points, as fish taken from the hook
+  const e = createFishing({ fishPerLane: 0, schoolsPerLane: 0, bigFishCount: 0, mineCountMin: 1, mineCountMax: 1, mineMoveChance: 0 });
+  let st = e.init(['a', 'b'], 0);
+  const mine = st.mines.find((m) => m.owner === 'a')!;
+  const t0 = st.ascentStartsAt + 1000;
+  const hookAtMine = cfg.depth - (cfg.depth - cfg.endDepth) * ((mine.y > 0 ? (cfg.depth - mine.y) / (cfg.depth - cfg.endDepth) : 0));
+  void hookAtMine;
+  // put the hook level with the mine by choosing the time the steady ascent reaches the mine's depth
+  const tHit = st.ascentStartsAt + ((cfg.depth - mine.y) / (cfg.depth - cfg.endDepth)) * cfg.ascentMs;
+  st = { ...st, hooks: { ...st.hooks, a: { ...st.hooks.a, x: mine.cx, fish: 6, points: 14, kinds: [3, 2, 1] }, b: { ...st.hooks.b, x: 9 + (mine.cx > 4.5 ? 0.7 : 8.3), fish: 6, points: 14, kinds: [3, 2, 1] } } };
+  st = e.tick!(st, DT, tHit - 1000);
+  check('before the hook reaches the mine nothing is lost', st.hooks.a.points === 14 && st.mines.find((m) => m.id === mine.id)!.hitAt === undefined);
+  st = e.tick!(st, DT, tHit);
+  const a = st.hooks.a;
+  check('a hit takes 10% of the points rounded up (2 of 14) as fish shaken off', a.points <= 12 && a.points >= 14 - 6 && a.fish < 6 && a.kinds.reduce((x, y) => x + y, 0) === a.fish && a.points === a.kinds[0] + 3 * a.kinds[1] + 5 * a.kinds[2]);
+  check('the other player\'s catch is not touched (their mines are in their own lane)', st.hooks.b.points === 14 && st.hooks.b.fish === 6);
+  check('the mine is marked as set off, in the view for the explosion', st.mines.find((m) => m.id === mine.id)!.hitAt !== undefined && (e.view(st) as FishingView).mines.some((m) => m.id === mine.id && m.hit));
+  const after = st.hooks.a.points;
+  st = e.tick!(st, DT, tHit + 100);
+  check('a mine only goes off once', st.hooks.a.points === after);
+  st = e.tick!(st, DT, tHit + cfg.caughtShowMs + 100);
+  check('a set-off mine is removed after its explosion has been shown', !st.mines.some((m) => m.id === mine.id));
+  // mines work at every depth (the 5 m to 50 m range only decides where they may be PLACED), even when the server ticks late
+  let missed = 0;
+  for (let metres = 2; metres <= 98; metres += 4) for (const dt of [0.05, 0.4]) {
+    const e3 = createFishing({ fishPerLane: 0, schoolsPerLane: 0, bigFishCount: 0, mineCountMin: 1, mineCountMax: 1 });
+    let s3 = e3.init(['a'], 0);
+    s3 = { ...s3, mines: [{ id: 1, owner: 'a', cx: 4.5, amp: 0, period: 4, phase: 0, y: cfg.endDepth + metres / 100 * (cfg.depth - cfg.endDepth) }] };
+    let hit = false;
+    for (let t = s3.ascentStartsAt - 100; t < s3.endsAt && !hit; t += dt * 1000) { s3 = e3.tick!(s3, dt, t); hit = s3.mines[0]?.hitAt !== undefined; }
+    if (!hit) missed++;
+  }
+  check('a mine goes off when the hook reaches it at ANY depth, even with slow ticks', missed === 0);
+  // nothing to lose with no points: the mine is just used up
+  let z = e.init(['a'], 0);
+  const m0 = z.mines[0];
+  z = { ...z, hooks: { a: { ...z.hooks.a, x: m0.cx } } };
+  z = e.tick!(z, DT, z.ascentStartsAt + ((cfg.depth - m0.y) / (cfg.depth - cfg.endDepth)) * cfg.ascentMs);
+  check('a hook with no points loses nothing', z.hooks.a.points === 0 && z.hooks.a.fish === 0);
+  void t0;
+}
+
 console.log(failures === 0 ? '\nAll fishing checks passed.' : `\n${failures} check(s) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

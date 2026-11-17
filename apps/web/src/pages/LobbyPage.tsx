@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { DEFAULT_ROOM_NAME, GAMES, MAX_PLAYERS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, getGame, type GameId } from '@fgn/shared';
 import { Avatar } from '../components/Avatar';
@@ -7,6 +7,7 @@ import { ColorPicker } from '../components/ColorPicker';
 import { Countdown } from '../components/Countdown';
 import { ResultsScreen } from '../components/ResultsScreen';
 import { SessionOverScreen } from '../components/SessionOverScreen';
+import { StartingScreen } from '../components/StartingScreen';
 import { UnderdogReveal } from '../components/UnderdogReveal';
 import { useRoom } from '../room/RoomContext';
 import { useScreenFlash } from '../components/screenFlash';
@@ -34,6 +35,14 @@ export function LobbyPage() {
   // Before every round the screen flashes over the countdown and fades to a plain "starting" page, and the round begins almost at the end of the flash.
   // The server runs that as its own step (phase 'starting') so the game never starts under the flash; the flash itself is the same for every game (see screenFlash.ts).
   const room = useScreenFlash(liveRoom, (from, to) => from !== null && to !== null && from.phase !== 'starting' && to.phase === 'starting');
+
+  // The loading page does not just disappear when the round begins: it is kept on top of the game and fades away (see StartingScreen). `curtain` is the game it was for.
+  const [curtain, setCurtain] = useState<GameId | null>(null);
+  const previousPhase = useRef<string | null>(null);
+  useLayoutEffect(() => { // (before the browser paints, so the game is never seen for a frame without the page over it)
+    if (previousPhase.current === 'starting' && room?.phase === 'playing') setCurtain(room.settings.gameId);
+    previousPhase.current = room?.phase ?? null;
+  }, [room?.phase, room?.settings.gameId]);
 
   // As soon as the host picks a game, start downloading its code so the round can begin instantly.
   const pickedGame = room?.settings.gameId;
@@ -82,7 +91,10 @@ export function LobbyPage() {
             serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       );
-    return screen; // every game stages the shared winner moment inside its own screen (see GAME_RULES.md #2)
+    // The page over the game is the SAME element (same key, same place) as the one shown during the starting step, so it only gains the fade-out: it is never rebuilt
+    // (a rebuilt page would reload its picture and could blink for a frame). On the very first render of the round `curtain` is not set yet, so the previous phase tells.
+    const over = curtain ?? (previousPhase.current === 'starting' ? room.settings.gameId : null);
+    return <>{screen}{over && <StartingScreen key="curtain" leaving title={getGame(over)?.name ?? ''} image={GAME_IMAGES[over]} onGone={() => setCurtain(null)} />}</>; // every game stages the shared winner moment inside its own screen (see GAME_RULES.md #2)
   }
   // Between the countdown and the start of the round: everyone is shown the underdog (only happens when there is one).
   if (room.phase === 'underdog' && room.underdog && room.underdogEndsAt !== null) {
@@ -90,7 +102,7 @@ export function LobbyPage() {
   }
   // The flash step: a plain page under the flash (like a loading screen) until the round begins.
   if (room.phase === 'starting') {
-    return <div className="starting-screen"><p>{getGame(room.settings.gameId)?.name ?? ''}</p></div>;
+    return <>{null}<StartingScreen key="curtain" title={getGame(room.settings.gameId)?.name ?? ''} image={room.settings.gameId ? GAME_IMAGES[room.settings.gameId] : undefined} /></>;
   }
   if (room.phase === 'results' && room.result) {
     return <ResultsScreen room={room} selfId={selfId} error={error} serverNow={serverNow} onSkip={() => run(returnToLobby())} />;

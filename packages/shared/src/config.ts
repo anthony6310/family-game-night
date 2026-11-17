@@ -21,7 +21,7 @@ export const ROOM_CODE_LENGTH = 4;
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 /** Seconds of countdown once everyone is ready. */
-export const COUNTDOWN_SECONDS = 3;
+export const COUNTDOWN_SECONDS = 0; // (the lobby countdown is gone: every round now opens with the in-game start countdown below, GAME_RULES.md #10)
 
 /** How long a Tap Race round lasts. */
 export const TAP_RACE_SECONDS = 15;
@@ -91,15 +91,23 @@ export const FISHING_CAST_SECONDS = 7.5;
 export const FISHING_BREACH_SECONDS = 4.4;
 
 /**
- * The START FLASH: when a round is about to begin, the screen flashes (fades to a pale color over the countdown, then fades away). It is its own step
- * ("starting") between the countdown (or the underdog announcement) and the round, like a loading screen: the round does NOT start until the flash is
- * almost over. The flash takes START_FLASH_IN_MS to cover the screen and START_FLASH_OUT_MS to fade away again; the round starts START_FLASH_OVERLAP_MS
- * before the flash has finished fading, so the flash reaches just a little way into the game.
+ * The START SCREEN: when a round is about to begin, the screen flashes (fades to a pale color over the countdown), and the flash fades away to show a
+ * loading page with the game's picture and title. It is its own step ("starting") between the countdown (or the underdog announcement) and the round: the
+ * round does NOT start until it is over. The flash takes START_FLASH_IN_MS to cover the screen and START_FLASH_OUT_MS to fade away again (so the page is fully
+ * visible 2 s in); the page is then held until STARTING_MS (3.5 s in all), and on phones it fades away over the start of the game (a cross-fade, not a cut).
  */
+/**
+ * The IN-GAME START COUNTDOWN (every game; GAME_RULES.md #10). The round's own clock starts GAME_INTRO_SECONDS after the 'starting' step ends: for those seconds the
+ * scene is already shown, and a big "3, 2, 1, GO!" counts down. For the first GAME_INTRO_HOLD_SECONDS the camera hangs over all the players, then it pans and zooms
+ * onto the player's own view in the time that is left, so it is on the player before GO. Nobody can act until GO. A game with its own opening sequence (Fishing's cast)
+ * sets `introSeconds: 0` in games.ts and times its countdown so that GO is the moment the player gets control.
+ */
+export const GAME_INTRO_SECONDS = 3;
+export const GAME_INTRO_HOLD_SECONDS = 2;
+
 export const START_FLASH_IN_MS = 600;
 export const START_FLASH_OUT_MS = 1400;
-export const START_FLASH_OVERLAP_MS = 300;
-export const STARTING_MS = START_FLASH_IN_MS + START_FLASH_OUT_MS - START_FLASH_OVERLAP_MS; // how long the 'starting' step lasts: 1.7 s
+export const STARTING_MS = 3500; // how long the 'starting' step lasts: 3.5 s
 
 /**
  * Rooms are found in a LIST (not by a code). The host names the room (this name is used if they don't), and may add a password. Names and

@@ -219,8 +219,16 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .fish-depth { position: absolute; left: 0.8rem; bottom: 1.2rem; margin: 0; padding: 0.25rem 0.6rem; border-radius: 0.5rem; background: rgba(8, 30, 60, 0.55); color: #fff; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
 
 /* The "starting" step before a round: a plain pale page (the same color as the start flash) that the flash fades away from, like a loading screen. */
-.starting-screen { position: fixed; inset: 0; z-index: 10; background: #eafcff; display: flex; align-items: center; justify-content: center; }
-.starting-screen p { margin: 0; font-size: 1.6rem; font-weight: bold; color: #5a7d99; letter-spacing: 0.05em; }
+/* The loading page between the countdown and the game: the game's picture and title on the flash's pale color. Its content fades in as the flash fades away; when the round
+   begins it is laid over the game (.leaving) and fades out, after a short hold (0.35 s, so a heavy game has time to draw its first frames before the page starts to lift). */
+.starting-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; z-index: 1000; background: #eafcff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.4rem; padding: 1rem; }
+.starting-art { width: min(86vw, 30rem); aspect-ratio: 16 / 10; object-fit: cover; border-radius: 1rem; box-shadow: 0 0.6rem 2rem rgba(60, 100, 140, 0.35); animation: starting-in 1s ease-out both; }
+.starting-screen p { margin: 0; font-size: 2rem; font-weight: bold; color: #5a7d99; letter-spacing: 0.05em; text-align: center; animation: starting-in 1s ease-out 0.15s both; }
+.starting-screen.leaving { pointer-events: none; animation: starting-out 0.8s ease-in-out 0.35s both; }
+.starting-screen.leaving .starting-art, .starting-screen.leaving p { animation: none; }
+@keyframes starting-in { from { opacity: 0; transform: translateY(0.6rem) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes starting-out { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .starting-art, .starting-screen p { animation: none; } }
 
 /* The room list (hub) and the room's name and password (lobby): everything centered, with each thing's buttons stacked under it. */
 .rooms-section { width: 100%; max-width: 32rem; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.5rem; margin-top: 1rem; }
@@ -243,3 +251,10 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .rooms-section .error, .rooms-section .muted { text-align: center; margin: 0; }
 /* The picked game's tile, as shown to people who are not the host: one tile, centered (the host picks from the full grid). */
 .game-tile-shown { width: 100%; margin: 0 auto; border-radius: 0.75rem; border: 2px solid #ff5d8f; }
+
+/* The in-game start countdown (StartCountdown): a big "3, 2, 1, GO!" in the middle of the scene. Each number pops in (big, settling) and fades; each is bigger than the last (--grow). */
+.start-count { position: fixed; inset: 0; z-index: 1100; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.start-count-num { font-size: calc(clamp(7rem, 26vw, 15rem) * var(--grow, 1)); font-weight: bold; line-height: 1; color: #ff5d8f; text-shadow: 0 0.04em 0 #fff, 0 0 0.25em rgba(255, 93, 143, 0.6), 0 0.08em 0.4em rgba(0, 0, 0, 0.4); animation: start-count-pop 1s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+.start-count-num.go { color: #ffd23d; text-shadow: 0 0.04em 0 #fff, 0 0 0.3em rgba(255, 210, 61, 0.7), 0 0.08em 0.4em rgba(0, 0, 0, 0.4); animation-duration: 0.9s; }
+@keyframes start-count-pop { 0% { transform: scale(1.7); opacity: 0; } 18% { transform: scale(1); opacity: 1; } 72% { transform: scale(0.96); opacity: 1; } 100% { transform: scale(0.9); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .start-count-num { animation-name: start-count-fade; } @keyframes start-count-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } } }

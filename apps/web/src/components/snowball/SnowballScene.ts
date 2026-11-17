@@ -174,6 +174,8 @@ export class SnowballScene {
   private shadowGeometry = new CircleGeometry(1.1, 24);
 
   // The camera is the shared, game-agnostic spectator rig: players always "follow" themselves, spectators choose.
+  /** The start countdown's camera move, 0 (over everyone) .. 1 (on the player); set by the game screen from the server's clock. */
+  introFactor: () => number = () => 1;
   private rig!: SpectatorRig;
   private view: { mode: CameraMode; targetId: string | null };
   private pan: { current: { x: number; z: number } } = { current: { x: 0, z: 0 } }; // the free camera's input (a React ref)
@@ -717,7 +719,7 @@ export class SnowballScene {
   private updateCamera(dt: number, poses: Record<string, Pose> | null) {
     const followed = this.view.targetId && poses ? poses[this.view.targetId] : undefined;
     const target = followed && { x: followed.x, y: this.terrain.height(followed.x, followed.z), z: followed.z, size: followed.radius }; // follows the ground up and down the hills
-    this.rig.update(dt, this.view.mode, target, this.pan.current, this.zoom);
+    this.rig.update(dt, this.view.mode, target, this.pan.current, this.zoom, this.introFactor());
   }
 }
 

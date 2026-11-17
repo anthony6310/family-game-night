@@ -1,3 +1,4 @@
+import { StartCountdown } from './StartCountdown';
 import { useEffect, useMemo, useRef } from 'react';
 import type { FishingView, GameAction, Player, RoundResult } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
@@ -81,6 +82,7 @@ export default function FishingScreen({ game, players, colors, selfId, serverNow
 
   return (
     <div className="snow-screen fishing-screen">
+      <StartCountdown goAt={game.ascentStartsAt} serverNow={serverNow} /> {/* (GO! is the moment the hooks get control: the end of the cast) */}
       <div className="snow-canvas" ref={container} />
 
       <div className="snow-hud">

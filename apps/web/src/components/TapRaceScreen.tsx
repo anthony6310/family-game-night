@@ -1,3 +1,4 @@
+import { StartCountdown, introProgress } from './StartCountdown';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { type GameAction, type Player, type RoundResult, type TapRaceView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
@@ -53,6 +54,7 @@ export default function TapRaceScreen({ game, players, colors, selfId, serverNow
   useEffect(() => {
     const s = new TapRaceScene(container.current!, styles, isPlayer ? selfId : null);
     scene.current = s;
+    s.introFactor = () => introProgress(game.startsAt, serverNow()); // the camera's start-countdown move (see StartCountdown)
     return () => {
       s.dispose();
       scene.current = null;
@@ -100,6 +102,7 @@ export default function TapRaceScreen({ game, players, colors, selfId, serverNow
 
   return (
     <div className="snow-screen tap-screen">
+      <StartCountdown goAt={game.startsAt} serverNow={serverNow} />
       {/* The board. For a player, a tap on it presses their button. (touch-action is off in CSS, so a tap is never a scroll or zoom.) */}
       <div className="snow-canvas" ref={container} onPointerDown={onTap} onContextMenu={(e) => e.preventDefault()} />
 

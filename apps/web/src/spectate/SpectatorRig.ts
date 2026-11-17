@@ -38,7 +38,11 @@ export class SpectatorRig {
   get focusX() { return this.focus.x; }
   get focusZ() { return this.focus.z; }
 
-  update(dt: number, mode: CameraMode, target: FollowTarget | undefined, pan: { x: number; z: number }, zoom: number) {
+  /**
+   * `intro` (0..1) is the start countdown's camera move: 0 = hanging over the whole arena (everyone in view), 1 = the normal view. Between, the camera glides from the
+   * overview into the player's view along an eased path (it is placed exactly, not smoothed, so it follows the countdown's clock). Only the follow view uses it.
+   */
+  update(dt: number, mode: CameraMode, target: FollowTarget | undefined, pan: { x: number; z: number }, zoom: number, intro = 1) {
     const k = 1 - Math.exp(-4 * dt); // frame-rate independent smoothing
     let wantFocus: Vector3;
     let wantHeight: number;
@@ -69,10 +73,19 @@ export class SpectatorRig {
     }
     this.mode = mode;
 
-    this.focus.lerp(wantFocus, k);
-    this.height += (wantHeight - this.height) * k;
-    this.back += (wantBack - this.back) * k;
-    this.size += (wantSize - this.size) * k;
+    if (intro < 1 && mode !== 'free') {
+      // The start countdown: from the overview (the middle of the arena, high above) to where the player's view wants to be.
+      const t = intro;
+      this.focus.set(wantFocus.x * t, wantFocus.y * t, wantFocus.z * t);
+      this.height = this.arenaRadius * 1.25 * zoom + (wantHeight - this.arenaRadius * 1.25 * zoom) * t;
+      this.back = this.arenaRadius * 0.75 * zoom + (wantBack - this.arenaRadius * 0.75 * zoom) * t;
+      this.size = wantSize * t;
+    } else {
+      this.focus.lerp(wantFocus, k);
+      this.height += (wantHeight - this.height) * k;
+      this.back += (wantBack - this.back) * k;
+      this.size += (wantSize - this.size) * k;
+    }
     this.camera.position.set(this.focus.x, this.focus.y + this.height, this.focus.z + this.back);
     this.camera.lookAt(this.focus.x, this.focus.y + MathUtils.clamp(this.size, 0, 10) * 0.4, this.focus.z);
   }

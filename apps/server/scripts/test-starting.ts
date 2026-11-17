@@ -2,7 +2,7 @@
  * The "starting" (flash) step between the countdown and the round:  npm run test:starting -w @fgn/server
  * Rooms are driven directly (no sockets), the way test-finish-length does it.
  */
-import { START_FLASH_IN_MS, START_FLASH_OUT_MS, START_FLASH_OVERLAP_MS, STARTING_MS, type Player } from '@fgn/shared';
+import { START_FLASH_IN_MS, START_FLASH_OUT_MS, STARTING_MS, type Player } from '@fgn/shared';
 import { RoomManager } from '../src/rooms';
 
 let failures = 0;
@@ -24,8 +24,8 @@ function ready(options: ConstructorParameters<typeof RoomManager>[0], n = 2) {
   return { rooms, code, countdownEndsAt: last.room.countdownEndsAt };
 }
 
-// ---- the flash step's timing: the round starts a little before the flash has finished fading ----
-check('config: the starting step is flash in + flash out - the overlap (0.6 + 1.4 - 0.3 = 1.7 s)', STARTING_MS === START_FLASH_IN_MS + START_FLASH_OUT_MS - START_FLASH_OVERLAP_MS && STARTING_MS === 1700);
+// ---- the flash step's timing: the round starts after the flash and the loading page ----
+check('config: the starting step lasts 3.5 s, and the flash (0.6 s in + 1.4 s out) is over well before it ends', STARTING_MS === 3500 && START_FLASH_IN_MS + START_FLASH_OUT_MS < STARTING_MS);
 
 // ---- with a flash step: countdown -> starting -> playing ----
 {

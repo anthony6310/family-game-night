@@ -61,6 +61,8 @@ export class TapRaceScene {
   private resizeObserver: ResizeObserver;
   private rafId = 0;
   private lastFrame = performance.now();
+  /** The start countdown's camera move, 0 (over everyone) .. 1 (on the player); set by the game screen from the server's clock. */
+  introFactor: () => number = () => 1;
   private rig: SpectatorRig;
   private view: { mode: CameraMode; targetId: string | null };
   private pan: { current: { x: number; z: number } } = { current: { x: 0, z: 0 } };
@@ -316,7 +318,7 @@ export class TapRaceScene {
     audio.setListener(this.rig.focusX, this.rig.focusZ); // you hear from where the camera is looking
 
     const followed = this.view.targetId ? this.buttons.get(this.view.targetId) : undefined;
-    this.rig.update(dt, this.view.mode, followed && { x: followed.x, y: 0, z: followed.z, size: 0 }, this.pan.current, this.zoom);
+    this.rig.update(dt, this.view.mode, followed && { x: followed.x, y: 0, z: followed.z, size: 0 }, this.pan.current, this.zoom, this.introFactor());
     this.renderer.render(this.scene, this.camera);
   };
 }

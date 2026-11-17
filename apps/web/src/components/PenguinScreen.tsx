@@ -1,3 +1,4 @@
+import { StartCountdown, introProgress } from './StartCountdown';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GameAction, PenguinLassoView, Player, RoundResult } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
@@ -47,6 +48,7 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
   useEffect(() => {
     const s = new PenguinScene(container.current!, game.arenaRadius, game.trailMax, styles, isPlayer ? selfId : null);
     scene.current = s;
+    s.introFactor = () => introProgress(game.startsAt, serverNow()); // the camera's start-countdown move (see StartCountdown)
     return () => {
       s.dispose();
       scene.current = null;
@@ -102,6 +104,7 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
 
   return (
     <div className="snow-screen penguin-screen">
+      <StartCountdown goAt={game.startsAt} serverNow={serverNow} />
       <div className="snow-canvas" ref={container} />
 
       <div className="snow-hud">

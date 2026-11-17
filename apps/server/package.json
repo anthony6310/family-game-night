@@ -22,6 +22,7 @@
     "test:penguin": "tsx scripts/test-penguin.ts",
     "test:fishing": "tsx scripts/test-fishing.ts",
     "test:starting": "tsx scripts/test-starting.ts",
+    "test:intro": "tsx scripts/test-intro.ts",
     "test:roomlist": "tsx --env-file=.env scripts/test-roomlist.ts",
     "test:fishing-net": "tsx --env-file=.env scripts/test-fishing-net.ts",
     "test:betting": "tsx scripts/test-betting.ts",

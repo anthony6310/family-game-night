@@ -1,3 +1,4 @@
+import { StartCountdown, introProgress } from './StartCountdown';
 import { useEffect, useMemo, useRef } from 'react';
 import type { GameAction, Player, RoundResult, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
@@ -48,6 +49,7 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
     s.setBaseSpeed(game.speedRange.base);
     s.setMaxSpeedFactor(game.speedRange.max / game.speedRange.base);
     scene.current = s;
+    s.introFactor = () => introProgress(game.startsAt, serverNow()); // the camera's start-countdown move (see StartCountdown)
     return () => {
       s.dispose();
       scene.current = null;
@@ -96,6 +98,7 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
 
   return (
     <div className="snow-screen">
+      <StartCountdown goAt={game.startsAt} serverNow={serverNow} />
       <div className="snow-canvas" ref={container} />
 
       <div className="snow-hud">

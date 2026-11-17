@@ -169,13 +169,14 @@ Games that have it so far: **Tap Race**, **Snowball**, **Penguin Lasso** and **F
 
 ---
 
-## 8. Every game starts with a screen flash, as its own step (nothing to add per game)
+## 8. Every game starts with a screen flash and a loading page, as its own step (nothing to add per game)
 
-**The rule.** Before a round, the screen flashes: it fades to a pale flash over the countdown (or the underdog announcement), becomes a plain "starting" page like a loading screen, and the flash fades away (2 seconds in all: 0.6 s in, 1.4 s out). **The round does not start until the flash is almost over**: it begins 0.3 s before the flash has finished fading, so the flash only just reaches into the game. No game ever starts under the flash.
+**The rule.** Before a round, the screen flashes: it fades to a pale flash over the countdown (or the underdog announcement), becomes a loading page showing the game's picture and title, and the flash fades away (0.6 s in, 1.4 s out). The page is held until 3.5 seconds after the step began, **then the round starts and the page fades out over the first moments of the game** (a cross-fade, never a cut). No game ever starts under the flash.
 
 **How it is done.**
-- The server runs it as its own phase, **`'starting'`**, between the countdown (or `'underdog'`) and `'playing'`. It lasts `STARTING_MS` (1.7 s = flash in + flash out - overlap, all from `START_FLASH_*` in `packages/shared/src/config.ts`). The game state is only created when the step ends, so the game's own clock (`startsAt`) starts then. A player leaving during it can call the round off, like during the underdog announcement. (Tests that shorten the countdown get no flash step unless they pass `startingMs`; `STARTING_MS=0` in the dev server's environment turns it off.)
-- On the phones, one reusable hook, `useScreenFlash` in `apps/web/src/components/screenFlash.ts`, is used once, in `LobbyPage`: when the room enters `'starting'` it keeps showing the old screen while the flash fades in, then switches to the plain starting page; the game screen replaces that when the round begins, still under the last of the flash. Because it sits above every game screen, **a new game gets all of this for free**.
+- The server runs it as its own phase, **`'starting'`**, between the countdown (or `'underdog'`) and `'playing'`. It lasts `STARTING_MS` (3.5 s, in `packages/shared/src/config.ts`, next to the `START_FLASH_*` timings). The game state is only created when the step ends, so the game's own clock (`startsAt`) starts then. A player leaving during it can call the round off, like during the underdog announcement. (Tests that shorten the countdown get no flash step unless they pass `startingMs`; `STARTING_MS=0` in the dev server's environment turns it off.)
+- On the phones, one reusable hook, `useScreenFlash` in `apps/web/src/components/screenFlash.ts`, is used once, in `LobbyPage`: when the room enters `'starting'` it keeps showing the old screen while the flash fades in, then switches to the loading page (`StartingScreen`, with the picture from `GAME_IMAGES`). When the round begins, the same page is laid over the game and fades away. Because it sits above every game screen, **a new game gets all of this for free** (give it a picture in `GAME_IMAGES`).
+- The game's code is downloaded as soon as the host picks it, so it is ready before the round begins.
 - This is separate from any flash a game does inside its own scene (Fishing flashes when it cuts from the pier to the water and from the water to the dock): those have their own timings and are not affected.
 
 ---
@@ -185,3 +186,37 @@ Games that have it so far: **Tap Race**, **Snowball**, **Penguin Lasso** and **F
 **The rule.** The picture on a game's tile (`apps/web/public/games/<game-id>.png`, 720 x 450) is a screenshot of the game's **3D models only**: no HUD, timer, scoreboard, names, buttons, joysticks or hints, and no player names on anything. (Penguin Lasso's picture had a player's name in it and was retouched to remove it.) Fishing's picture is a hook in the water with a random assortment of school and regular fish, and never a big fish.
 
 **How it is done.** Make a short-lived preview page that builds only the game's scene (no React screen around it) in a fixed pose, screenshot that, then delete the preview. Register the file in `GAME_IMAGES` in `apps/web/src/pages/LobbyPage.tsx`.
+
+---
+
+## 10. Every game opens with a start countdown, and GO! is the moment the player gets control
+
+**The rule.** After the loading page (rule 8), the scene is shown and a big **3, 2, 1, GO!** counts down. Nobody can act until GO, and the round's own clock starts at GO.
+- **Standard games** (Tap Race, Snowball, Penguin Lasso): the camera first **hangs over all the players for 2 seconds**, then pans and zooms into the player's own view during the last second, so it is **already on the player before GO**. The countdown takes `GAME_INTRO_SECONDS` (3 s) in all.
+- **A game with its own opening sequence** (Fishing's cast from the pier) sets `introSeconds: 0` in `packages/shared/src/games.ts` and times the countdown so that **GO! is the moment the player gets control** (Fishing: when the hooks start rising, `ascentStartsAt`; the 3, 2, 1 shows over the last 3 seconds of the cast).
+- The numbers use the same look and sounds as the end-of-round countdown: big bold text that pops in and fades, **each number bigger than the last**, the same tick / tock that gets louder each second, and the whistle at GO. They are timed from the server's clock, so every phone shows GO together.
+- There is **no separate lobby countdown** any more (`COUNTDOWN_SECONDS` is 0): everyone ready goes straight to the flash and loading page (rule 8), then this.
+
+**How it is done.**
+- **Server** (`rooms.ts`, `startRound`): the scene is shown at once (phase `'playing'`), but the engine is created with `startsAt` = now + the intro, so all of its clocks start then. Until then `gameAction` ignores actions and the tick loop does not run (no engine needs to know about the intro). Tests that shorten the countdown get no intro unless they pass `introMs`. Test: `npm run test:intro -w @fgn/server`.
+- **Phones:** one component, `StartCountdown` (`apps/web/src/components/StartCountdown.tsx`), takes `goAt` and the server clock and is placed at the top of each game screen. For the camera, `introProgress(startsAt, now)` (same file) gives 0..1; each 3D scene has an `introFactor` that its screen sets from it, and the shared `SpectatorRig` (`update(..., intro)`) glides from the overview to the player's view. Spectators get the same intro.
+
+**Adding it to a new game:** with a normal start, you get the clock and the input lock for free; put `<StartCountdown goAt={game.startsAt} serverNow={serverNow} />` in the screen, and if the scene uses `SpectatorRig`, set `scene.introFactor` the way the other screens do. With an opening sequence of its own, set `introSeconds: 0` and pass the moment control starts as `goAt`.
+
+---
+
+## 11. Every game has an opening sequence and a closing sequence (the bare minimum is the standard pair; a game may do more)
+
+**The rule.** No game jumps straight into play or straight out of it. Every game has both:
+
+- **An opening sequence.** The bare minimum, which every standard game already has (Tap Race, Snowball, Penguin Lasso), is rule 10's pair: the camera **shows the whole game** (hanging over all the players for 2 seconds), then **pans and zooms to the player's own angle**, with the 3, 2, 1 counting down, and the round **starts at GO**.
+- **A closing sequence.** The bare minimum, which every game already has, is rule 2's pair: the round freezes on the player's own view, then the camera **pans to the winner** (for everyone) and a banner says **who won**.
+
+A game is free to have bigger sequences than the minimum (Fishing: the pier view and the cast to open; the hooks breaking the surface, a spin over the dock and the piles to close). It must never have less.
+
+**A bigger sequence means the timing changes, and the game must say so.**
+- **A longer or different opening:** the start countdown must be **adjusted so that GO! lands at the moment the player gets control**, which is not necessarily when the scene appears. Set `introSeconds` in `packages/shared/src/games.ts` (0 when the opening plays inside the round, as Fishing's cast does) and give the game screen's `<StartCountdown goAt={...}>` the moment control starts (see rule 10). The 3, 2, 1 is always the last 3 seconds before that moment, and the camera must already be on the player by GO.
+- **A longer or different closing:** set `finishSeconds` for the game in `games.ts` to the whole length of its sequence (the usual hold on the player's own view plus the winner moment, plus anything the game adds before it, such as Fishing's `FISHING_BREACH_SECONDS`). The winner pan and banner still come last, and the results screen only follows after it. `npm run test:finish-length -w @fgn/server` checks every game's finish length, so update it when a game's length changes.
+
+**Checklist for a new game.** (1) Opening: scene shown, camera overview then pan to the player, countdown ending in GO at the moment of control, input ignored before GO. (2) Closing: input stops, the camera pans to the winner, the banner names them. (3) If either is longer than the standard, `introSeconds` / `finishSeconds` and the countdown's `goAt` are changed to match, and this is written in the game's entry here or in the code comment beside them.
+

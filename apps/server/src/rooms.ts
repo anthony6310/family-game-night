@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { hashPassword, verifyPassword } from './passwords';
 import {
   PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
-  COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
+  COUNTDOWN_SECONDS, FINISH_SECONDS, GAME_INTRO_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
   PENGUIN_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, getGame,
   DEFAULT_ROOM_NAME, MAX_ROOMS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
@@ -34,7 +34,7 @@ interface Room {
   startingEndsAt: number | null; // when the 'starting' (flash) step ends and the round begins
   wins: Record<string, number>; // rounds won this session, by player id (kept when a player leaves)
   sessionSaved: boolean; // this session's winner has already been handed out for saving (never save twice)
-  game: { engine: GameEngine; state: unknown; lastTickAt: number } | null; // set while phase is 'playing' or 'finish' (frozen in 'finish')
+  game: { engine: GameEngine; state: unknown; lastTickAt: number; playStartsAt: number } | null; // (playStartsAt: when the start countdown ends and the round really begins) // set while phase is 'playing' or 'finish' (frozen in 'finish')
   result: RoundResult | null; // set while phase is 'finish' or 'results'
   finishEndsAt: number | null; // when the "you won / you lost" sequence ends
   resultsEndsAt: number | null;
@@ -77,16 +77,19 @@ export class RoomManager {
   private roomOfPlayer = new Map<string, string>(); // playerId -> room code
   private countdownMs: number;
   private resultsMs: number;
+  private introMsOverride: number | undefined; // set by tests: the in-game start countdown lasts this long for every game
   private startingMs: number; // how long the flash step before every round lasts (0 = none)
   private finishMsOverride: number | undefined; // set by tests: every game's finish sequence lasts this long
   private engines: Record<GameId, GameEngine>;
 
   /** Durations are injectable so tests can run fast. */
-  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number; startingMs?: number } = {}) {
+  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number; startingMs?: number; introMs?: number } = {}) {
     this.countdownMs = options.countdownMs ?? COUNTDOWN_SECONDS * 1000;
     this.resultsMs = options.resultsMs ?? RESULTS_SECONDS * 1000;
     // The flash step lasts STARTING_MS, except in tests: a test that shortens the countdown wants fast rounds too, so it gets no flash step unless it asks for one.
     this.startingMs = options.startingMs ?? (options.countdownMs !== undefined ? 0 : STARTING_MS);
+    // The in-game start countdown (GAME_INTRO_SECONDS, or the game's own): none in tests that shorten the countdown, unless they ask for one.
+    this.introMsOverride = options.introMs ?? (options.countdownMs !== undefined ? 0 : undefined);
     this.finishMsOverride = options.finishMs;
     this.engines = {
       'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000),
@@ -393,8 +396,10 @@ export class RoomManager {
     room.countdownEndsAt = null;
     room.underdogEndsAt = null;
     room.startingEndsAt = null;
-    const now = Date.now();
-    room.game = { engine, state: engine.init(this.participants(room), now), lastTickAt: now };
+    // The in-game start countdown: the scene is shown at once, but the round's clock (and everything in it) starts `introMs` later; until then nothing moves and actions are ignored.
+    const introMs = this.introMsOverride ?? (getGame(room.settings.gameId)?.introSeconds ?? GAME_INTRO_SECONDS) * 1000;
+    const playStartsAt = Date.now() + introMs;
+    room.game = { engine, state: engine.init(this.participants(room), playStartsAt), lastTickAt: playStartsAt, playStartsAt };
   }
 
   /** A phone sent an in-game action (e.g. a tap). Returns null if it was ignored entirely. */
@@ -403,6 +408,7 @@ export class RoomManager {
     if (!room || room.phase !== 'playing' || !room.game) return null;
     if (room.watching.has(playerId)) return null; // watchers can't act, whatever they send
     const now = Date.now();
+    if (now < room.game.playStartsAt) return null; // the start countdown is still running: no one can act yet
     room.game.state = room.game.engine.reduce(room.game.state, playerId, action, now);
     // Some games end early (first to N); Tap Race just waits for its timer.
     if (room.game.engine.isOver(room.game.state, now)) return this.endRound(room);
@@ -418,7 +424,7 @@ export class RoomManager {
     const results: { code: string; view?: GameView; ended?: Outcome }[] = [];
     for (const room of this.rooms.values()) {
       const game = room.game;
-      if (room.phase !== 'playing' || !game?.engine.tick) continue;
+      if (room.phase !== 'playing' || !game?.engine.tick || now < game.playStartsAt) continue; // (nothing moves during the start countdown)
       // Real elapsed time, capped so a stalled server can't make balls teleport.
       const dt = Math.min(0.1, Math.max(0, (now - game.lastTickAt) / 1000));
       game.lastTickAt = now;

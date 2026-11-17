@@ -116,6 +116,8 @@ export class PenguinScene {
   private disposed = false;
   private textureLoader = new TextureLoader().setCrossOrigin('anonymous');
   private flecks = new FleckSystem(300);
+  /** The start countdown's camera move, 0 (over everyone) .. 1 (on the player); set by the game screen from the server's clock. */
+  introFactor: () => number = () => 1;
   private rig: SpectatorRig;
   private view: { mode: CameraMode; targetId: string | null };
   private pan: { current: { x: number; z: number } } = { current: { x: 0, z: 0 } };
@@ -556,7 +558,7 @@ export class PenguinScene {
     this.updateIgloos(dt);
     // Camera: follow a skater, or fly the free camera (see SpectatorRig). Size 1: the follow view doesn't depend on size.
     const followed = this.view.targetId && poses ? poses[this.view.targetId] : undefined;
-    this.rig.update(dt, this.view.mode, followed && { x: followed.x, y: 0, z: followed.z, size: 1 }, this.pan.current, this.zoom);
+    this.rig.update(dt, this.view.mode, followed && { x: followed.x, y: 0, z: followed.z, size: 1 }, this.pan.current, this.zoom, this.introFactor());
     this.flecks.update(dt);
     this.renderer.render(this.scene, this.camera);
   };

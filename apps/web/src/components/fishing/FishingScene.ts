@@ -11,6 +11,7 @@ import { createRoundClock } from '../../audio/roundClock';
 import { fishCatch, rodSwish, splash } from '../../audio/fishSounds';
 import type { SoundFn } from '../../audio/snowSounds';
 import { createNameTag, disposeNameTag } from '../labelTexture';
+import { FISH_LENGTH, FishKit } from '../snowball/fish';
 import { SparkSystem } from '../taprace/sparks';
 
 /** How a player is drawn: their name tag and the color of their weight and lane. */
@@ -298,24 +299,8 @@ export class FishingScene {
   private wetSheen = new MeshStandardMaterial({ color: '#4db3ee', transparent: true, opacity: 0.2, roughness: 0.05, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 }); // (a faint bluish film of water)
   private pileFishMaterial = new MeshStandardMaterial({ vertexColors: true, roughness: 0.55, side: DoubleSide });
 
-  // shared fish parts: every swimming fish is built from these, so there are only a handful of GPU objects however many fish there are
-  private bodyGeometry = new SphereGeometry(1, 16, 12);
-  private finGeometry = (() => {
-    const s = new Shape();
-    s.moveTo(0, 0); s.lineTo(-0.55, 0.4); s.lineTo(-0.5, 0); s.lineTo(-0.55, -0.4); s.closePath(); // the forked tail, pointing back from the origin
-    return new ShapeGeometry(s);
-  })();
-  private dorsalGeometry = (() => {
-    const s = new Shape();
-    s.moveTo(-0.25, 0); s.lineTo(0.2, 0); s.lineTo(-0.15, 0.32); s.closePath();
-    return new ShapeGeometry(s);
-  })();
-  private eyeMaterial = new MeshBasicMaterial({ color: '#ffffff' });
-  private pupilMaterial = new MeshBasicMaterial({ color: '#10131f' });
-  private mouthMaterial = new MeshBasicMaterial({ color: '#4a1f1f' });
-  private bodyMaterials = FISH_COLORS.map((c) => new MeshStandardMaterial({ color: c.body, roughness: 0.55 }));
-  private bellyMaterials = FISH_COLORS.map((c) => new MeshStandardMaterial({ color: c.belly, roughness: 0.6 }));
-  private finMaterials = FISH_COLORS.map((c) => new MeshStandardMaterial({ color: c.fin, roughness: 0.7, side: DoubleSide }));
+  // The fish are the Snowball fish model (see snowball/fish.ts), in six colors, with real eyes. One kit per color shares its geometry and materials.
+  private fishKits = FISH_COLORS.map((c) => new FishKit({ body: c.body, fin: c.fin, eyes: 'round' }));
 
   constructor(
     private container: HTMLElement,
@@ -328,8 +313,7 @@ export class FishingScene {
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
     this.disposables.push(
-      this.renderer, this.bodyGeometry, this.finGeometry, this.dorsalGeometry, this.eyeMaterial, this.pupilMaterial, this.mouthMaterial, this.pileFishMaterial,
-      ...this.bodyMaterials, ...this.bellyMaterials, ...this.finMaterials,
+      this.renderer, this.pileFishMaterial, ...this.fishKits,
     );
     this.scene.add(new AmbientLight(0xffffff, 1.6));
     const sun = new DirectionalLight(0xffffff, 2.2);
@@ -770,35 +754,12 @@ export class FishingScene {
   // ---------- fish ----------
 
   private addFish(f: FishView, now: number): FishObject {
-    const size = f.size;
+    const size = f.size; // its length: the model's body is FISH_LENGTH long, so it is scaled to fit (its nose, the mouth, is at the front: x + dir x size / 2)
     const group = new Group();
-    const body = new Mesh(this.bodyGeometry, this.bodyMaterials[f.variant % 6]);
-    body.scale.set(size * 0.5, size * 0.24, size * 0.19);
-    const belly = new Mesh(this.bodyGeometry, this.bellyMaterials[f.variant % 6]);
-    belly.scale.set(size * 0.45, size * 0.15, size * 0.17);
-    belly.position.set(size * 0.02, -size * 0.09, 0.02);
-    group.add(body, belly);
-    const tail = new Mesh(this.finGeometry, this.finMaterials[f.variant % 6]);
-    tail.scale.setScalar(size * 0.9);
-    tail.position.x = -size * 0.42;
-    group.add(tail);
-    const dorsal = new Mesh(this.dorsalGeometry, this.finMaterials[f.variant % 6]);
-    dorsal.scale.setScalar(size * 0.8);
-    dorsal.position.set(size * 0.02, size * 0.2, 0);
-    group.add(dorsal);
-    for (const side of [1, -1]) { // an eye on each side, so the fish looks right whichever way it faces
-      const eye = new Mesh(this.bodyGeometry, this.eyeMaterial);
-      eye.scale.setScalar(size * 0.065);
-      eye.position.set(size * 0.28, size * 0.07, side * size * 0.155);
-      const pupil = new Mesh(this.bodyGeometry, this.pupilMaterial);
-      pupil.scale.setScalar(size * 0.035);
-      pupil.position.set(size * 0.295, size * 0.07, side * size * 0.19);
-      group.add(eye, pupil);
-    }
-    const mouth = new Mesh(this.bodyGeometry, this.mouthMaterial); // a dark dot right at the front: that is where the hook has to go
-    mouth.scale.setScalar(size * 0.045);
-    mouth.position.set(size * 0.49, -size * 0.02, 0);
-    group.add(mouth);
+    const model = this.fishKits[f.variant % 6].create();
+    model.scale.setScalar(size / FISH_LENGTH);
+    group.add(model);
+    const tail = model.userData.tail as Mesh;
     group.rotation.y = f.dir === 1 ? 0 : Math.PI;
     group.position.z = ((f.id % 7) - 3) * 0.06;
     this.ocean.add(group);
@@ -811,28 +772,23 @@ export class FishingScene {
   private pileFishGeometry(variant: number): BufferGeometry {
     const cached = this.pileFishGeometries[variant];
     if (cached) return cached;
-    const c = FISH_COLORS[variant % 6];
-    const part = (geometry: BufferGeometry, color: string, m: Matrix4) => {
-      const g = geometry.clone().applyMatrix4(m);
-      const col = new Color(color);
+    // Build one model, then bake every part (in its place, colored per vertex from its material) into a single mesh of length 1.
+    const model = this.fishKits[variant % 6].create();
+    model.scale.setScalar(1 / FISH_LENGTH);
+    model.updateMatrixWorld(true);
+    const parts: BufferGeometry[] = [];
+    model.traverse((o) => {
+      const mesh = o as Mesh;
+      if (!mesh.isMesh) return;
+      const g = mesh.geometry.clone().applyMatrix4(mesh.matrixWorld);
+      const col = new Color((mesh.material as MeshStandardMaterial).color);
       const count = g.getAttribute('position').count;
       const colors = new Float32Array(count * 3);
       for (let i = 0; i < count; i++) colors.set([col.r, col.g, col.b], i * 3);
       g.setAttribute('color', new BufferAttribute(colors, 3));
-      return g;
-    };
-    const scaleAt = (sx: number, sy: number, sz: number, x = 0, y = 0, z = 0) => new Matrix4().makeScale(sx, sy, sz).setPosition(x, y, z);
-    const parts = [
-      part(this.bodyGeometry, c.body, scaleAt(0.5, 0.24, 0.19)),
-      part(this.bodyGeometry, c.belly, scaleAt(0.45, 0.15, 0.17, 0.02, -0.09, 0.02)),
-      part(this.finGeometry, c.fin, scaleAt(0.9, 0.9, 0.9, -0.42, 0, 0)),
-      part(this.dorsalGeometry, c.fin, scaleAt(0.8, 0.8, 0.8, 0.02, 0.2, 0)),
-      part(this.bodyGeometry, '#ffffff', scaleAt(0.065, 0.065, 0.065, 0.28, 0.07, 0.155)),
-      part(this.bodyGeometry, '#ffffff', scaleAt(0.065, 0.065, 0.065, 0.28, 0.07, -0.155)),
-      part(this.bodyGeometry, '#10131f', scaleAt(0.035, 0.035, 0.035, 0.295, 0.07, 0.19)),
-      part(this.bodyGeometry, '#10131f', scaleAt(0.035, 0.035, 0.035, 0.295, 0.07, -0.19)),
-      part(this.bodyGeometry, '#4a1f1f', scaleAt(0.045, 0.045, 0.045, 0.49, -0.02, 0)),
-    ];
+      for (const name of Object.keys(g.attributes)) if (!['position', 'normal', 'color'].includes(name)) g.deleteAttribute(name);
+      parts.push(g.index ? g.toNonIndexed() : g);
+    });
     const merged = mergeGeometries(parts)!;
     parts.forEach((p) => p.dispose());
     this.pileFishGeometries[variant] = merged;
@@ -1275,7 +1231,7 @@ export class FishingScene {
     const endsAt = this.latest!.endsAt;
     const pan = smooth(endsAt - HANG_LEAD_SECONDS * 1000, endsAt + 700, serverMs);
     // Once the hooks are launched out of the water the camera rises with them (but keeps the surface in sight for as long as it can).
-    const wantY = Math.max(lerp(hookY + vh * HOOK_SCREEN_HEIGHT, vh * SURFACE_SCREEN_HEIGHT, pan), serverMs >= endsAt ? hookWorldY * 0.55 + vh * SURFACE_SCREEN_HEIGHT : -Infinity);
+    const wantY = Math.max(lerp(hookY + vh * HOOK_SCREEN_HEIGHT, vh * SURFACE_SCREEN_HEIGHT, pan), serverMs >= endsAt ? hookWorldY * 0.8 - 1.5 + vh * SURFACE_SCREEN_HEIGHT : -Infinity); // (follows the hooks up more closely, and a little below them, so the hooks and their fish end up near the middle of the screen)
     if (!this.cameraStarted) { this.cx = wantX; this.vw = wantWidth; this.cy = wantY; this.cameraStarted = true; }
     const ease = Math.min(1, dt * 4);
     this.cx += (wantX - this.cx) * ease;

@@ -185,6 +185,13 @@ export function LobbyPage() {
       ) : (
         <section className="settings">
           <p><strong>{game ? game.name : 'No game picked yet'}</strong></p>
+          {/* The picked game's tile (the same picture the host sees), centered between its name and its description. */}
+          {game && (
+            <div className="game-tile selected game-tile-shown" aria-label={game.name}>
+              <span className="game-art">{GAME_IMAGES[game.id as GameId] && <img src={GAME_IMAGES[game.id as GameId]} alt="" draggable={false} />}</span>
+              <span className="game-name">{game.name}</span>
+            </div>
+          )}
         </section>
       )}
       {game && <p className="muted">{game.description}</p>}

@@ -1,4 +1,4 @@
-import { BoxGeometry, BufferGeometry, ExtrudeGeometry, Group, LatheGeometry, Mesh, MeshBasicMaterial, MeshStandardMaterial, Shape, Vector2 } from 'three';
+import { BoxGeometry, BufferGeometry, ExtrudeGeometry, Group, LatheGeometry, Mesh, MeshBasicMaterial, MeshStandardMaterial, Shape, SphereGeometry, Vector2 } from 'three';
 
 /**
  * A little low-poly fish, built from three.js shapes (no model file), from the sketch: a smooth torpedo body that narrows to a thin tail
@@ -13,15 +13,32 @@ const HALF_LENGTH = 1.15; // the body's half-length (so the body is 2.3 long, th
 const HALF_HEIGHT = 0.38; // slimmer than before: the body is about 3 times as long as it is tall, like the sketch
 const HALF_WIDTH = 0.27;
 
+/** The fish's BODY length (nose to the end of the tail stalk) at scale 1; the tail fin adds about 0.6 more. Other games scale the model by wanted length / this, so its nose is half that length ahead of the middle. */
+export const FISH_LENGTH = 2 * HALF_LENGTH;
+
+/** How a kit's fish look. By default: the orange Snowball fish with an X for each eye. */
+export interface FishLook {
+  body?: string;
+  fin?: string;
+  /** 'x' = crossed bars (Snowball), 'round' = a white eye with a dark pupil on each side (Fishing). */
+  eyes?: 'x' | 'round';
+}
+
 export class FishKit {
+  constructor(private look: FishLook = {}) {
+    this.bodyMaterial = new MeshStandardMaterial({ color: look.body ?? '#ff8a3d', emissive: look.body ?? '#ff5a00', emissiveIntensity: look.body ? 0.08 : 0.18, flatShading: true, roughness: 0.6 });
+    this.finMaterial = new MeshStandardMaterial({ color: look.fin ?? '#ff6a2b', emissive: look.fin ?? '#ff4a00', emissiveIntensity: look.fin ? 0.08 : 0.18, flatShading: true, roughness: 0.6, side: 2 });
+  }
+  private eyeGeometry = new SphereGeometry(1, 12, 10);
+  private whiteMaterial = new MeshBasicMaterial({ color: '#ffffff' });
   private bodyGeometry = makeBodyGeometry(HALF_LENGTH, HALF_HEIGHT, HALF_WIDTH);
   // A triangle's corners are given as [x, y] points on the fish's side (x along the fish, y up), then extruded into a thin plate.
   private tailGeometry = flatTriangle([[0, 0], [-0.6, 0.4], [-0.6, -0.4]], 0.07); // widens backwards from the tail stalk
   private dorsalGeometry = flatTriangle([[0, 0], [0.34, 0], [0, 0.32]], 0.06); // a straight edge on the tail side, sloping down towards the head
   private ventralGeometry = flatTriangle([[0, 0], [0.36, 0], [0.3, -0.32]], 0.06); // its point near the head side, like the sketch
   private barGeometry = new BoxGeometry(1, 1, 1); // two of these crossed make an X
-  private bodyMaterial = new MeshStandardMaterial({ color: '#ff8a3d', emissive: '#ff5a00', emissiveIntensity: 0.18, flatShading: true, roughness: 0.6 });
-  private finMaterial = new MeshStandardMaterial({ color: '#ff6a2b', emissive: '#ff4a00', emissiveIntensity: 0.18, flatShading: true, roughness: 0.6, side: 2 });
+  private bodyMaterial: MeshStandardMaterial;
+  private finMaterial: MeshStandardMaterial;
   private darkMaterial = new MeshBasicMaterial({ color: '#14213d' });
 
   /** A new fish, about 2.9 units long, centred on its middle. */
@@ -36,22 +53,34 @@ export class FishKit {
     const ventral = new Mesh(this.ventralGeometry, this.finMaterial);
     ventral.position.set(-0.2, -HALF_HEIGHT + 0.04, 0); // underneath, level with the dorsal fin
     fish.add(tail, dorsal, ventral);
+    fish.userData.tail = tail; // (a game can wag it)
 
-    // The eyes: an X (two thin bars crossed) on each side of the head, up near the top front, lying on the body's surface.
     for (const side of [1, -1]) {
-      for (const turn of [Math.PI / 4, -Math.PI / 4]) {
-        const bar = new Mesh(this.barGeometry, this.darkMaterial);
-        bar.scale.set(0.2, 0.045, 0.03);
-        bar.position.set(0.5, 0.17, side * 0.215);
-        bar.rotation.z = turn;
-        fish.add(bar);
+      if (this.look.eyes === 'round') {
+        // Real eyes: a white ball with a dark pupil in front of it, sitting on each side of the head (up near the top front, where the X was).
+        const eye = new Mesh(this.eyeGeometry, this.whiteMaterial);
+        eye.scale.setScalar(0.13);
+        eye.position.set(0.5, 0.16, side * 0.2);
+        const pupil = new Mesh(this.eyeGeometry, this.darkMaterial);
+        pupil.scale.setScalar(0.07);
+        pupil.position.set(0.55, 0.16, side * 0.29);
+        fish.add(eye, pupil);
+      } else {
+        // The eyes: an X (two thin bars crossed) on each side of the head, up near the top front, lying on the body's surface.
+        for (const turn of [Math.PI / 4, -Math.PI / 4]) {
+          const bar = new Mesh(this.barGeometry, this.darkMaterial);
+          bar.scale.set(0.2, 0.045, 0.03);
+          bar.position.set(0.5, 0.17, side * 0.215);
+          bar.rotation.z = turn;
+          fish.add(bar);
+        }
       }
     }
     return fish;
   }
 
   dispose() {
-    for (const thing of [this.bodyGeometry, this.tailGeometry, this.dorsalGeometry, this.ventralGeometry, this.barGeometry, this.bodyMaterial, this.finMaterial, this.darkMaterial]) thing.dispose();
+    for (const thing of [this.bodyGeometry, this.tailGeometry, this.dorsalGeometry, this.ventralGeometry, this.barGeometry, this.eyeGeometry, this.whiteMaterial, this.bodyMaterial, this.finMaterial, this.darkMaterial]) thing.dispose();
   }
 }
 

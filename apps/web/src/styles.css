@@ -241,3 +241,5 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .room-settings form { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; width: min(100%, 20rem); margin-top: 0.6rem; }
 .room-settings button { width: 100%; }
 .rooms-section .error, .rooms-section .muted { text-align: center; margin: 0; }
+/* The picked game's tile, as shown to people who are not the host: one tile, centered (the host picks from the full grid). */
+.game-tile-shown { width: 100%; margin: 0 auto; border-radius: 0.75rem; border: 2px solid #ff5d8f; }

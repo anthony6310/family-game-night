@@ -19,11 +19,13 @@ const loadTapRaceScreen = () => import('../components/TapRaceScreen'); // Tap Ra
 const TapRaceScreen = lazy(loadTapRaceScreen);
 const loadPenguinScreen = () => import('../components/PenguinScreen');
 const PenguinScreen = lazy(loadPenguinScreen);
+const loadSantaScreen = () => import('../components/SantaSackScreen');
+const SantaSackScreen = lazy(loadSantaScreen);
 const loadFishingScreen = () => import('../components/FishingScreen');
 const FishingScreen = lazy(loadFishingScreen);
 
 /** A picture of each game for the game picker, taken from the real game (files in public/games). A game with no picture yet shows a plain tile. */
-const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-race.png', snowball: '/games/snowball.png', 'penguin-lasso': '/games/penguin-lasso.png', fishing: '/games/fishing.png' };
+const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-race.png', snowball: '/games/snowball.png', 'penguin-lasso': '/games/penguin-lasso.png', fishing: '/games/fishing.png', 'santa-sack': '/games/santa-sack.png' };
 
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
@@ -51,6 +53,7 @@ export function LobbyPage() {
     if (pickedGame === 'tap-race') void loadTapRaceScreen();
     if (pickedGame === 'penguin-lasso') void loadPenguinScreen();
     if (pickedGame === 'fishing') void loadFishingScreen();
+    if (pickedGame === 'santa-sack') void loadSantaScreen();
   }, [pickedGame]);
 
   // No room (refresh, lost connection, or the host closed it): back to the hub.
@@ -78,6 +81,11 @@ export function LobbyPage() {
       ) : room.game.gameId === 'penguin-lasso' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
           <PenguinScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
+            serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+        </Suspense>
+      ) : room.game.gameId === 'santa-sack' ? (
+        <Suspense fallback={<p className="center">Loading…</p>}>
+          <SantaSackScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
             serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'fishing' ? (

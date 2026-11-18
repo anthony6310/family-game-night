@@ -3,12 +3,13 @@ import { hashPassword, verifyPassword } from './passwords';
 import {
   PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
   COUNTDOWN_SECONDS, FINISH_SECONDS, GAME_INTRO_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
-  PENGUIN_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, getGame,
+  PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, getGame,
   DEFAULT_ROOM_NAME, MAX_ROOMS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult, type Bet, type BetResult, type Underdog,
 } from '@fgn/shared';
 import { createPenguinLasso } from './games/penguinLasso';
+import { createSantaSack } from './games/santaSack';
 import { createFishing } from './games/fishing';
 import { createSnowball } from './games/snowball';
 import { createTapRace } from './games/tapRace';
@@ -94,6 +95,7 @@ export class RoomManager {
     this.engines = {
       'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000),
       snowball: createSnowball({ durationMs: options.snowballMs ?? SNOWBALL_SECONDS * 1000 }),
+      'santa-sack': createSantaSack({ durationMs: options.snowballMs ?? SANTA_SECONDS * 1000 }),
       'penguin-lasso': createPenguinLasso({ durationMs: options.snowballMs ?? PENGUIN_SECONDS * 1000 }),
       // (tests shorten the rise and the cast the same way they shorten the other games' rounds)
       fishing: createFishing(options.snowballMs !== undefined ? { ascentMs: options.snowballMs, castMs: Math.min(1000, options.snowballMs / 4) } : {}),

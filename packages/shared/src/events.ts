@@ -1,4 +1,5 @@
 import type { TerrainFeature } from './terrain';
+import type { SantaLobParams } from './santaThrow';
 import type { GameId } from './games';
 import type { CreatureKind, FishKind } from './config';
 
@@ -40,7 +41,11 @@ export type RoomPhase = 'lobby' | 'countdown' | 'underdog' | 'starting' | 'playi
  * `steer` is a direction on the ground in world axes (x = east, z = south), each -1..1.
  * The server clamps its length to 1, so sending a bigger vector gains nothing.
  */
-export type GameAction = { type: 'tap' } | { type: 'steer'; x: number; z: number } | { type: 'sprint'; on: boolean };
+export type GameAction =
+  | { type: 'tap' }
+  | { type: 'steer'; x: number; z: number }
+  | { type: 'sprint'; on: boolean }
+  | { type: 'throw'; x: number; z: number; power: number }; // Santa's Sack: throw a gift from your pile in the direction (x, z) on the floor, with `power` 0..1 (how far)
 
 /** Tap Race, as phones see it. */
 export interface TapRaceView {
@@ -213,8 +218,57 @@ export interface FishingView {
   fish: FishView[];
 }
 
+/**
+ * A bag on its circular route. Where it is at any moment is worked out from `slot`, the route's `radius` and `speed` and the server's clock, so phones never need to be told its position.
+ * The player who has put the most gifts into a bag CONTROLS it (a tie, or an empty bag, leaves it neutral). How many gifts are in it is never sent: only who controls it.
+ * Every bag is open for the first quarter of the round, then cinched shut for one quarter OR the next (some of the bags in each), then open again for the last quarter: `lid` says when this one is shut.
+ */
+export interface SantaBagView {
+  id: number;
+  /** The radius of the bag's open mouth: a gift that goes into its scoring zone adds to its thrower's gifts in this bag. Every bag is the size of the biggest one plus or minus 25% (a bigger bag is a bigger target, and worth the same). */
+  radius: number;
+  /** Its place on the route when the round starts (radians; the route turns at `orbit.speed` radians a second). */
+  slot: number;
+  /** The player who controls the bag right now (the most gifts in it), or null when it is empty or tied (neutral). The bag takes this player's color. */
+  leader: string | null;
+  /** While the server clock is between `closeAt` and `openAt` the bag is cinched shut: nothing can go in it and gifts bounce off it. It strobes for `warnMs` before `closeAt`. */
+  lid: { closeAt: number; openAt: number };
+}
+/**
+ * A gift in the air. It moves by plain gravity: at `t` (server clock, milliseconds) it is at p0 + v0 * dt + g * dt^2 / 2, with dt in seconds since `t0` (`g` is negative: down; every throw has its own, so a snappy lob can be both high and quick). When it bounces off a bag the server sends a new
+ * (p0, v0, t0) from the bounce and `bounces` goes up. `kind` is its shape (0..5) and `owner` gives it its color.
+ */
+export interface SantaFlyingView { id: number; owner: string; kind: number; x0: number; y0: number; z0: number; vx: number; vy: number; vz: number; g: number; t0: number; bounces: number }
+/** A gift that has just come down, at (x, y, z): into the bag `bag` (it went into its scoring zone and scored) or (null) onto the floor. Shown for a moment. */
+export interface SantaLandedView { id: number; owner: string; kind: number; x: number; y: number; z: number; bag: number | null; at: number }
+
+/** Santa's Sack, as phones see it. Streamed ~20 times a second while the round runs. */
+export interface SantaSackView {
+  gameId: 'santa-sack';
+  startsAt: number;
+  endsAt: number;
+  /** Each player's station: where the elf stands and the way it faces (radians: the direction (cos, sin) in x east / z south, towards the bags). */
+  stations: Record<string, { x: number; z: number; facing: number }>;
+  /** The route the bags follow, round the middle of the room (0, 0): its radius and how fast it turns (radians per second). */
+  orbit: { radius: number; speed: number };
+  bags: SantaBagView[];
+  /** How long before a bag closes it strobes as a warning (milliseconds). */
+  warnMs: number;
+  /** A throw is aimed at a point `rangeMin` away at power 0 and `rangeMax` away at power 1 (world units), `lob.aimHeight` up in the air (a little above a bag's mouth): the gift passes through that point on its way down. */
+  rangeMin: number;
+  rangeMax: number;
+  /** How a throw flies (see lobPlan): phones use it to draw the arc a pull would make, and the ring at its end, `lob.aimHeight` up (a little above the bags' mouths). */
+  lob: SantaLobParams;
+  /** A drag shorter than this (as a power, 0..1) is not a throw. */
+  throwMinPower: number;
+  /** How many bags each player controls right now (the player with the most bags at the end wins). Their gifts never run out. */
+  players: Record<string, { controlled: number }>;
+  flying: SantaFlyingView[];
+  landed: SantaLandedView[];
+}
+
 /** What phones are told about a running round: one shape per game, told apart by `gameId`. */
-export type GameView = TapRaceView | SnowballView | PenguinLassoView | FishingView;
+export type GameView = TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView;
 
 /** A spectator's bet on one player to win a round. With no stake it is a free bet worth 1 victory point if it wins. With a stake, the spectator puts up victory points of their own and wins (or loses) exactly that many. */
 export interface Bet {

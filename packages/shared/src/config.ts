@@ -64,6 +64,11 @@ export const UNDERDOG_SECONDS = 5;
 /** How long a Penguin Lasso round lasts. */
 export const PENGUIN_SECONDS = 60;
 
+/** How long a Santa's Sack round lasts. */
+export const SANTA_SECONDS = 60;
+/** The color of a bag in Santa's Sack that nobody is winning (a leather brown that is NOT one of PLAYER_COLORS, so it is never mistaken for a player). */
+export const SANTA_NEUTRAL_BAG_COLOR = '#8b6b45';
+
 /** The animals on the ice in Penguin Lasso, and how many victory points each is worth once it is cashed in at the igloo. */
 export type CreatureKind = 'penguin' | 'seal' | 'bear';
 export const CREATURE_POINTS: Record<CreatureKind, number> = { penguin: 1, seal: 2, bear: 5 };

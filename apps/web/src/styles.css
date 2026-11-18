@@ -258,3 +258,11 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .start-count-num.go { color: #ffd23d; text-shadow: 0 0.04em 0 #fff, 0 0 0.3em rgba(255, 210, 61, 0.7), 0 0.08em 0.4em rgba(0, 0, 0, 0.4); animation-duration: 0.9s; }
 @keyframes start-count-pop { 0% { transform: scale(1.7); opacity: 0; } 18% { transform: scale(1); opacity: 1; } 72% { transform: scale(0.96); opacity: 1; } 100% { transform: scale(0.9); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .start-count-num { animation-name: start-count-fade; } @keyframes start-count-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } } }
+
+/* Santa's Sack: the drag-and-launch pad (covers the screen like the steering joystick) and the little pull indicator under the finger. */
+.throw-pad { position: fixed; inset: 0; z-index: 4; touch-action: none; user-select: none; -webkit-user-select: none; }
+.throw-base { position: fixed; width: 5rem; height: 5rem; margin: -2.5rem 0 0 -2.5rem; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.6); background: rgba(255, 255, 255, 0.12); pointer-events: none; }
+.throw-knob { position: fixed; width: 2.4rem; height: 2.4rem; margin: -1.2rem 0 0 -1.2rem; border-radius: 50%; background: rgba(255, 93, 143, 0.9); box-shadow: 0 0 0 3px #fff; pointer-events: none; }
+.throw-line { position: fixed; inset: 0; pointer-events: none; }
+.throw-line line { stroke: rgba(255, 255, 255, 0.7); stroke-width: 3; stroke-dasharray: 6 6; }
+.santa-left { margin-top: 0.4rem; }

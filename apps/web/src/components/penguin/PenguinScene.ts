@@ -326,6 +326,16 @@ export class PenguinScene {
       face.add(puff);
     }
     lean.add(face);
+    // The fur trim of the hem: the same puffy white fur as the hood, in a row of puffs all the way round the bottom edge of the coat. It stops where the coat stops: at the two edges of the opening at the front.
+    const hemGap = partAngleAt(0);
+    for (let i = 0; i < HEM_PUFFS; i++) {
+      const angle = hemGap + 0.07 + ((Math.PI * 2 - 2 * hemGap - 0.14) * i) / (HEM_PUFFS - 1); // 0 = straight ahead; from one edge of the opening, round the back, to the other
+      const puff = new Mesh(this.puffGeometry, this.materials.fur);
+      puff.scale.setScalar(0.12 + Math.random() * 0.0525); // (small round puffs: 40% smaller than the hood's, packed as tightly)
+      const r = COAT_RADIUS + 0.03 + Math.random() * 0.05;
+      puff.position.set(Math.sin(angle) * r, COAT_BASE_Y + 0.04 + (Math.random() - 0.5) * 0.05, Math.cos(angle) * r * COAT_DEPTH);
+      lean.add(puff);
+    }
     // The bag: a lumpy sack on the skater's back. It swells with every penguin caught, and their heads poke out of the top.
     const bag = new Group();
     bag.position.set(0, COAT_BASE_Y + 0.55 * COAT_HEIGHT, -0.95); // on the back of the coat
@@ -900,6 +910,7 @@ const PART_TOP_T = 0.46; // the opening at the front of the coat runs from the h
 const PART_HEM_ANGLE = 0.33; // how wide the opening is at the hem: this many radians either side of the front (about half the coat's radius across)
 const PART_TOP_ANGLE = 0.1; // ...and how wide it is at the top of the opening (a narrow channel down from the face)
 const FUR_PUFFS = 13;
+const HEM_PUFFS = 57; // the puffs of fur along the bottom edge of the coat: as tightly packed as the hood's (about 0.43 of a puff's width between neighbours)
 
 /** How wide the coat is (its radius) at `t` (0 = hem, 1 = top): a straight taper, with the top rounded off into a dome. */
 function coatRadiusAt(t: number): number {

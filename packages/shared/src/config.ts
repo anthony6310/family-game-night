@@ -29,6 +29,7 @@ export const COUNTDOWN_SECONDS = 3; // the lobby countdown: once everyone is rea
 
 /** How long a Tap Race round lasts. */
 export const TAP_RACE_SECONDS = 15;
+export const TUG_SECONDS = 15; // Tug of War lasts as long as Tap Race
 
 /**
  * How long the "you won / you lost" sequence lasts when a round ends: input is stopped and a message plays over the
@@ -139,3 +140,12 @@ export const FISH_KINDS: FishKind[] = ['school', 'regular', 'big']; // (the orde
 
 /** How long a player's seat is held after their connection drops (a page refresh, a bad signal) before they are counted as having left (GAME_RULES.md #15). */
 export const RECONNECT_GRACE_SECONDS = 45;
+
+/**
+ * Tug of War's closing sequence (GAME_RULES.md #18), after the 15 seconds are up: the teams STRAIN (anticipation), the winners give one massive PULL, the losers FALL while the winners stand
+ * and cheer. Then the usual winner moment (WINNER_SECONDS: the camera pans out and the winning team is named). All in seconds.
+ */
+export const TUG_STRAIN_SECONDS = 1.5;
+export const TUG_PULL_SECONDS = 0.7;
+export const TUG_FALL_SECONDS = 1.7;
+export const TUG_CLOSING_SECONDS = TUG_STRAIN_SECONDS + TUG_PULL_SECONDS + TUG_FALL_SECONDS; // 3.9

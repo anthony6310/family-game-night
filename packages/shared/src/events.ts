@@ -17,10 +17,16 @@ export interface Player {
 }
 
 /** Host-controlled session settings. */
+import type { TeamId } from './teams';
+
 export interface RoomSettings {
   gameId: GameId | null; // null until the host picks a game
   /** True when the host picked the Random tile: the game is only chosen once everyone is ready and the countdown ends (the roulette); `gameId` is null until then (and again after the round). */
   random: boolean;
+  /** Team games: may players choose their team? (The host turns it on or off; off = the random teams are locked.) */
+  teamSwap: boolean;
+  /** Team games: a head start for each team, in the game's own score (the host sets it; it can be negative). */
+  handicap: Record<TeamId, number>;
 }
 /** What the host sends to pick the game: a game's id, or 'random' to have the server pick one. */
 export const RANDOM_GAME = 'random';
@@ -58,6 +64,17 @@ export interface TapRaceView {
   startsAt: number; // server clock (epoch ms)
   endsAt: number;
   taps: Record<string, number>; // playerId -> taps counted by the SERVER
+}
+
+/** Tug of War, as phones see it: the taps of every player, who is on which team, each team's head start, and each team's total (taps plus head start). */
+export interface TugOfWarView {
+  gameId: 'tug-of-war';
+  startsAt: number;
+  endsAt: number;
+  taps: Record<string, number>; // playerId -> taps counted by the SERVER
+  teams: Record<string, TeamId>; // who pulls for which team
+  handicap: Record<TeamId, number>; // a team's head start, in taps
+  totals: Record<TeamId, number>; // each team's taps plus its head start: this is what the rope shows
 }
 
 /** The kinds of pick-up that can lie in the arena. Only fish so far; more can be added here later. */
@@ -280,11 +297,11 @@ export interface SantaSackView {
 }
 
 /** What phones are told about a running round: one shape per game, told apart by `gameId`. */
-export type GameView = TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView;
+export type GameView = TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
 
 /** A spectator's bet on one player to win a round. With no stake it is a free bet worth 1 victory point if it wins. With a stake, the spectator puts up victory points of their own and wins (or loses) exactly that many. */
 export interface Bet {
-  targetId: string; // the player they think will win
+  targetId: string; // the player they think will win (in a TEAM game: the team, 'yellow' or 'purple')
   stake: number; // victory points of their own put up (0 = the free bet that wins 1 point and can't lose any). Never more than they have.
 }
 
@@ -315,6 +332,8 @@ export interface RoundResult {
    * PRIVATE: only your own bet's result is ever sent to you (nobody sees who bet on whom). Empty if you didn't bet.
    */
   bets: BetResult[];
+  /** Team games only (otherwise null): which team won (null = a draw), each team's total with its handicap, and who was on each team. Every member of the winning team won (`winnerId` / `winner` stay null). */
+  team: { winner: TeamId | null; totals: Record<TeamId, number>; handicap: Record<TeamId, number>; members: Record<TeamId, string[]> } | null;
   /** PUBLIC: the spectators whose bets won, and how much each won. (It only says they backed the winner, never anything else.) */
   winningBettors: { bettorId: string; delta: number }[];
   /** Set when the underdog won this round: they collected `bonus` too. `byDraw` = they won because they were among the players tied for first. */
@@ -358,6 +377,8 @@ export interface RoomState {
   /** Server clock when the 'starting' (flash) step ends and the round begins, or null. */
   startingEndsAt: number | null;
   settings: RoomSettings;
+  /** Every member's team (team games use it; everyone always has one, picked at random when they joined). */
+  teams: Record<string, TeamId>;
   readyIds: string[]; // ids of players who tapped Ready
   phase: RoomPhase;
   /** Server clock (epoch ms) when the countdown hits zero, or null. */
@@ -398,7 +419,9 @@ export type RoomError =
   | 'TOO_MANY_ATTEMPTS' // too many wrong passwords (or requests) in a short time: wait a little
   | 'TOO_MANY_ROOMS' // the server is full of rooms, or you are making them too fast
   | 'WRONG_PHASE'
-  | 'NO_GAME_SELECTED';
+  | 'NO_GAME_SELECTED'
+  | 'TEAMS_LOCKED' // the host has turned team swapping off
+  | 'NOT_A_TEAM_GAME';
 
 /** Reply shape for events that expect an answer (Socket.io "acknowledgements"). */
 export type Ack<T> = { ok: true; data: T } | { ok: false; error: RoomError };
@@ -451,12 +474,16 @@ export interface ClientToServerEvents {
   /** Switch between playing (false) and watching (true). Lobby/countdown only. Your points are kept either way. */
   'player:watching': (watching: boolean, ack?: (res: Ack<null>) => void) => void;
   'room:leave': () => void;
+  /** Team games: pick my team (only while the host allows swapping). It resets everyone's Ready. */
+  'player:team': (team: TeamId, ack?: (res: Ack<null>) => void) => void;
+  /** Team games, host only: set a team's handicap (a whole number, may be negative). */
+  'room:handicap': (team: TeamId, value: number, ack?: (res: Ack<null>) => void) => void;
   /** After a refresh or a dropped connection: put me back in the room I was in (the server kept my seat for a short grace period). Fails with NOT_IN_ROOM if there is none. */
   'room:rejoin': (ack: (res: Ack<JoinResult>) => void) => void;
   /** Host only, in the lobby: end the session. The player with the most wins is crowned and saved. */
   'session:end': (ack?: (res: Ack<null>) => void) => void;
   /** Host only, in the lobby: pick the game (cancels a countdown and clears every Ready), rename the room, or set (a string) or remove (null) its password. */
-  'room:settings': (settings: { gameId?: GameId | typeof RANDOM_GAME; name?: string; password?: string | null }, ack?: (res: Ack<null>) => void) => void;
+  'room:settings': (settings: { gameId?: GameId | typeof RANDOM_GAME; teamSwap?: boolean; name?: string; password?: string | null }, ack?: (res: Ack<null>) => void) => void;
   /** Pick your color (one of PLAYER_COLORS that nobody else has). Lobby/countdown only. It is your color in every game. */
   'player:color': (color: string, ack?: (res: Ack<null>) => void) => void;
   'player:ready': (ready: boolean, ack?: (res: Ack<null>) => void) => void;

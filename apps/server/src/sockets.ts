@@ -113,9 +113,10 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     for (const timers of [countdownTimers, rouletteTimers, underdogTimers, startingTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
   }
 
-  function publishOutcome({ room, round, session }: Outcome) {
+  function publishOutcome({ room, round, rounds, session }: Outcome) {
     publish(room);
     if (round) onRound(round); // persist the decided round
+    if (rounds) for (const r of rounds) onRound(r); // (a team game: one record for every member of the winning team)
     if (session) onSession(session); // persist the finished session
   }
 
@@ -245,6 +246,8 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     socket.on('room:settings', (settings, ack) => {
       command(rooms.setSettings(player.id, settings && typeof settings === 'object' ? settings : {}), ack);
     });
+    socket.on('player:team', (team, ack) => command(rooms.setTeam(player.id, team), ack));
+    socket.on('room:handicap', (team, value, ack) => command(rooms.setHandicap(player.id, team, value), ack));
     socket.on('player:color', (color, ack) => command(rooms.setColor(player.id, String(color)), ack));
     socket.on('player:bet', (target, stake, ack) => command(rooms.setBet(player.id, typeof target === 'string' ? target : null, Number(stake)), ack));
     socket.on('player:ready', (ready, ack) => command(rooms.setReady(player.id, ready === true), ack));

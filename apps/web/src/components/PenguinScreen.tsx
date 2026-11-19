@@ -4,6 +4,7 @@ import type { GameAction, PenguinLassoView, Player, RoundResult } from '@fgn/sha
 import { useRemainingMs } from './Countdown';
 import { BagMeter } from './BagMeter';
 import { Joystick } from './Joystick';
+import { useStarted } from './useStarted';
 import { PenguinScene, type SkaterStyle } from './penguin/PenguinScene';
 import { useSteering } from './snowball/useSteering';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
@@ -61,7 +62,8 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
     scene.current?.pushView(game);
   }, [game]);
 
-  const setStick = useSteering(sendAction, !frozen);
+  const started = useStarted(game.startsAt, serverNow); // (no control before GO)
+  const setStick = useSteering(sendAction, !frozen && started);
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   useEffect(() => {
     scene.current?.setSecondsLeft(remainingMs / 1000); // the shared countdown: ticks for the last 5 seconds, then the whistle
@@ -129,7 +131,7 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
 
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
-      {isPlayer && !frozen && <Joystick onChange={setStick} />}
+      {isPlayer && started && !frozen && <Joystick onChange={setStick} />}
       {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );

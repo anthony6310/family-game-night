@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { WINNER_SECONDS, type Player, type RoundResult } from '@fgn/shared';
+import { TEAM_COLORS, TEAM_NAMES, WINNER_SECONDS, type Player, type RoundResult } from '@fgn/shared';
 import { audio } from '../audio/spatialAudio';
 import { drawChime, drumrollFor, victoryFanfare } from '../audio/gameSounds';
 
@@ -36,6 +36,32 @@ const MAX_BETTORS_SHOWN = 10; // a big room could have many winning bettors: sho
 export function WinnerBanner({ result, players }: { result: RoundResult; players: Player[] }) {
   // A dark see-through layer over the game (about 40%), so the text is easy to read while the game still shows through behind it.
   const backdrop = <div className="winner-backdrop" aria-hidden="true" />;
+  // A TEAM game: the camera is panned right out and the banner names the winning team (every member of it won a point), with the winning bettors as usual.
+  if (result.team && result.team.winner) {
+    const team = result.team.winner;
+    const teamNames = new Map(players.map((p) => [p.id, p.name]));
+    const bettors = result.winningBettors.filter((b) => b.delta > 0 && teamNames.has(b.bettorId)).sort((a, b) => b.delta - a.delta).slice(0, MAX_BETTORS_SHOWN);
+    return (
+      <>
+        {backdrop}
+        <div className="winner-banner" role="status">
+          <span>{bettors.length > 0 ? 'The winners are' : 'The winner is'}</span>
+          <strong style={{ color: TEAM_COLORS[team] }}>
+            {TEAM_NAMES[team]}
+            <em className="winner-vp" style={{ fontSize: `${0.5 * vpScale(1)}em`, color: '#fff' }}>+1 each</em>
+          </strong>
+          <p className="winner-underdog">{result.team.members[team].map((id) => teamNames.get(id) ?? 'a player').join(' · ')}</p>
+          {bettors.length > 0 && (
+            <ul className="winner-bettors" aria-label="Winning bets">
+              {bettors.map((b) => (
+                <li key={b.bettorId}>{teamNames.get(b.bettorId)}<em className="winner-vp" style={{ fontSize: `${vpScale(b.delta)}em` }}>+{b.delta}</em></li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </>
+    );
+  }
   if (!result.winner) {
     return (
       <>

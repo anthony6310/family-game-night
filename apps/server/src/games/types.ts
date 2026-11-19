@@ -1,4 +1,10 @@
-import type { GameAction, GameId, GameView } from '@fgn/shared';
+import type { GameAction, GameId, GameView, TeamId } from '@fgn/shared';
+
+/** What a team game's engine is given when the round starts. */
+export interface TeamContext {
+  teams: Record<string, TeamId>;
+  handicap: Record<TeamId, number>;
+}
 
 /**
  * What every game must provide. Engines are PURE: no timers, no sockets, no clock reads
@@ -9,8 +15,8 @@ import type { GameAction, GameId, GameView } from '@fgn/shared';
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface GameEngine<S = any> {
   id: GameId;
-  /** Fresh state for a round with these players. */
-  init(playerIds: string[], now: number): S;
+  /** Fresh state for a round with these players. A TEAM game also gets who is on which team and each team's head start (other games ignore it). */
+  init(playerIds: string[], now: number, teams?: TeamContext): S;
   /** Apply one player action and return the NEW state (or the same one if it's not allowed). */
   reduce(state: S, playerId: string, action: GameAction, now: number): S;
   /**

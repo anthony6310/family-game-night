@@ -31,6 +31,8 @@
     "test:underdog": "tsx scripts/test-underdog.ts",
     "test:colors": "tsx scripts/test-colors.ts",
     "test:random": "tsx scripts/test-random.ts",
+    "test:teams": "tsx scripts/test-teams.ts",
+    "test:tug": "tsx scripts/test-tug.ts",
     "test:reconnect": "tsx --env-file=.env scripts/test-reconnect.ts",
     "test:underdog-net": "tsx --env-file=.env scripts/test-underdog-net.ts",
     "test:finish-length": "tsx scripts/test-finish-length.ts"

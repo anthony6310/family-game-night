@@ -286,3 +286,24 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .throw-line { position: fixed; inset: 0; pointer-events: none; }
 .throw-line line { stroke: rgba(255, 255, 255, 0.7); stroke-width: 3; stroke-dasharray: 6 6; }
 .santa-left { margin-top: 0.4rem; }
+
+/* Team games (GAME_RULES.md #17): the team step in the lobby. Two columns, each in its team's color (--team). */
+.team-panel { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 0.6rem; }
+.team-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; width: 100%; }
+.team-col { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 0.6rem 0.4rem 0.8rem; border-radius: 0.8rem; background: #26264a; border: 3px solid transparent; }
+.team-col.mine { border-color: var(--team); }
+.team-name { margin: 0; font-size: 1.05rem; color: color-mix(in srgb, var(--team) 70%, #fff); text-shadow: 0 1px 0 #0006; }
+.team-members { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; width: 100%; min-height: 3rem; }
+.team-members li { display: flex; align-items: center; gap: 0.4rem; font-size: 0.95rem; }
+.team-handicap { min-height: 2rem; display: flex; align-items: center; }
+.team-col button.primary { width: 100%; }
+.team-swap { display: flex; align-items: center; gap: 0.5rem; }
+.team-totals { display: flex; flex-direction: column; gap: 0.2rem; text-align: center; font-size: 1.1rem; margin: 0; }
+
+/* Tug of War: the team totals bar under the clock (each team's total, and a bar of who is ahead). */
+.tug-bar { display: flex; align-items: center; gap: 0.5rem; width: min(92vw, 26rem); margin: 0.3rem auto 0; font-weight: bold; font-size: 1.3rem; text-shadow: 0 1px 3px #000a; }
+.tug-total { min-width: 2.2rem; text-align: center; }
+.tug-track { flex: 1; height: 0.9rem; border-radius: 0.5rem; overflow: hidden; display: flex; box-shadow: 0 0 0 2px #0007; }
+.tug-fill { transition: width 0.25s; }
+.tug-rest { flex: 1; }
+

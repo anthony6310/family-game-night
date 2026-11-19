@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { GameAction, Player, RoundResult, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './Joystick';
+import { useStarted } from './useStarted';
 import { SnowballScene, type BallStyle } from './snowball/SnowballScene';
 import { SprintButton, StaminaBar } from './snowball/SprintControls';
 import { useSprint } from './snowball/useSprint';
@@ -63,8 +64,9 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
     scene.current?.setItems(game.items); // the pick-ups lying in the arena
   }, [game]);
 
-  const setStick = useSteering(sendAction, !frozen);
-  const setSprintHeld = useSprint(sendAction, !frozen); // hold the button (or Shift / Space) to sprint
+  const started = useStarted(game.startsAt, serverNow); // (no control before GO)
+  const setStick = useSteering(sendAction, !frozen && started);
+  const setSprintHeld = useSprint(sendAction, !frozen && started); // hold the button (or Shift / Space) to sprint
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   useEffect(() => {
     scene.current?.setSecondsLeft(remainingMs / 1000); // the last 5 seconds tick, then the whistle: the same countdown as every game
@@ -119,8 +121,8 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
 
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
-      {isPlayer && !frozen && <Joystick onChange={setStick} />}
-      {isPlayer && !frozen && <SprintButton onHold={setSprintHeld} active={Boolean(subjectBall?.sprinting)} />}
+      {isPlayer && started && !frozen && <Joystick onChange={setStick} />}
+      {isPlayer && started && !frozen && <SprintButton onHold={setSprintHeld} active={Boolean(subjectBall?.sprinting)} />}
       {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );

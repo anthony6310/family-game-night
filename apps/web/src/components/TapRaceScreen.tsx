@@ -1,4 +1,5 @@
 import { StartCountdown, introProgress } from './StartCountdown';
+import { useStarted } from './useStarted';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { type GameAction, type Player, type RoundResult, type TapRaceView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
@@ -38,6 +39,7 @@ export default function TapRaceScreen({ game, players, colors, selfId, serverNow
   const scene = useRef<TapRaceScene | null>(null);
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   const over = remainingMs <= 0;
+  const started = useStarted(game.startsAt, serverNow); // (no control before GO)
   // Optimistic local counter so your own button reacts the instant you tap; everyone else's count is the server's.
   const [myTaps, setMyTaps] = useState(0);
   // In a tie-breaker, players outside the tie are spectators: they aren't in the game's tap table.
@@ -90,7 +92,7 @@ export default function TapRaceScreen({ game, players, colors, selfId, serverNow
 
   // pointerdown fires the instant a finger lands (a click waits for release), and anywhere on the screen counts as a tap.
   function onTap() {
-    if (!isPlayer || over || frozen) return;
+    if (!isPlayer || !started || over || frozen) return;
     setMyTaps((n) => n + 1);
     sendAction({ type: 'tap' });
   }

@@ -1,6 +1,6 @@
 import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { DEFAULT_ROOM_NAME, GAMES, MAX_PLAYERS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, getGame, type GameId } from '@fgn/shared';
+import { DEFAULT_ROOM_NAME, GAMES, MAX_PLAYERS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, TEAM_COLORS, TEAM_IDS, TEAM_NAMES, getGame, type GameId, type Player } from '@fgn/shared';
 import { Avatar } from '../components/Avatar';
 import { BetPanel } from '../components/BetPanel';
 import { ColorPicker } from '../components/ColorPicker';
@@ -9,6 +9,7 @@ import { GameCarousel, RandomArt, RouletteScreen } from '../components/GameCarou
 import { ResultsScreen } from '../components/ResultsScreen';
 import { SessionOverScreen } from '../components/SessionOverScreen';
 import { StartingScreen } from '../components/StartingScreen';
+import { TeamPanel } from '../components/TeamPanel';
 import { UnderdogReveal } from '../components/UnderdogReveal';
 import { useRoom } from '../room/RoomContext';
 import { useScreenFlash } from '../components/screenFlash';
@@ -18,6 +19,8 @@ const loadSnowballScreen = () => import('../components/SnowballScreen');
 const SnowballScreen = lazy(loadSnowballScreen);
 const loadTapRaceScreen = () => import('../components/TapRaceScreen'); // Tap Race is 3D now too
 const TapRaceScreen = lazy(loadTapRaceScreen);
+const loadTugScreen = () => import('../components/TugOfWarScreen');
+const TugOfWarScreen = lazy(loadTugScreen);
 const loadPenguinScreen = () => import('../components/PenguinScreen');
 const PenguinScreen = lazy(loadPenguinScreen);
 const loadSantaScreen = () => import('../components/SantaSackScreen');
@@ -31,7 +34,7 @@ const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-r
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
   const navigate = useNavigate();
-  const { restoring, room: liveRoom, selfId, leaveRoom, endSession, updateSettings, setReady, setWatching, setColor, placeBet, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
+  const { setTeam, setHandicap, restoring, room: liveRoom, selfId, leaveRoom, endSession, updateSettings, setReady, setWatching, setColor, placeBet, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
   const [error, setError] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState<string | null>(null); // the host's room name while they are editing it (null = not editing)
   const [passwordDraft, setPasswordDraft] = useState('');
@@ -52,6 +55,7 @@ export function LobbyPage() {
   useEffect(() => {
     if (pickedGame === 'snowball') void loadSnowballScreen();
     if (pickedGame === 'tap-race') void loadTapRaceScreen();
+    if (pickedGame === 'tug-of-war') void loadTugScreen();
     if (pickedGame === 'penguin-lasso') void loadPenguinScreen();
     if (pickedGame === 'fishing') void loadFishingScreen();
     if (pickedGame === 'santa-sack') void loadSantaScreen();
@@ -72,32 +76,42 @@ export function LobbyPage() {
   // While a round runs, and during its short finish sequence (the game stays on screen, frozen, under the message).
   if ((room.phase === 'playing' || room.phase === 'finish') && room.game) {
     const frozen = room.phase === 'finish';
+    // No game lets a player act before GO (rule 10): whatever a screen sends before the round's clock has started is dropped here, as well as on the server.
+    const startsAt = (room.game as { startsAt: number }).startsAt;
+    const sendGameAction: typeof sendAction = (action) => { if (serverNow() >= startsAt) sendAction(action); };
+    // A team game draws everyone in their TEAM's color (yellow or purple) instead of their own.
+    const gameColors = getGame(room.settings.gameId)?.teams ? Object.fromEntries(Object.entries(room.teams).map(([id, t]) => [id, TEAM_COLORS[t]])) : room.colors;
     // `key` = a fresh screen for every round (and the same screen carries on into the finish sequence).
     const screen =
       room.game.gameId === 'snowball' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <SnowballScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
-            serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+          <SnowballScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+            serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'penguin-lasso' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <PenguinScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
-            serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+          <PenguinScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+            serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'santa-sack' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <SantaSackScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
-            serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+          <SantaSackScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+            serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+        </Suspense>
+      ) : room.game.gameId === 'tug-of-war' ? (
+        <Suspense fallback={<p className="center">Loading…</p>}>
+          <TugOfWarScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
+            serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'fishing' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <FishingScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
-            serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+          <FishingScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+            serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
-            serverNow={serverNow} sendAction={sendAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+          <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+            serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       );
     // The page over the game is the SAME element (same key, same place) as the one shown during the starting step, so it only gains the fade-out: it is never rebuilt
@@ -132,6 +146,8 @@ export function LobbyPage() {
   const spectatorOnly = selfId !== null && room.spectatorOnlyIds.includes(selfId); // beyond the first MAX_PLAYERS to join: no Play option
   const playingCount = room.players.length - watchingIds.length;
   const playing = room.players.filter((p) => !watchingIds.includes(p.id)); // the people this round is played by (and bet on)
+  // In a team game the bet is on a TEAM: the two teams stand in for players in the bet panel (their ids are the team ids).
+  const teamOptions: Player[] = TEAM_IDS.filter((t) => playing.some((p) => room.teams[p.id] === t)).map((t) => ({ id: t, name: TEAM_NAMES[t], avatarUrl: null, isGuest: true }));
   const amReady = selfId !== null && room.readyIds.includes(selfId);
   const waitingOn = room.players.filter((p) => !room.readyIds.includes(p.id)).length; // EVERYONE readies up, spectators too (they choose bets)
   const myPoints = selfId ? (room.scores[selfId] ?? 0) : 0;
@@ -224,6 +240,11 @@ export function LobbyPage() {
       )}
       {room.settings.random && !game && <p className="muted">The game is chosen at random once everyone is ready: you will all watch the roulette pick it.</p>}
       {game && <p className="muted">{game.description}</p>}
+      {/* A team game: the team step comes before the ready step. */}
+      {game?.teams && (room.phase === 'lobby' || room.phase === 'countdown') && (
+        <TeamPanel room={room} selfId={selfId} isHost={isHost} watchingIds={watchingIds}
+          onPick={(team) => run(setTeam(team))} onSwap={(allowed) => run(updateSettings({ teamSwap: allowed }))} onHandicap={(team, value) => run(setHandicap(team, value))} />
+      )}
 
       {/* Players pick their own color, from the ones nobody else has (it is their color in every game). Spectators don't need it. */}
       {!isWatcher && <ColorPicker colors={room.colors} selfId={selfId} onPick={(color) => run(setColor(color))} />}
@@ -236,7 +257,7 @@ export function LobbyPage() {
 
       {/* Spectators choose a bet (or none) in the ready step; then everyone, spectators included, readies up. */}
       {isWatcher && (
-        <BetPanel players={playing} bet={selfId ? room.bets[selfId] : undefined} points={myPoints}
+        <BetPanel players={game?.teams ? teamOptions : playing} teams={Boolean(game?.teams)} bet={selfId ? room.bets[selfId] : undefined} points={myPoints}
           onBet={(target, stake) => run(placeBet(target, stake))} />
       )}
       <button className={amReady ? '' : 'primary'} disabled={!game && !room.settings.random} onClick={() => run(setReady(!amReady))}>

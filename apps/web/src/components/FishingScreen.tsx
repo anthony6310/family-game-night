@@ -52,11 +52,11 @@ export default function FishingScreen({ game, players, colors, selfId, serverNow
 
   useEffect(() => { scene.current?.pushView(game); }, [game]);
 
-  // Steering only counts once the hooks are rising (the server ignores it before that, so the control is simply hidden until then).
-  const setStick = useSteering(sendAction, !frozen);
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   const ascentMs = game.endsAt - game.ascentStartsAt;
   const casting = serverNow() < game.ascentStartsAt;
+  // Steering only counts once the hooks are rising (the server ignores it before that, so the control is simply hidden until then).
+  const setStick = useSteering(sendAction, !frozen && !casting); // (no control until the hooks start rising: GO)
   useEffect(() => { scene.current?.setSecondsLeft(remainingMs / 1000); }, [remainingMs]); // the shared countdown: ticks for the last 5 seconds, then the whistle
 
   // Spectators choose whose lane to follow (there is no free camera: the ocean is a flat picture).

@@ -3,7 +3,7 @@ import { io, type Socket } from 'socket.io-client';
 import {
   MAX_PLAYERS,
   type Ack, type ClientToServerEvents, type CreateRoomOptions, type GameAction, type GameId, type JoinResult, type RoomError, type RoomListing, type RoomState,
-  type ServerToClientEvents,
+  type ServerToClientEvents, type TeamId,
 } from '@fgn/shared';
 import { useAuth } from '../auth/AuthContext';
 import { SERVER_URL } from '../lib/serverUrl';
@@ -32,6 +32,8 @@ const ERROR_TEXT: Record<RoomError, string> = {
   INVALID_SETTING: "That setting isn't allowed.",
   WRONG_PHASE: "That can't be changed right now.",
   NO_GAME_SELECTED: 'Wait for the host to pick a game.',
+  TEAMS_LOCKED: 'The host has turned team swapping off.',
+  NOT_A_TEAM_GAME: 'That is not a team game.',
 };
 
 interface RoomContextValue {
@@ -49,13 +51,16 @@ interface RoomContextValue {
   setWatching: (watching: boolean) => Promise<string | null>;
   /** Pick my color (one nobody else has). It is my color in every game. */
   setColor: (color: string) => Promise<string | null>;
+  /** Team games: pick my team (while the host allows it); the host sets each team's handicap. */
+  setTeam: (team: TeamId) => Promise<string | null>;
+  setHandicap: (team: TeamId, value: number) => Promise<string | null>;
   /** Spectators: bet on a player to win (null = take the bet back), with `stake` extra victory points. */
   placeBet: (targetId: string | null, stake: number) => Promise<string | null>;
   leaveRoom: () => void;
   /** Host, step 1: lock in how many rounds the session lasts (once per session). */
   endSession: () => Promise<string | null>;
   /** Host, step 2: pick the game. */
-  updateSettings: (change: { gameId?: GameId | 'random'; name?: string; password?: string | null }) => Promise<string | null>;
+  updateSettings: (change: { gameId?: GameId | 'random'; teamSwap?: boolean; name?: string; password?: string | null }) => Promise<string | null>;
   setReady: (ready: boolean) => Promise<string | null>;
   /** Host: end the current game and go back to the lobby. */
   returnToLobby: () => Promise<string | null>;
@@ -226,6 +231,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     }),
     setWatching: (watching) => command((s, ack) => s.emit('player:watching', watching, ack)),
     setColor: (color) => command((s, ack) => s.emit('player:color', color, ack)),
+    setTeam: (team) => command((s, ack) => s.emit('player:team', team, ack)),
+    setHandicap: (team, value) => command((s, ack) => s.emit('room:handicap', team, value, ack)),
     placeBet: (targetId, stake) => command((s, ack) => s.emit('player:bet', targetId, stake, ack)),
     endSession: () => command((s, ack) => s.emit('session:end', ack)),
     updateSettings: (change) => command((s, ack) => s.emit('room:settings', change, ack)),

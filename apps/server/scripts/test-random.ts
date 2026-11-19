@@ -24,7 +24,7 @@ check('players can ready up with Random chosen', rooms.setReady('A', true).ok &&
 const first = state();
 rooms.finishCountdown(code, first.countdownEndsAt!);
 const s1 = state();
-check('when the countdown ends the room goes to the roulette step, with the chosen game and when the spin ends', s1.phase === 'roulette' && s1.roulette !== null && GAMES.some((g) => g.id === s1.roulette!.gameId) && s1.roulette.endsAt - s1.roulette.startsAt === 5000);
+check('when the countdown ends the room goes to the roulette step, with the chosen game and when the spin ends', s1.phase === 'roulette' && s1.roulette !== null && GAMES.some((g) => g.id === s1.roulette!.gameId && !(g as { teams?: boolean }).teams) && s1.roulette.endsAt - s1.roulette.startsAt === 5000);
 check('the game the roulette lands on is the game that is played', s1.settings.gameId === s1.roulette!.gameId);
 check('a stale roulette timer does nothing', rooms.finishRoulette(code, s1.roulette!.endsAt + 1) === null && state().phase === 'roulette');
 check('settings cannot be changed during the roulette', !rooms.setSettings('A', { gameId: 'tap-race' }).ok);
@@ -53,7 +53,8 @@ for (let i = 0; i < 80; i++) {
   seen.add(many.stateOf(m.room.code)!.settings.gameId!);
   many.returnToLobby('X');
 }
-check('over many rolls every game comes up', seen.size === GAMES.length);
+const normal = GAMES.filter((g) => !(g as { teams?: boolean }).teams);
+check('over many rolls every ordinary game comes up, and a team game never does (teams need their own lobby step: GAME_RULES.md #17)', seen.size === normal.length && !seen.has('tug-of-war'));
 many.setSettings('X', { gameId: 'tap-race' });
 check('picking a game by hand clears the random mark', many.stateOf(m.room.code)!.settings.gameId === 'tap-race' && many.stateOf(m.room.code)!.settings.random === false);
 check('an unknown game is still refused', !many.setSettings('X', { gameId: 'nope' as never }).ok);

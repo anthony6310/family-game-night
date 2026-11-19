@@ -1,4 +1,4 @@
-import { FISHING_BREACH_SECONDS, MAX_PLAYERS, WINNER_FINISH_SECONDS } from './config';
+import { FISHING_BREACH_SECONDS, MAX_PLAYERS, TUG_CLOSING_SECONDS, WINNER_FINISH_SECONDS, WINNER_SECONDS } from './config';
 
 /**
  * Static info about each game, used by the lobby menu and by the server's start rules.
@@ -16,6 +16,8 @@ export interface GameInfo {
   finishSeconds?: number;
   /** How long the in-game 3, 2, 1 lasts after the static buffer (GAME_INTRO_HOLD_SECONDS, which every game gets), if not the usual GAME_INTRO_COUNT_SECONDS (0 = the game has its own opening and times its own countdown inside it). */
   introSeconds?: number;
+  /** A TEAM game (GAME_RULES.md #17): played as two teams, with the team picker and handicaps in the lobby, bets on a team, no underdog, and a win for every member of the winning team. The Random tile never picks one. */
+  teams?: boolean;
 }
 
 // The games, in ALPHABETICAL order by name (this is the order the picker shows them in; keep it that way when adding one).
@@ -65,6 +67,16 @@ export const GAMES = [
     maxPlayers: MAX_PLAYERS,
     scoreLabel: 'taps',
     finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
+  },
+  {
+    id: 'tug-of-war',
+    name: 'Tug of War',
+    description: 'Two teams, yellow and purple, pull on a rope. Tap as fast as you can: every tap you make pulls your team. The more taps your team has over the other, the more the rope slides your way. After 15 seconds the team with the most taps wins: they give one massive pull and the other team falls over! Everyone on the winning team gets a victory point. (The host can give a team a head start in taps.)',
+    minPlayers: 2,
+    maxPlayers: MAX_PLAYERS,
+    scoreLabel: 'taps',
+    teams: true,
+    finishSeconds: TUG_CLOSING_SECONDS + WINNER_SECONDS, // the strain, the massive pull and the fall (its own closing sequence), then the winner moment
   },
 ] as const satisfies readonly GameInfo[];
 

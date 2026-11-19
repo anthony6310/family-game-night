@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { GAME_INTRO_HOLD_SECONDS, GAME_INTRO_SECONDS } from '@fgn/shared';
+import { GAME_INTRO_COUNT_SECONDS, GAME_INTRO_HOLD_SECONDS, GAME_INTRO_SECONDS } from '@fgn/shared';
 import { audio } from '../audio/spatialAudio';
 import { createRoundClock } from '../audio/roundClock';
 
@@ -8,11 +8,11 @@ const COUNT_FROM = 3; // "3, 2, 1, GO!"
 
 /**
  * How far the camera should have moved from the overview over the players to the player's own view, 0..1, for a round that starts at `startsAt`
- * (the server clock). It hangs over everyone for GAME_INTRO_HOLD_SECONDS, then eases in during the time that is left, so it is on the player before GO.
+ * (the server clock). It stays STATIC over everyone for GAME_INTRO_HOLD_SECONDS (the players see the game first, no countdown yet), then eases in through the 3, 2, 1, so it is on the player at GO.
  */
 export function introProgress(startsAt: number, now: number): number {
-  const moveStart = startsAt - (GAME_INTRO_SECONDS - GAME_INTRO_HOLD_SECONDS) * 1000;
-  const u = Math.min(1, Math.max(0, (now - moveStart) / ((GAME_INTRO_SECONDS - GAME_INTRO_HOLD_SECONDS) * 1000)));
+  const moveStart = startsAt - GAME_INTRO_COUNT_SECONDS * 1000; // (== the hold's end: GAME_INTRO_SECONDS - HOLD)
+  const u = Math.min(1, Math.max(0, (now - moveStart) / (GAME_INTRO_COUNT_SECONDS * 1000)));
   return u * u * (3 - 2 * u);
 }
 

@@ -21,7 +21,7 @@ export const ROOM_CODE_LENGTH = 4;
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 /** Seconds of countdown once everyone is ready. */
-export const COUNTDOWN_SECONDS = 0; // (the lobby countdown is gone: every round now opens with the in-game start countdown below, GAME_RULES.md #10)
+export const COUNTDOWN_SECONDS = 3; // the lobby countdown: once everyone is ready, a simple 3, 2, 1 in the lobby before the flash and loading page (GAME_RULES.md #10)
 
 /** How long a Tap Race round lasts. */
 export const TAP_RACE_SECONDS = 15;
@@ -102,13 +102,14 @@ export const FISHING_BREACH_SECONDS = 4.4;
  * visible 2 s in); the page is then held until STARTING_MS (3.5 s in all), and on phones it fades away over the start of the game (a cross-fade, not a cut).
  */
 /**
- * The IN-GAME START COUNTDOWN (every game; GAME_RULES.md #10). The round's own clock starts GAME_INTRO_SECONDS after the 'starting' step ends: for those seconds the
- * scene is already shown, and a big "3, 2, 1, GO!" counts down. For the first GAME_INTRO_HOLD_SECONDS the camera hangs over all the players, then it pans and zooms
- * onto the player's own view in the time that is left, so it is on the player before GO. Nobody can act until GO. A game with its own opening sequence (Fishing's cast)
- * sets `introSeconds: 0` in games.ts and times its countdown so that GO is the moment the player gets control.
+ * The IN-GAME START (every game; GAME_RULES.md #10). The round's own clock starts GAME_INTRO_SECONDS after the 'starting' step ends: for those seconds the scene is already shown.
+ * EVERY game (including one with its own opening sequence) first gets GAME_INTRO_HOLD_SECONDS of BUFFER: the camera stays STATIC on the game's first view, with no countdown and nothing moving, so the players can take in the game. Then a big "3, 2, 1, GO!"
+ * counts down (the last 3 seconds), and the camera pans and zooms onto the player's own view through it, arriving at GO. Nobody can act until GO. A game with its own opening
+ * sequence (Fishing's cast) sets `introSeconds: 0` in games.ts: it gets the buffer, then its opening starts and its countdown is timed so that GO is the moment the player gets control.
  */
-export const GAME_INTRO_SECONDS = 3;
 export const GAME_INTRO_HOLD_SECONDS = 2;
+export const GAME_INTRO_COUNT_SECONDS = 3;
+export const GAME_INTRO_SECONDS = GAME_INTRO_HOLD_SECONDS + GAME_INTRO_COUNT_SECONDS; // 5
 
 export const START_FLASH_IN_MS = 600;
 export const START_FLASH_OUT_MS = 1400;

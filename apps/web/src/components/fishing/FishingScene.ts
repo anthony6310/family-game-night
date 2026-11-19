@@ -980,7 +980,7 @@ export class FishingScene {
   private castClock() {
     const v = this.latest!;
     const length = (v.ascentStartsAt - v.startsAt) / 1000;
-    const t = (this.serverNow() - v.startsAt) / 1000;
+    const t = Math.max(0, (this.serverNow() - v.startsAt) / 1000); // (before the round's clock starts, the opening buffer, it holds the first picture)
     return { t, length, k: Math.min(1, length / CAST_FULL) };
   }
 

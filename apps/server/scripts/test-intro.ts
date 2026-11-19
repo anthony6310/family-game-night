@@ -2,7 +2,7 @@
  * The in-game start countdown (GAME_INTRO_SECONDS):  npm run test:intro -w @fgn/server
  * The round's clock starts a few seconds after the scene is shown; until then nothing moves and nobody can act.
  */
-import { GAME_INTRO_HOLD_SECONDS, GAME_INTRO_SECONDS, type GameId, type Player, type SnowballView, type TapRaceView } from '@fgn/shared';
+import { GAME_INTRO_COUNT_SECONDS, GAME_INTRO_HOLD_SECONDS, GAME_INTRO_SECONDS, type GameId, type Player, type SnowballView, type TapRaceView } from '@fgn/shared';
 import { RoomManager } from '../src/rooms';
 
 let failures = 0;
@@ -25,7 +25,7 @@ function started(gameId: GameId, options: ConstructorParameters<typeof RoomManag
   return { rooms, code, state };
 }
 
-check('config: 3 seconds of start countdown, 2 of them hanging over the players before the camera moves in', GAME_INTRO_SECONDS === 3 && GAME_INTRO_HOLD_SECONDS === 2);
+check('config: 2 seconds of static camera over the players (no countdown yet), then a 3 second countdown with the camera moving in: 5 in all', GAME_INTRO_HOLD_SECONDS === 2 && GAME_INTRO_COUNT_SECONDS === 3 && GAME_INTRO_SECONDS === 5);
 
 {
   // Tap Race: the scene is shown at once, the clock starts after the intro; taps before it are ignored
@@ -55,11 +55,11 @@ check('config: 3 seconds of start countdown, 2 of them hanging over the players 
   check('after GO the balls move again', Boolean(moved));
 }
 {
-  // the real defaults: ordinary games get GAME_INTRO_SECONDS, Fishing (which has its own opening) gets none
+  // the real defaults: ordinary games get GAME_INTRO_SECONDS (the buffer, then 3, 2, 1), Fishing (which has its own opening) gets the buffer only
   const real = started('tap-race', { countdownMs: undefined, startingMs: 0 });
   check('by default Tap Race starts GAME_INTRO_SECONDS after the scene is shown', Math.abs((real.state.game as TapRaceView).startsAt - Date.now() - GAME_INTRO_SECONDS * 1000) < 100);
   const fishing = started('fishing', { countdownMs: undefined, startingMs: 0 });
-  check('by default Fishing has no extra intro (its cast is the opening)', Math.abs((fishing.state.game as { startsAt: number }).startsAt - Date.now()) < 100);
+  check('by default Fishing gets the 2 second buffer too, and no extra countdown (its cast is the opening)', Math.abs((fishing.state.game as { startsAt: number }).startsAt - Date.now() - GAME_INTRO_HOLD_SECONDS * 1000) < 100);
 }
 
 console.log(failures === 0 ? '\nAll start-countdown checks passed.' : `\n${failures} check(s) FAILED.`);

@@ -23,7 +23,7 @@ const check = (name: string, ok: boolean) => {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ---- the defaults the real game uses ----
-check('timing: there is no lobby countdown any more (the start countdown happens in the game, GAME_INTRO_SECONDS)', COUNTDOWN_SECONDS === 0 && GAME_INTRO_SECONDS === 3);
+check('timing: a simple 3 second lobby countdown once everyone is ready, then in the game 2 seconds of static camera and a 3 second start countdown (GAME_INTRO_SECONDS = 5)', COUNTDOWN_SECONDS === 3 && GAME_INTRO_SECONDS === 5);
 check('timing: the you-won / you-lost sequence is 3 seconds', FINISH_SECONDS === 3);
 check('timing: the round summary screen is 4 seconds', RESULTS_SECONDS === 4);
 

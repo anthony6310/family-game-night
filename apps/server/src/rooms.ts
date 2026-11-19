@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { hashPassword, verifyPassword } from './passwords';
 import {
   PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
-  COUNTDOWN_SECONDS, FINISH_SECONDS, GAME_INTRO_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
+  COUNTDOWN_SECONDS, FINISH_SECONDS, GAME_INTRO_COUNT_SECONDS, GAME_INTRO_HOLD_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
   PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, getGame,
   DEFAULT_ROOM_NAME, MAX_ROOMS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
@@ -399,7 +399,7 @@ export class RoomManager {
     room.underdogEndsAt = null;
     room.startingEndsAt = null;
     // The in-game start countdown: the scene is shown at once, but the round's clock (and everything in it) starts `introMs` later; until then nothing moves and actions are ignored.
-    const introMs = this.introMsOverride ?? (getGame(room.settings.gameId)?.introSeconds ?? GAME_INTRO_SECONDS) * 1000;
+    const introMs = this.introMsOverride ?? (GAME_INTRO_HOLD_SECONDS + (getGame(room.settings.gameId)?.introSeconds ?? GAME_INTRO_COUNT_SECONDS)) * 1000; // (every game gets the static buffer; then the usual 3, 2, 1, or none for a game with its own opening)
     const playStartsAt = Date.now() + introMs;
     room.game = { engine, state: engine.init(this.participants(room), playStartsAt), lastTickAt: playStartsAt, playStartsAt };
   }

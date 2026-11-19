@@ -14,7 +14,7 @@ export interface GameInfo {
   scoreLabel: string;
   /** How long this game's end-of-round sequence lasts, if not the usual FINISH_SECONDS. */
   finishSeconds?: number;
-  /** How long the in-game start countdown lasts before the round's clock starts, if not the usual GAME_INTRO_SECONDS (0 = the game has its own opening and times its own countdown). */
+  /** How long the in-game 3, 2, 1 lasts after the static buffer (GAME_INTRO_HOLD_SECONDS, which every game gets), if not the usual GAME_INTRO_COUNT_SECONDS (0 = the game has its own opening and times its own countdown inside it). */
   introSeconds?: number;
 }
 
@@ -27,7 +27,7 @@ export const GAMES = [
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
     scoreLabel: 'points', // (a small fish in a school is 1, a regular fish 3, a rare big fish 5)
-    introSeconds: 0, // (the cast is its own opening: the countdown is timed to end when the hooks get control)
+    introSeconds: 0, // (the cast is its own opening: after the 2 second buffer, the countdown is timed to end when the hooks get control)
     finishSeconds: WINNER_FINISH_SECONDS + FISHING_BREACH_SECONDS, // the hooks breaking the surface, then the piles (own view), then the winner
   },
   {

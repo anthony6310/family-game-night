@@ -21,6 +21,10 @@ export const ROOM_CODE_LENGTH = 4;
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 /** Seconds of countdown once everyone is ready. */
+/** The roulette step (only when the host picked the Random tile): after the countdown the carousel spins fast and eases out onto the chosen game over this long (GAME_RULES.md #13). */
+export const ROULETTE_SPIN_SECONDS = 7; // the spin itself: fast, then easing out onto the game
+export const ROULETTE_HOLD_SECONDS = 2; // then the chosen game stays in the middle this long, so everyone can see which one was picked
+export const ROULETTE_SECONDS = ROULETTE_SPIN_SECONDS + ROULETTE_HOLD_SECONDS; // 9 in all
 export const COUNTDOWN_SECONDS = 3; // the lobby countdown: once everyone is ready, a simple 3, 2, 1 in the lobby before the flash and loading page (GAME_RULES.md #10)
 
 /** How long a Tap Race round lasts. */

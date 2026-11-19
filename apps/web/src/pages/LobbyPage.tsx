@@ -5,6 +5,7 @@ import { Avatar } from '../components/Avatar';
 import { BetPanel } from '../components/BetPanel';
 import { ColorPicker } from '../components/ColorPicker';
 import { Countdown } from '../components/Countdown';
+import { GameCarousel, RandomArt, RouletteScreen } from '../components/GameCarousel';
 import { ResultsScreen } from '../components/ResultsScreen';
 import { SessionOverScreen } from '../components/SessionOverScreen';
 import { StartingScreen } from '../components/StartingScreen';
@@ -104,6 +105,10 @@ export function LobbyPage() {
     const over = curtain ?? (previousPhase.current === 'starting' ? room.settings.gameId : null);
     return <>{screen}{over && <StartingScreen key="curtain" leaving title={getGame(over)?.name ?? ''} image={GAME_IMAGES[over]} onGone={() => setCurtain(null)} />}</>; // every game stages the shared winner moment inside its own screen (see GAME_RULES.md #2)
   }
+  // The Random tile's roulette (after the countdown): the host's options are gone; everyone, host included, watches the carousel spin and slow onto the game that was chosen.
+  if (room.phase === 'roulette' && room.roulette) {
+    return <RouletteScreen gameId={room.roulette.gameId} startsAt={room.roulette.startsAt} endsAt={room.roulette.endsAt} serverNow={serverNow} images={GAME_IMAGES} />;
+  }
   // Between the countdown and the start of the round: everyone is shown the underdog (only happens when there is one).
   if (room.phase === 'underdog' && room.underdog && room.underdogEndsAt !== null) {
     return <UnderdogReveal underdog={room.underdog} players={room.players} endsAt={room.underdogEndsAt} serverNow={serverNow} />;
@@ -192,9 +197,16 @@ export function LobbyPage() {
           <p className="muted">Pick a game</p>
           {/* Every tile is the same size: a 16:10 picture area (empty until a game has a picture) with the name under it. */}
           <div className="game-grid" role="radiogroup" aria-label="Game">
+            {/* The Random tile is always the first option, whatever order the games are in. Picking it chooses nothing yet: once everyone is ready and the countdown ends, the server picks a game and everyone watches the roulette. */}
+            <button role="radio" aria-checked={room.settings.random}
+              className={room.settings.random ? 'game-tile selected' : 'game-tile'}
+              onClick={() => run(updateSettings({ gameId: 'random' }))}>
+              <RandomArt />
+              <span className="game-name">Random</span>
+            </button>
             {GAMES.map((g) => (
-              <button key={g.id} role="radio" aria-checked={g.id === room.settings.gameId}
-                className={g.id === room.settings.gameId ? 'game-tile selected' : 'game-tile'}
+              <button key={g.id} role="radio" aria-checked={g.id === room.settings.gameId && !room.settings.random}
+                className={g.id === room.settings.gameId && !room.settings.random ? 'game-tile selected' : 'game-tile'}
                 onClick={() => run(updateSettings({ gameId: g.id }))}>
                 <span className="game-art">{GAME_IMAGES[g.id] && <img src={GAME_IMAGES[g.id]} alt="" draggable={false} />}</span>
                 <span className="game-name">{g.name}</span>
@@ -204,16 +216,12 @@ export function LobbyPage() {
         </section>
       ) : (
         <section className="settings">
-          <p><strong>{game ? game.name : 'No game picked yet'}</strong></p>
-          {/* The picked game's tile (the same picture the host sees), centered between its name and its description. */}
-          {game && (
-            <div className="game-tile selected game-tile-shown" aria-label={game.name}>
-              <span className="game-art">{GAME_IMAGES[game.id as GameId] && <img src={GAME_IMAGES[game.id as GameId]} alt="" draggable={false} />}</span>
-              <span className="game-name">{game.name}</span>
-            </div>
-          )}
+          {/* Everyone else sees a carousel of the tiles, resting on Random until the host picks: it slides to the host's game. */}
+          <GameCarousel selectedId={room.settings.gameId} random={room.settings.random} images={GAME_IMAGES} />
+          <p><strong>{room.settings.random ? 'A random game' : game ? game.name : 'Waiting for the host to pick a game'}</strong></p>
         </section>
       )}
+      {room.settings.random && !game && <p className="muted">The game is chosen at random once everyone is ready: you will all watch the roulette pick it.</p>}
       {game && <p className="muted">{game.description}</p>}
 
       {/* Players pick their own color, from the ones nobody else has (it is their color in every game). Spectators don't need it. */}
@@ -230,7 +238,7 @@ export function LobbyPage() {
         <BetPanel players={playing} bet={selfId ? room.bets[selfId] : undefined} points={myPoints}
           onBet={(target, stake) => run(placeBet(target, stake))} />
       )}
-      <button className={amReady ? '' : 'primary'} disabled={!game} onClick={() => run(setReady(!amReady))}>
+      <button className={amReady ? '' : 'primary'} disabled={!game && !room.settings.random} onClick={() => run(setReady(!amReady))}>
         {amReady ? 'Not ready' : "I'm ready!"}
       </button>
       </>

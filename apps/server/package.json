@@ -30,6 +30,7 @@
     "test:betting": "tsx scripts/test-betting.ts",
     "test:underdog": "tsx scripts/test-underdog.ts",
     "test:colors": "tsx scripts/test-colors.ts",
+    "test:random": "tsx scripts/test-random.ts",
     "test:underdog-net": "tsx --env-file=.env scripts/test-underdog-net.ts",
     "test:finish-length": "tsx scripts/test-finish-length.ts"
   },

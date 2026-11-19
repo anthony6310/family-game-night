@@ -2,7 +2,7 @@ import { randomInt } from 'node:crypto';
 import { hashPassword, verifyPassword } from './passwords';
 import {
   PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
-  COUNTDOWN_SECONDS, FINISH_SECONDS, GAME_INTRO_COUNT_SECONDS, GAME_INTRO_HOLD_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
+  COUNTDOWN_SECONDS, FINISH_SECONDS, RANDOM_GAME, ROULETTE_SECONDS, GAME_INTRO_COUNT_SECONDS, GAME_INTRO_HOLD_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
   PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, getGame,
   DEFAULT_ROOM_NAME, MAX_ROOMS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
@@ -32,6 +32,7 @@ interface Room {
   countdownEndsAt: number | null;
   underdog: Underdog | null; // this round's underdog (decided when the countdown ends), if there is one
   underdogEndsAt: number | null; // when the underdog announcement ends
+  roulette: { gameId: GameId; startsAt: number; endsAt: number } | null; // the Random tile's roulette step: the chosen game and when the spin ends
   startingEndsAt: number | null; // when the 'starting' (flash) step ends and the round begins
   wins: Record<string, number>; // rounds won this session, by player id (kept when a player leaves)
   sessionSaved: boolean; // this session's winner has already been handed out for saving (never save twice)
@@ -77,6 +78,7 @@ export class RoomManager {
   private rooms = new Map<string, Room>();
   private roomOfPlayer = new Map<string, string>(); // playerId -> room code
   private countdownMs: number;
+  private rouletteMs: number; // how long the Random tile's roulette step lasts (0 in tests that shorten the countdown, unless they ask)
   private resultsMs: number;
   private introMsOverride: number | undefined; // set by tests: the in-game start countdown lasts this long for every game
   private startingMs: number; // how long the flash step before every round lasts (0 = none)
@@ -84,8 +86,9 @@ export class RoomManager {
   private engines: Record<GameId, GameEngine>;
 
   /** Durations are injectable so tests can run fast. */
-  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number; startingMs?: number; introMs?: number } = {}) {
+  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number; startingMs?: number; introMs?: number; rouletteMs?: number } = {}) {
     this.countdownMs = options.countdownMs ?? COUNTDOWN_SECONDS * 1000;
+    this.rouletteMs = options.rouletteMs ?? (options.countdownMs !== undefined ? 0 : ROULETTE_SECONDS * 1000);
     this.resultsMs = options.resultsMs ?? RESULTS_SECONDS * 1000;
     // The flash step lasts STARTING_MS, except in tests: a test that shortens the countdown wants fast rounds too, so it gets no flash step unless it asks for one.
     this.startingMs = options.startingMs ?? (options.countdownMs !== undefined ? 0 : STARTING_MS);
@@ -117,13 +120,14 @@ export class RoomManager {
       colors: new Map([[host.id, PLAYER_COLORS[0]]]), // the host gets the first color
       roster: new Map([[host.id, host]]),
       watching: new Set(),
-      settings: { gameId: null },
+      settings: { gameId: null, random: false },
       bets: {},
       ready: new Set(),
       phase: 'lobby',
       countdownEndsAt: null,
       underdog: null,
       underdogEndsAt: null,
+      roulette: null,
       startingEndsAt: null,
       wins: {},
       sessionSaved: false,
@@ -160,7 +164,7 @@ export class RoomManager {
         return fail('WRONG_PASSWORD');
       }
     }
-    const midRound = room.phase === 'underdog' || room.phase === 'starting' || room.phase === 'playing' || room.phase === 'finish';
+    const midRound = room.phase === 'roulette' || room.phase === 'underdog' || room.phase === 'starting' || room.phase === 'playing' || room.phase === 'finish';
     if (midRound || room.players.size >= MAX_PLAYERS) room.watching.add(player.id); // (size = how many are already in: their place in line)
     room.players.set(player.id, player);
     room.roster.set(player.id, player);
@@ -214,7 +218,7 @@ export class RoomManager {
 
     if (room.underdog?.playerId === playerId) room.underdog = null; // the underdog left: there is nobody to win the bonus
     // Between the countdown and the start (the underdog announcement, the flash): too few players left means the round is called off.
-    if ((room.phase === 'underdog' || room.phase === 'starting') && this.participants(room).length < this.minPlayers(room)) this.abortRound(room);
+    if ((room.phase === 'roulette' || room.phase === 'underdog' || room.phase === 'starting') && this.participants(room).length < this.minPlayers(room)) this.abortRound(room);
     // Mid-round: the leaver forfeits. If too few players remain for the game, call the round off.
     if (room.phase === 'playing' && room.game) {
       room.game.state = room.game.engine.removePlayer(room.game.state, playerId);
@@ -256,11 +260,20 @@ export class RoomManager {
       room.badGuesses = [];
     }
     if (change.gameId !== undefined) {
-      if (!GAMES.some((g) => g.id === change.gameId)) return fail('INVALID_SETTING');
-      if (change.gameId !== room.settings.gameId) {
-        room.settings = { ...room.settings, gameId: change.gameId as GameId };
-        room.ready.clear(); // everyone must agree to the NEW game
-        this.reconcile(room); // cancels a countdown, since nobody is ready any more
+      if (change.gameId === RANDOM_GAME) {
+        // The Random tile: no game is chosen yet. Once everyone is ready and the countdown ends, the server picks one and everyone watches the roulette (see finishCountdown).
+        if (!room.settings.random || room.settings.gameId !== null) {
+          room.settings = { ...room.settings, gameId: null, random: true };
+          room.ready.clear(); this.reconcile(room);
+        }
+      } else {
+        if (!GAMES.some((g) => g.id === change.gameId)) return fail('INVALID_SETTING');
+        const changed = change.gameId !== room.settings.gameId;
+        room.settings = { ...room.settings, gameId: change.gameId as GameId, random: false };
+        if (changed) {
+          room.ready.clear(); // everyone must agree to the NEW game
+          this.reconcile(room); // cancels a countdown, since nobody is ready any more
+        }
       }
     }
     return ok(room);
@@ -334,7 +347,7 @@ export class RoomManager {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
-    if (!room.settings.gameId) return fail('NO_GAME_SELECTED');
+    if (!room.settings.gameId && !room.settings.random) return fail('NO_GAME_SELECTED'); // (the Random tile counts: the game is chosen when everyone is ready)
 
     if (ready) room.ready.add(playerId);
     else room.ready.delete(playerId);
@@ -354,15 +367,47 @@ export class RoomManager {
       bet.stake = Math.min(bet.stake, this.points(room, id)); // the stakes are locked in now (never more than they have)
       if (bet.stake < MIN_STAKE) bet.stake = 0; // (and a stake below the minimum is just a free bet)
     }
-    // Is there an underdog? If so, everyone is shown them for a few seconds before the round begins.
+    // The Random tile: the server picks the game now (one that can be played with this many players), and everyone watches the roulette spin onto it.
+    if (room.settings.random) {
+      const pool = this.randomPool(room);
+      const picked = pool[Math.floor(Math.random() * pool.length)].id as GameId;
+      room.settings = { ...room.settings, gameId: picked };
+      if (this.rouletteMs > 0) {
+        room.phase = 'roulette';
+        const startsAt = Date.now();
+        room.roulette = { gameId: picked, startsAt, endsAt: startsAt + this.rouletteMs };
+        return toState(room);
+      }
+    }
+    this.afterPicking(room);
+    return toState(room);
+  }
+
+  /** The games a Random pick may land on: every game this many players can play. */
+  private randomPool(room: Room) {
+    const n = this.participants(room).length;
+    const pool = GAMES.filter((g) => n >= g.minPlayers && n <= g.maxPlayers);
+    return pool.length > 0 ? pool : GAMES;
+  }
+
+  /** The roulette is over: carry on as a normal start. Same stale-timer guard as the countdown. */
+  finishRoulette(code: string, expectedEndsAt: number): RoomState | null {
+    const room = this.rooms.get(code);
+    if (!room || room.phase !== 'roulette' || room.roulette?.endsAt !== expectedEndsAt) return null;
+    room.roulette = null;
+    this.afterPicking(room);
+    return toState(room);
+  }
+
+  /** The game is known (picked by the host, or by the roulette): is there an underdog? If so, everyone is shown them for a few seconds; then the flash step and the round. */
+  private afterPicking(room: Room) {
     room.underdog = this.findUnderdog(room);
     if (room.underdog) {
       room.phase = 'underdog';
       room.underdogEndsAt = Date.now() + UNDERDOG_SECONDS * 1000;
-      return toState(room);
+      return;
     }
     this.beginStarting(room);
-    return toState(room);
   }
 
   /** The underdog announcement is over: the flash step begins. Same stale-timer guard as the countdown. */
@@ -479,7 +524,7 @@ export class RoomManager {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.hostId !== playerId) return fail('NOT_HOST');
-    if (room.phase === 'playing' || room.phase === 'underdog' || room.phase === 'starting') {
+    if (room.phase === 'playing' || room.phase === 'roulette' || room.phase === 'underdog' || room.phase === 'starting') {
       this.abortRound(room);
       return ok(room);
     }
@@ -591,6 +636,8 @@ export class RoomManager {
     room.underdog = null;
     room.underdogEndsAt = null;
     room.startingEndsAt = null;
+    room.roulette = null;
+    if (room.settings.random) room.settings = { ...room.settings, gameId: null }; // (the Random tile stays chosen: the next round rolls again)
     room.ready.clear();
   }
 
@@ -670,9 +717,10 @@ export class RoomManager {
     if (room.phase === 'lobby' || room.phase === 'countdown') this.cleanBets(room);
     const game = getGame(room.settings.gameId);
     const ids = this.participants(room);
+    const randomOk = room.settings.random && ids.length >= Math.min(...GAMES.map((g) => g.minPlayers)); // (the Random tile: any game that fits will do)
     // EVERYONE has to be ready: the players, and the spectators too (they are choosing their bets).
     const everyoneReady = [...room.players.keys()].every((id) => room.ready.has(id));
-    const canStart = Boolean(game) && ids.length >= game!.minPlayers && everyoneReady;
+    const canStart = (randomOk || (Boolean(game) && ids.length >= game!.minPlayers)) && everyoneReady;
 
     if (room.phase === 'lobby' && canStart) {
       room.phase = 'countdown';
@@ -712,6 +760,7 @@ function toState(room: Room): RoomState {
     bets: { ...room.bets }, // (everyone's, for the server's own use: `personalize` cuts it down to the recipient's before it is sent)
     underdog: room.underdog,
     underdogEndsAt: room.underdogEndsAt,
+    roulette: room.roulette,
     startingEndsAt: room.startingEndsAt,
     settings: { ...room.settings },
     readyIds: [...room.ready],

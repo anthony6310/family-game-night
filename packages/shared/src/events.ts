@@ -19,7 +19,11 @@ export interface Player {
 /** Host-controlled session settings. */
 export interface RoomSettings {
   gameId: GameId | null; // null until the host picks a game
+  /** True when the host picked the Random tile: the game is only chosen once everyone is ready and the countdown ends (the roulette); `gameId` is null until then (and again after the round). */
+  random: boolean;
 }
+/** What the host sends to pick the game: a game's id, or 'random' to have the server pick one. */
+export const RANDOM_GAME = 'random';
 
 /**
  * 'lobby'     choosing settings and readying up
@@ -28,13 +32,14 @@ export interface RoomSettings {
  * 'finish'    the round just ended: the result is decided, input is stopped and a "you won / you lost" message
  *             plays over the frozen game for a few seconds
  * 'results'   the round summary screen (moves on by itself after a few seconds)
+ * 'roulette'  (only when the host chose the Random tile) the countdown is over and everyone, the host included, watches the game being picked: the carousel spins and slows onto it
  * 'underdog'  (only when there is an underdog) the countdown is over and everyone is shown the underdog for a few seconds
  *             before the round starts
  * 'starting'  the flash step (like a loading screen): the screen flashes and fades to a plain page, and the round begins almost at the end of the
  *             flash (see START_FLASH_* in config.ts). Nobody can play yet.
  * 'session-over' the host ended the session (or the room emptied): the player with the most wins is crowned
  */
-export type RoomPhase = 'lobby' | 'countdown' | 'underdog' | 'starting' | 'playing' | 'finish' | 'results' | 'session-over';
+export type RoomPhase = 'lobby' | 'countdown' | 'roulette' | 'underdog' | 'starting' | 'playing' | 'finish' | 'results' | 'session-over';
 
 /**
  * What a phone may send during a round. The server decides what it actually means.
@@ -346,6 +351,8 @@ export interface RoomState {
   underdog: Underdog | null;
   /** Server clock when the 'underdog' announcement ends and the round starts, or null. */
   underdogEndsAt: number | null;
+  /** The roulette (only when the host picked Random): the game the server chose, and when the spin starts and ends (server clock). Everyone's carousel lands on `gameId` at `endsAt`. */
+  roulette: { gameId: GameId; startsAt: number; endsAt: number } | null;
   /** Server clock when the 'starting' (flash) step ends and the round begins, or null. */
   startingEndsAt: number | null;
   settings: RoomSettings;
@@ -443,7 +450,7 @@ export interface ClientToServerEvents {
   /** Host only, in the lobby: end the session. The player with the most wins is crowned and saved. */
   'session:end': (ack?: (res: Ack<null>) => void) => void;
   /** Host only, in the lobby: pick the game (cancels a countdown and clears every Ready), rename the room, or set (a string) or remove (null) its password. */
-  'room:settings': (settings: { gameId?: GameId; name?: string; password?: string | null }, ack?: (res: Ack<null>) => void) => void;
+  'room:settings': (settings: { gameId?: GameId | typeof RANDOM_GAME; name?: string; password?: string | null }, ack?: (res: Ack<null>) => void) => void;
   /** Pick your color (one of PLAYER_COLORS that nobody else has). Lobby/countdown only. It is your color in every game. */
   'player:color': (color: string, ack?: (res: Ack<null>) => void) => void;
   'player:ready': (ready: boolean, ack?: (res: Ack<null>) => void) => void;

@@ -108,6 +108,10 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .game-tile { display: flex; flex-direction: column; width: 100%; padding: 0; overflow: hidden; background: #26264a; color: #fff;
   border: 3px solid transparent; border-radius: 0.8rem; }
 .game-tile.selected { border-color: #ff5d8f; }
+.game-tile.picked { border-color: #ffb3c9; } /* (the game the Random tile rolled: the Random tile itself is the selected one) */
+/* The Random tile's picture: a big question mark in the same look as the in-game start countdown's numbers (bold, pink, white edge and glow), on the plain tile background. */
+.game-art.random-art { display: flex; align-items: center; justify-content: center; }
+.random-q { font-size: 4.4rem; font-weight: bold; line-height: 1; color: #ff5d8f; text-shadow: 0 0.04em 0 #fff, 0 0 0.25em rgba(255, 93, 143, 0.6), 0 0.08em 0.4em rgba(0, 0, 0, 0.4); }
 .game-art { display: block; width: 100%; aspect-ratio: 16 / 10; background: #31315c; }
 .game-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .game-name { padding: 0.45rem 0.4rem; font-size: 0.95rem; font-weight: bold; }
@@ -249,6 +253,22 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .room-settings form { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; width: min(100%, 20rem); margin-top: 0.6rem; }
 .room-settings button { width: 100%; }
 .rooms-section .error, .rooms-section .muted { text-align: center; margin: 0; }
+/* The carousel (a LOOP, positioned by script each frame: see LoopTrack): tiles are 60% of its width; the one in the middle is bright and full size, the others dimmer and smaller. A hidden tile
+   gives it its height; the real tiles are laid over it. The roulette uses the same loop. */
+.game-carousel { position: relative; width: 100%; overflow: hidden; padding: 0.4rem 0; }
+.game-carousel-tile { width: 60%; }
+.game-carousel-sizer { visibility: hidden; margin: 0 auto; }
+.game-carousel-abs { position: absolute; left: 0; top: 0.4rem; will-change: transform, opacity; }
+.game-tile.picked { border-color: #ffb3c9; }
+/* The roulette step: the options are gone, just the wheel (the same loop, spinning), a pointer over the middle tile, then the name. */
+.roulette-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; min-height: 100vh; min-height: 100dvh; padding: 1rem; box-sizing: border-box; text-align: center; }
+.roulette-kicker { margin: 0; font-size: 1.3rem; font-weight: bold; letter-spacing: 0.04em; opacity: 0.9; }
+.roulette-wheel { position: relative; width: min(100%, 34rem); }
+.roulette-pointer { position: absolute; left: 50%; top: -0.1rem; width: 0; height: 0; margin-left: -0.9rem; border-left: 0.9rem solid transparent; border-right: 0.9rem solid transparent; border-top: 1.4rem solid #ff5d8f; filter: drop-shadow(0 2px 2px #0008); }
+.roulette-name { margin: 0; font-size: 2rem; min-height: 1.2em; }
+.roulette-name.landed { animation: roulette-land 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes roulette-land { 0% { transform: scale(0.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+.roulette-desc { max-width: 28rem; margin: 0; }
 /* The picked game's tile, as shown to people who are not the host: one tile, centered (the host picks from the full grid). */
 .game-tile-shown { width: 100%; margin: 0 auto; border-radius: 0.75rem; border: 2px solid #ff5d8f; }
 

@@ -38,6 +38,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   const resultsTimers = new Map<string, ScheduledTimer>();
   const underdogTimers = new Map<string, ScheduledTimer>();
   const startingTimers = new Map<string, ScheduledTimer>();
+  const rouletteTimers = new Map<string, ScheduledTimer>();
   // Slowing down abuse (each keyed by the connection's network address, which a guest can't just change by making a new name):
   const wrongPasswords = new AttemptLimiter(8, 5 * 60_000); // wrong room passwords: 8 in 5 minutes
   const roomsMade = new AttemptLimiter(6, 10 * 60_000); // rooms created: 6 in 10 minutes
@@ -75,6 +76,10 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       const started = rooms.finishCountdown(state.code, endsAt);
       if (started) publish(started); // countdown hit zero: the round begins
     });
+    syncTimer(rouletteTimers, state.code, state.phase === 'roulette' ? (state.roulette?.endsAt ?? null) : null, (endsAt) => {
+      const started = rooms.finishRoulette(state.code, endsAt);
+      if (started) publish(started); // the roulette has landed on a game: on to the underdog announcement or the flash step
+    });
     syncTimer(underdogTimers, state.code, state.phase === 'underdog' ? state.underdogEndsAt : null, (endsAt) => {
       const started = rooms.finishUnderdog(state.code, endsAt);
       if (started) publish(started); // the underdog announcement is over: the flash step begins (or the round, with no flash step)
@@ -98,7 +103,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   }
 
   function clearTimers(code: string) {
-    for (const timers of [countdownTimers, underdogTimers, startingTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
+    for (const timers of [countdownTimers, rouletteTimers, underdogTimers, startingTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
   }
 
   function publishOutcome({ room, round, session }: Outcome) {

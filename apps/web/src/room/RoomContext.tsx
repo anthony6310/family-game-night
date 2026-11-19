@@ -52,7 +52,7 @@ interface RoomContextValue {
   /** Host, step 1: lock in how many rounds the session lasts (once per session). */
   endSession: () => Promise<string | null>;
   /** Host, step 2: pick the game. */
-  updateSettings: (change: { gameId?: GameId; name?: string; password?: string | null }) => Promise<string | null>;
+  updateSettings: (change: { gameId?: GameId | 'random'; name?: string; password?: string | null }) => Promise<string | null>;
   setReady: (ready: boolean) => Promise<string | null>;
   /** Host: end the current game and go back to the lobby. */
   returnToLobby: () => Promise<string | null>;

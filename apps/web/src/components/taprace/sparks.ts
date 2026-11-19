@@ -57,6 +57,7 @@ export class SparkSystem {
   private readonly flightEnd: Float32Array; // bouncers: when (age, seconds) the straight flight ends and the fall begins; Infinity = never (a plain straight spark)
   private readonly bouncesLeft: Float32Array; // bouncers: how many more times it will bounce
   private readonly bounciness: Float32Array; // bouncers: how much of its downward speed it keeps when it hits the floor (random per spark)
+  private readonly lengthScale: Float32Array; // 1 = the usual streak length; less = a shorter dash (the same thickness)
   private readonly seed: Float32Array; // a random number per spark, to give each its own twinkle
   // Per corner (4 corners per spark; what the GPU draws):
   private readonly cornerCentre: Float32Array;
@@ -87,6 +88,7 @@ export class SparkSystem {
     this.bouncesLeft = new Float32Array(capacity);
     this.bounciness = new Float32Array(capacity);
     this.seed = new Float32Array(capacity);
+    this.lengthScale = new Float32Array(capacity).fill(1);
     this.cornerCentre = new Float32Array(capacity * 12);
     this.cornerVelocity = new Float32Array(capacity * 12);
     this.cornerColor = new Float32Array(capacity * 12);
@@ -209,25 +211,45 @@ export class SparkSystem {
    * nothing bounces). `power` (0..1+) makes it bigger: more droplets, flung higher and wider, and thicker. `palette` is the droplets' colors
    * (each is picked from it at random), as [r, g, b] in 0..1.
    */
-  splash(x: number, y: number, z: number, power: number, palette: [number, number, number][], amount = 1) {
+  splash(x: number, y: number, z: number, power: number, palette: [number, number, number][], amount = 1, size = 1, reach = 1, lifeRange?: [number, number]) {
     const k = Math.max(0, power);
     // `amount` scales the whole splash on top of `power`: 0.5 = half as many droplets, thrown half as high (height goes with speed squared).
     const count = Math.round(mix(24, 170, Math.min(1, k)) * (k > 1 ? k : 1) * amount);
     for (let i = 0; i < count; i++) {
       const angle = rand(-1, 1) * mix(0.55, 1.15, Math.min(1, k)); // from straight up, towards either side (radians)
-      const speed = rand(0.4, 1) * mix(7, 17, Math.min(1, k)) * (k > 1 ? Math.sqrt(k) : 1) * Math.sqrt(amount);
+      const speed = rand(0.4, 1) * mix(7, 17, Math.min(1, k)) * (k > 1 ? Math.sqrt(k) : 1) * Math.sqrt(amount) * reach;
       const [r, g, b] = palette[Math.floor(Math.random() * palette.length)];
       this.spawn(
         x + rand(-0.25, 0.25) * (1 + k), y, z + rand(-0.4, 0.4),
         Math.sin(angle) * speed, Math.cos(angle) * speed, rand(-0.2, 0.2) * speed,
-        rand(0.07, 0.14) * mix(1, 1.8, Math.min(1, k)), // thicker droplets for a bigger splash
-        rand(0.8, 1.5) * mix(0.9, 1.3, Math.min(1, k)),
+        rand(0.07, 0.14) * size * mix(1, 1.8, Math.min(1, k)), // thicker droplets for a bigger splash
+        lifeRange ? rand(lifeRange[0], lifeRange[1]) : rand(0.8, 1.5) * mix(0.9, 1.3, Math.min(1, k)), // (a droplet can be given a short, random life: it fades away part-way down)
         r, g, b,
         true, // (a "bouncer" only in that it falls under gravity: it never bounces, see below)
       );
       const slot = (this.next - 1 + this.capacity) % this.capacity;
       this.bouncesLeft[slot] = 0;
       this.flightEnd[slot] = rand(0.02, 0.07);
+    }
+  }
+
+  /**
+   * DROPS RADIATING from a point (sweat): each is thrown straight out from (x, y, z), away from the centre, in a random direction in the screen's plane (mostly sideways and up,
+   * never much downwards, since the point is a head), with a little sideways wobble in depth. Each flies straight for most of its short life and only then starts to droop,
+   * so the path is nearly straight with just a slight bend. `arc` limits the directions to a range of angles (radians; 0 = right, PI/2 = up, PI = left). `length` scales how long each dash is (thickness unchanged). `front` (+1 right, -1 left) with `frontLess` (0..1) sends that share of the front-side drops out the back instead. `ring` starts each drop that far out from the point instead of on it. `lifeRange` is a random life in seconds; `speed` is the top speed; `size` scales the drop's thickness.
+   */
+  radiate(x: number, y: number, z: number, count: number, speed: number, palette: [number, number, number][], size: number, lifeRange: [number, number], ring = 0, front = 0, frontLess = 0, length = 1, arc?: [number, number]) {
+    for (let i = 0; i < count; i++) {
+      let angle = arc ? rand(arc[0], arc[1]) : rand(-0.35, Math.PI + 0.35);
+      if (front !== 0 && Math.cos(angle) * front > 0 && Math.random() < frontLess) angle = Math.PI - angle; // (a share of the drops that would go out the `front` side (+1 = right, -1 = left) go out the back instead) // 0 = out to the right, PI/2 = straight up, PI = out to the left
+      const v = rand(0.45, 1) * speed;
+      const [r, g, b] = palette[Math.floor(Math.random() * palette.length)];
+      const life = rand(lifeRange[0], lifeRange[1]);
+      this.spawn(x + Math.cos(angle) * ring, y + Math.sin(angle) * ring, z, Math.cos(angle) * v, Math.sin(angle) * v, rand(-0.25, 0.25) * v, rand(0.07, 0.14) * size, life, r, g, b, true);
+      const slot = (this.next - 1 + this.capacity) % this.capacity;
+      this.bouncesLeft[slot] = 0;
+      this.lengthScale[slot] = length;
+      this.flightEnd[slot] = life * rand(0.7, 0.95); // (straight at first; gravity only takes over near the end)
     }
   }
 
@@ -266,6 +288,7 @@ export class SparkSystem {
     this.flightEnd[slot] = bouncer ? rand(0.05, 0.16) : Infinity;
     this.bouncesLeft[slot] = bouncer ? 1 + Math.floor(Math.random() * 3) : 0;
     this.bounciness[slot] = rand(0.3, 0.6);
+    this.lengthScale[slot] = 1;
   }
 
   update(dt: number) {
@@ -283,7 +306,7 @@ export class SparkSystem {
 
       // Streaks stretch with speed (a fast spark is a long streak, a slow one a short dash) and shrink as they fade.
       const speed = Math.hypot(this.velocity[v], this.velocity[v + 1], this.velocity[v + 2]) / TRAVEL_SPEED;
-      const halfLength = dead ? 0 : Math.min(1.3, 0.25 + speed * 0.03) * (1 - 0.4 * t) * (0.6 + this.width[i] * 6) * 1.3; // (width counts double here, so halving the thickness doesn't also shorten the streak)
+      const halfLength = dead ? 0 : Math.min(1.3, 0.25 + speed * 0.03) * (1 - 0.4 * t) * (0.6 + this.width[i] * 6) * 1.3 * this.lengthScale[i]; // (width counts double here, so halving the thickness doesn't also shorten the streak)
       const halfWidth = dead ? 0 : this.width[i] * (1 - 0.35 * t) * HALO; // (the quad is HALO times the core's width, so there is room for the glow)
       // Full brightness for the first half of its life, then it fades out; a quick random twinkle (like a real ember) throughout.
       const twinkle = 0.84 + 0.16 * Math.sin(age * 38 + this.seed[i] * 6.28);

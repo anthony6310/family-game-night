@@ -17,8 +17,9 @@ const code = made.room.code;
 rooms.join(code, player('B'));
 const state = () => rooms.stateOf(code)!;
 
-check('a new room has no game and is not random', state().settings.gameId === null && state().settings.random === false && state().roulette === null);
-check('only the host can pick the Random tile', !rooms.setSettings('B', { gameId: RANDOM_GAME }).ok && !state().settings.random);
+check('a new room starts with Random selected: no game rolled yet', state().settings.gameId === null && state().settings.random === true && state().roulette === null);
+check('only the host can change the pick', !rooms.setSettings('B', { gameId: 'tap-race' }).ok && state().settings.random);
+check('the host can pick a game instead, and Random again', rooms.setSettings('A', { gameId: 'tap-race' }).ok && !state().settings.random && state().settings.gameId === 'tap-race');
 check('the host picks Random: nothing is rolled yet (no game until everyone is ready)', rooms.setSettings('A', { gameId: RANDOM_GAME }).ok && state().settings.random === true && state().settings.gameId === null);
 check('players can ready up with Random chosen', rooms.setReady('A', true).ok && rooms.setReady('B', true).ok && state().phase === 'countdown');
 const first = state();

@@ -26,7 +26,7 @@ const loadFishingScreen = () => import('../components/FishingScreen');
 const FishingScreen = lazy(loadFishingScreen);
 
 /** A picture of each game for the game picker, taken from the real game (files in public/games). A game with no picture yet shows a plain tile. */
-const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-race.png', snowball: '/games/snowball.png', 'penguin-lasso': '/games/penguin-lasso.png', fishing: '/games/fishing.png', 'santa-sack': '/games/santa-sack.png' };
+const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-race.png', snowball: '/games/snowball.png', 'penguin-lasso': '/games/penguin-lasso.png', fishing: '/games/fishing.png', 'santa-sack': '/games/santa-sack.png', 'tug-of-war': '/games/tug-of-war.png' };
 
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {

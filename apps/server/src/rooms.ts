@@ -64,12 +64,6 @@ export interface SessionRecord {
 }
 
 /** What a change produced: the new room state, plus records to persist if anything was decided. */
-/**
- * TEMPORARY, for testing the team flow through the Random roulette: when set to a game id, the Random tile ALWAYS lands on that game (even a team game). Set it back to `null` to restore
- * the real rule (Random never picks a team game). (The tests pass `forceRandom` themselves, so they do not depend on this.)
- */
-export const TEMP_RANDOM_ALWAYS: GameId | null = 'tug-of-war';
-
 export interface Outcome {
   room: RoomState;
   round?: RoundRecord;
@@ -99,7 +93,7 @@ export class RoomManager {
 
   /** Durations are injectable so tests can run fast. */
   constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number; startingMs?: number; introMs?: number; rouletteMs?: number; forceRandom?: GameId | null } = {}) {
-    this.forceRandom = options.forceRandom === undefined ? TEMP_RANDOM_ALWAYS : options.forceRandom; // (tests may force the Random pick; the default is the temporary switch above)
+    this.forceRandom = options.forceRandom ?? null; // (only tests use this: it makes the Random tile land on one game, even a team game)
     this.countdownMs = options.countdownMs ?? COUNTDOWN_SECONDS * 1000;
     this.rouletteMs = options.rouletteMs ?? (options.countdownMs !== undefined ? 0 : ROULETTE_SECONDS * 1000);
     this.resultsMs = options.resultsMs ?? RESULTS_SECONDS * 1000;
@@ -134,7 +128,7 @@ export class RoomManager {
       colors: new Map([[host.id, PLAYER_COLORS[0]]]), // the host gets the first color
       roster: new Map([[host.id, host]]),
       watching: new Set(),
-      settings: { gameId: null, random: false, teamSwap: false, handicap: { yellow: 0, purple: 0 } },
+      settings: { gameId: null, random: true, teamSwap: false, handicap: { yellow: 0, purple: 0 } },
       teams: new Map(),
       bets: {},
       ready: new Set(),
@@ -523,7 +517,7 @@ export class RoomManager {
   /** The games a Random pick may land on: every game this many players can play. */
   private randomPool(room: Room) {
     const n = this.participants(room).length;
-    if (this.forceRandom) { const forced = GAMES.filter((g) => g.id === this.forceRandom); if (forced.length) return forced; } // (TEMPORARY: see TEMP_RANDOM_ALWAYS)
+    if (this.forceRandom) { const forced = GAMES.filter((g) => g.id === this.forceRandom); if (forced.length) return forced; } // (tests only)
     const pool = GAMES.filter((g) => !getGame(g.id)?.teams && n >= g.minPlayers && n <= g.maxPlayers); // (the Random tile never picks a team game)
     return pool.length > 0 ? pool : GAMES;
   }

@@ -110,7 +110,7 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .game-tile.selected { border-color: #ff5d8f; }
 .game-tile.picked { border-color: #ffb3c9; } /* (the game the Random tile rolled: the Random tile itself is the selected one) */
 /* The Random tile's picture: a big question mark in the same look as the in-game start countdown's numbers (bold, pink, white edge and glow), on the plain tile background. */
-.game-art.random-art { display: flex; align-items: center; justify-content: center; }
+.game-art.random-art { display: flex; align-items: center; justify-content: center; background: repeating-linear-gradient(135deg, #2f80e8 0 16px, #2872d6 16px 32px); } /* (blue to go with the pink question mark, in diagonal stripes of one blue) */
 .random-q { font-size: 4.4rem; font-weight: bold; line-height: 1; color: #ff5d8f; text-shadow: 0 0.04em 0 #fff, 0 0 0.25em rgba(255, 93, 143, 0.6), 0 0.08em 0.4em rgba(0, 0, 0, 0.4); }
 .game-art { display: block; width: 100%; aspect-ratio: 16 / 10; background: #31315c; }
 .game-art img { display: block; width: 100%; height: 100%; object-fit: cover; }

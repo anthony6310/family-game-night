@@ -48,7 +48,7 @@ const PHASE = cfg.phaseMs;
   check('in the second quarter a random 3 to 6 bags are closed; in the third the OTHER bags are closed (all 9 are closed exactly once)', ok && firstCounts.size > 1 && [...firstCounts].every((n) => n >= 3 && n <= 6));
   check('in the first and the last quarter every bag is open', nobodyAtTwoQuarters);
   const v = view(e.init(ids(2), 5000));
-  check('the view says when each lid is on (closeAt / openAt on the server clock) and how long before closing a bag strobes (3 s)', v.warnMs === 3000 && v.bags.every((b) => b.lid.openAt - b.lid.closeAt === PHASE && b.lid.closeAt >= 5000 + PHASE) && v.bags.every((b) => b.leader === null && !('counts' in b)));
+  check('the view says when each lid is on (closeAt / openAt on the server clock) and how long before closing a bag strobes (3 s)', v.warnMs === 3000 && v.bags.every((b) => b.lid.openAt - b.lid.closeAt === PHASE && b.lid.closeAt >= 5000 + PHASE) && v.bags.every((b) => b.leader === null && Array.isArray(b.gifts) && b.gifts.length === 0));
 }
 
 // ---- the aim: the cursor is in the air a little above the bags' mouths (15% above the average mouth height), not down at the floor ----
@@ -220,6 +220,15 @@ function sweep(eng: Eng, st: St, from: string, bagId: number, target: { x: numbe
   put('d', offD); put('d', offD);
   check('and control changes hands when someone gets ahead', bagNow().leader === 'd' && own('d') === 1 && own('a') === 0);
   check('the bag is never used up or sent away: it is still there and still open', view(st).bags.length === 9 && view(st).bags.some((x) => x.id === smallBag.id) && st.landed.some((l) => l.bag === smallBag.id));
+  // A bag holds at most 5 gifts: when it is full, a new one pushes out a random gift of ANOTHER color (never the thrower's), which is reported as kicked out.
+  const inBag = () => st.bags.find((b) => b.id === smallBag.id)!.gifts;
+  const tally = (id: string) => inBag().filter((x) => x.owner === id).length;
+  check('the bag so far holds 5 gifts: d has 3 and a has 2 (the most gifts controls it)', inBag().length === 5 && tally('d') === 3 && tally('a') === 2 && bagNow().leader === 'd');
+  put('d', offD);
+  check('a full bag stays at 5: a 6th gift (d) pushes out one of a\'s (the only other color) and is kept', inBag().length === 5 && tally('d') === 4 && tally('a') === 1 && view(st).kicked.length >= 1 && view(st).kicked.every((k) => k.owner === 'a' && k.bag === smallBag.id));
+  put('a', offA);
+  check('a throw that goes in never kicks out the thrower\'s own gift: a\'s gift pushes out one of d\'s', inBag().length === 5 && tally('a') === 2 && tally('d') === 3 && view(st).kicked.some((k) => k.owner === 'd'));
+  check('what phones see of the bag is the heap: the gifts, in order, each with its thrower', JSON.stringify(view(st).bags.find((b) => b.id === smallBag.id)!.gifts.map((x) => x.owner).sort()) === JSON.stringify(inBag().map((x) => x.owner).sort()) && view(st).bags.every((b) => b.gifts.length <= 5));
   // bigger bags are worth exactly the same (one bag), they are just bigger targets
   const largeBag = base.bags[2];
   const sl = alone(base, largeBag.id, SOUTH, 'open');
@@ -285,11 +294,11 @@ function sweep(eng: Eng, st: St, from: string, bagId: number, target: { x: numbe
   // the winner controls the most bags at the end; leaving; the view
   const eng = createSantaSack({ orbitSpeedUnits: 0, minThrowGapMs: 0 });
   const st = eng.init(['a', 'b', 'c', 'b'], 0);
-  const withCounts = (lists: Record<string, number>[]): St => ({ ...st, bags: st.bags.map((b, i) => ({ ...b, counts: lists[i] ?? {} })) });
-  const a4 = withCounts([{ a: 3 }, { a: 1, b: 1 }, { a: 2 }, { a: 5, b: 1 }, { b: 2 }, { b: 1 }, { b: 4, a: 1 }, {}, {}]); // a controls 3 bags (the first, third and fourth), b controls 3 (5th, 6th, 7th), one tied, two empty
+  const withCounts = (lists: Record<string, number>[]): St => ({ ...st, bags: st.bags.map((b, i) => ({ ...b, gifts: Object.entries(lists[i] ?? {}).flatMap(([owner, n]) => Array.from({ length: n }, () => ({ owner, kind: 0 }))) })) });
+  const a4 = withCounts([{ a: 3 }, { a: 1, b: 1 }, { a: 2 }, { a: 4, b: 1 }, { b: 2 }, { b: 1 }, { b: 3, a: 1 }, {}, {}]); // a controls 3 bags (the first, third and fourth), b controls 3 (5th, 6th, 7th), one tied, two empty
   check('the score is how many bags you control at the end (ties and empty bags count for nobody)', eng.scores(a4).a === 3 && eng.scores(a4).b === 3 && eng.scores(a4).c === 0);
   check('a tie for the most bags is a draw', eng.getWinner(a4) === null);
-  const win = withCounts([{ a: 3 }, { a: 1, b: 1 }, { a: 2 }, { a: 5, b: 1 }, { b: 2 }, { b: 1 }, { a: 1 }, {}, {}]);
+  const win = withCounts([{ a: 3 }, { a: 1, b: 1 }, { a: 2 }, { a: 4, b: 1 }, { b: 2 }, { b: 1 }, { a: 1 }, {}, {}]);
   check('the player who controls the most bags wins', eng.getWinner(win) === 'a' && eng.scores(win).a === 4 && eng.scores(win).b === 2);
   check('nobody controls a bag: a draw', eng.getWinner(withCounts([])) === null);
   const gone = eng.removePlayer(win, 'a');

@@ -100,7 +100,7 @@ export default function SantaSackScreen({ game, players, colors, selfId, serverN
             </li>
           ))}
         </ul>
-        {isPlayer && !frozen && <p className="snow-hint">Pull back to aim, let go to throw · the harder you pull, the farther it flies · the elf with the most gifts in a bag controls it (it takes their color): control the most bags to win · bags that flash are about to be cinched shut and bounce gifts away!</p>}
+        {isPlayer && !frozen && <p className="snow-hint">Pull back to aim, let go to throw · the harder you pull, the farther it flies · a bag holds 5 gifts and the elf with the most controls it (it takes their color; a full bag pushes out a gift of another color): control the most bags to win · bags that flash are about to be cinched shut and bounce gifts away!</p>}
       </div>
 
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}

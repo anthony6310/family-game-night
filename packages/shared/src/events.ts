@@ -231,6 +231,8 @@ export interface SantaBagView {
   slot: number;
   /** The player who controls the bag right now (the most gifts in it), or null when it is empty or tied (neutral). The bag takes this player's color. */
   leader: string | null;
+  /** The gifts in the bag, oldest first, at most 5: the phones draw them as a heap in the mouth, each in its thrower's color. */
+  gifts: SantaBagGiftView[];
   /** While the server clock is between `closeAt` and `openAt` the bag is cinched shut: nothing can go in it and gifts bounce off it. It strobes for `warnMs` before `closeAt`. */
   lid: { closeAt: number; openAt: number };
 }
@@ -239,6 +241,10 @@ export interface SantaBagView {
  * (p0, v0, t0) from the bounce and `bounces` goes up. `kind` is its shape (0..5) and `owner` gives it its color.
  */
 export interface SantaFlyingView { id: number; owner: string; kind: number; x0: number; y0: number; z0: number; vx: number; vy: number; vz: number; g: number; t0: number; bounces: number }
+/** A gift pushed out of a full bag to make room: drawn tumbling out of the bag's mouth and falling (a picture only; nothing is simulated). */
+export interface SantaKickedView { id: number; owner: string; kind: number; bag: number; at: number }
+/** One gift sitting in a bag: its thrower (the heap shows it in their color) and its shape. */
+export interface SantaBagGiftView { owner: string; kind: number }
 /** A gift that has just come down, at (x, y, z): into the bag `bag` (it went into its scoring zone and scored) or (null) onto the floor. Shown for a moment. */
 export interface SantaLandedView { id: number; owner: string; kind: number; x: number; y: number; z: number; bag: number | null; at: number }
 
@@ -265,6 +271,7 @@ export interface SantaSackView {
   players: Record<string, { controlled: number }>;
   flying: SantaFlyingView[];
   landed: SantaLandedView[];
+  kicked: SantaKickedView[];
 }
 
 /** What phones are told about a running round: one shape per game, told apart by `gameId`. */

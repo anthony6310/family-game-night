@@ -49,7 +49,7 @@ try {
   check('the round starts', await until(a, (s) => s.phase === 'playing'));
   const start = a.latest!.game as SantaSackView;
   check('the round state carries a Santa\'s Sack view: a station for each player and the 9 bags', start.gameId === 'santa-sack' && Object.keys(start.stations).sort().join() === [a.id, b.id].sort().join() && start.bags.length === 9);
-  check('every bag has a lid schedule (closed for 15 s in the second or third quarter) and the view never says anything else about its inside', start.bags.every((bag) => bag.lid.openAt - bag.lid.closeAt === 15000 && !('counts' in bag)) && start.warnMs === 3000);
+  check('every bag has a lid schedule (closed for 15 s in the second or third quarter) and its gifts (a heap in the mouth)', start.bags.every((bag) => bag.lid.openAt - bag.lid.closeAt === 15000 && Array.isArray(bag.gifts)) && start.warnMs === 3000);
 
   for (let i = 0; i < 60 && !lastView(a); i++) await sleep(25); // (wait for the first streamed snapshot)
   check('snapshots stream during the round', a.views.length > 0);

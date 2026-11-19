@@ -42,10 +42,10 @@ export const GAMES = [
   {
     id: 'santa-sack',
     name: "Santa's Sack",
-    description: "Santa's elves are out in a snowy forest clearing and his gift bags are empty! You are one of the elves, with an endless pile of gifts. Nine big bags float round in a circle in front of you: pull back like a slingshot and let go to lob a gift into one (the harder you pull, the farther it flies, and the bags keep moving, so aim ahead!). The elf with the most gifts in a bag controls it, and the bag turns that elf's color. Every bag is worth the same: control the most bags at the end to win! But the bags don't stay open: after 15 seconds some of them are cinched shut (watch for the bags that flash, they are about to close, and a closed bag bounces gifts away), then the others close, and for the last 15 seconds they are all open again.",
+    description: "Santa's elves are out in a snowy forest clearing and his gift bags are empty! You are one of the elves, with an endless pile of gifts. Nine big bags float round in a circle in front of you: pull back like a slingshot and let go to lob a gift into one (the harder you pull, the farther it flies, and the bags keep moving, so aim ahead!). A bag holds at most 5 gifts, shown as a heap in its mouth in each elf's color; when it is full, a new gift pushes out a random gift of another color. The elf with the most gifts in a bag controls it, and the bag turns that elf's color. Every bag is worth the same: control the most bags at the end to win! But the bags don't stay open: after 15 seconds some of them are cinched shut (watch for the bags that flash, they are about to close, and a closed bag bounces gifts away), then the others close, and for the last 15 seconds they are all open again.",
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
-    scoreLabel: 'gifts',
+    scoreLabel: 'bags',
     finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
   },
   {

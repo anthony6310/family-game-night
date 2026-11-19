@@ -1,10 +1,10 @@
 import {
   AdditiveBlending, AmbientLight, BoxGeometry, CanvasTexture, CatmullRomCurve3, TubeGeometry, CircleGeometry, Color, ConeGeometry, CylinderGeometry, DirectionalLight, DoubleSide, Group, HemisphereLight, Mesh,
-  Fog, Float32BufferAttribute, IcosahedronGeometry, LatheGeometry, Points, PointsMaterial, MeshBasicMaterial, MeshStandardMaterial, Object3D, PerspectiveCamera, RepeatWrapping, RingGeometry, Scene, SphereGeometry, SRGBColorSpace, Sprite, SpriteMaterial, TorusGeometry, Vector2, Vector3, Matrix4,
+  Fog, Float32BufferAttribute, IcosahedronGeometry, LatheGeometry, Points, PointsMaterial, MeshBasicMaterial, MeshStandardMaterial, Object3D, PerspectiveCamera, RepeatWrapping, RingGeometry, Scene, SphereGeometry, SRGBColorSpace, Sprite, SpriteMaterial, TorusGeometry, Vector2, Vector3, Matrix4, Quaternion, Euler,
   WebGLRenderer, BufferGeometry, type Material,
 } from 'three';
 import {
-  BAG_MOUTH_HEIGHT, BAG_NECK_RADIUS, BAG_TILT, BAG_TOP_EXTRA, SANTA_NEUTRAL_BAG_COLOR, lobPlan, type SantaBagView, type SantaLandedView, type SantaSackView } from '@fgn/shared';
+  BAG_MOUTH_HEIGHT, BAG_NECK_RADIUS, BAG_TILT, BAG_TOP_EXTRA, SANTA_NEUTRAL_BAG_COLOR, lobPlan, type SantaBagView, type SantaKickedView, type SantaLandedView, type SantaSackView } from '@fgn/shared';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
 import { giftGrab, giftIn, giftMiss, giftThrow } from '../../audio/santaSounds';
@@ -34,6 +34,12 @@ const BAG_SHUT: [number, number][] = [[0, 0], [0.7, 0.02], [1.05, 0.25], [1.26, 
 const BAG_SEGMENTS = 28;
 const LIP_TUBE = 0.14, LIP_RADIAL = 10, LIP_TUBULAR = 32; // the lip's tube (in bag radii) and how many segments round it and along it
 const NECK = 7; // the point of the profile where the ribbon goes round the neck
+const BAG_UP = new Vector3(0, 1, 0);
+const BOW_TURN = new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), Math.PI / 4); // (the bow's extra 45 degrees about the bag's z axis)
+const D2R = Math.PI / 180;
+const BOW_BASE = new Quaternion().setFromEuler(new Euler(Math.PI, 0, Math.PI / 4)); // (turned 180 degrees about its own x, and 45 about its z)
+const BOW_FINE = new Quaternion().setFromEuler(new Euler(30 * D2R, 0, 0)).multiply(new Quaternion().setFromEuler(new Euler(0, -9 * D2R, 0))).multiply(new Quaternion().setFromEuler(new Euler(0, 0, 66 * D2R))); // (then 30, -9 and 66 degrees about the bow's own x, y and z)
+const BOW_SIZE = 1.15; // (the bow is 15% bigger than it was)
 const KNOT_ANGLE = 0.9; // the knot of the ribbon (and the bow) is on this side of the neck (radians round the neck)
 const TOP = 10; // the point at the top (the lip when open)
 
@@ -46,11 +52,11 @@ const angleDiff = (a: number, b: number) => { let d = (b - a) % (Math.PI * 2); i
 interface Elf { group: Group; armL: Group; armR: Group; held: Group | null; tag: Sprite; yaw: number; wantYaw: number; throwAge: number; x: number; z: number; restYaw: number; pile: Group[]; style: ElfStyle }
 interface BagVisual {
   id: number; group: Group; tilt: Group; mouth: Object3D; body: MeshStandardMaterial; rim: MeshStandardMaterial; halo: MeshBasicMaterial; haloMesh: Mesh;
-  shape: LatheGeometry; r: number; lipGroup: Group; inside: Mesh; ring: Mesh; tails: Group; tailSegs: Mesh[]; lip: Mesh; bowPivot: Group; bowGroup: Group; bowLoops: Mesh[]; color: Color; glow: number; cinch: number; strobe: number; wasShut: boolean; scale: number; view: SantaBagView; x: number; z: number; y: number;
+  shape: LatheGeometry; r: number; lipGroup: Group; inside: Mesh; ring: Mesh; tails: Group; tailSegs: Mesh[]; lip: Mesh; bowPivot: Group; bowGroup: Group; bowLoops: Mesh[]; heap: Group; heapKey: string; heapGifts: Group[]; color: Color; glow: number; cinch: number; strobe: number; wasShut: boolean; scale: number; view: SantaBagView; x: number; z: number; y: number;
 }
 interface Flight { group: Group; shadow: Mesh; v: SantaSackView['flying'][number] }
-type EffectKind = 'in' | 'miss';
-interface Effect { kind: EffectKind; group: Group; age: number; x: number; y: number; z: number; bag: number | null; at: number; owner: string }
+type EffectKind = 'in' | 'miss' | 'kick';
+interface Effect { kind: EffectKind; group: Group; age: number; x: number; y: number; z: number; bag: number | null; at: number; owner: string; vx?: number; vz?: number }
 interface Flash { sprite: Sprite; age: number; life: number; size: number }
 interface Floater { sprite: Sprite; age: number; x: number; y: number; z: number }
 
@@ -83,6 +89,7 @@ export class SantaSackScene {
   private bags = new Map<number, BagVisual>();
   private flights = new Map<number, Flight>();
   private seenLanded = new Set<number>();
+  private seenKicked = new Set<number>();
   private effects: Effect[] = [];
   private flashes: Flash[] = [];
   private floaters: Floater[] = [];
@@ -173,6 +180,12 @@ export class SantaSackScene {
       if (this.seenLanded.has(l.id)) continue;
       this.seenLanded.add(l.id);
       if (this.serverNow() - l.at < 700) this.land(l); // (someone arriving late does not see the old ones)
+    }
+    // Gifts pushed out of a full bag: each tumbles out of the mouth and falls (a picture only).
+    for (const k of view.kicked) {
+      if (this.seenKicked.has(k.id)) continue;
+      this.seenKicked.add(k.id);
+      if (this.serverNow() - k.at < 700) this.kickOut(k);
     }
     for (const id of [...this.elves.keys()]) if (!(id in view.players)) this.removeElf(id);
   }
@@ -393,6 +406,49 @@ export class SantaSackScene {
     return { x: Math.cos(a) * v.orbit.radius, z: Math.sin(a) * v.orbit.radius, angle: a };
   }
 
+  /**
+   * A gift is pushed out of a full bag: it starts in the mouth, keeps the bag's own sideways speed (the bag is travelling round its route) with only a little push outward, and falls to the floor
+   * tumbling, then shrinks away. It never flies out and it touches nothing: it is a picture, not part of the physics.
+   */
+  private kickOut(k: SantaKickedView) {
+    const bag = this.bags.get(k.bag);
+    const group = this.makeGift(this.colorOf(k.owner), k.kind);
+    const start = new Vector3(0, 4, 0);
+    let vx = 0, vz = 0;
+    if (bag) {
+      bag.mouth.getWorldPosition(start);
+      const a = this.orbitAt(bag.view, k.at), b2 = this.orbitAt(bag.view, k.at + 100);
+      vx = (b2.x - a.x) * 10 + Math.cos(a.angle) * 0.9; vz = (b2.z - a.z) * 10 + Math.sin(a.angle) * 0.9; // (the bag's own speed, plus a gentle push away from the middle)
+    }
+    group.position.copy(start);
+    this.scene.add(group);
+    this.effects.push({ kind: 'kick', group, age: 0, x: start.x, y: start.y, z: start.z, bag: k.bag, at: k.at, owner: k.owner, vx, vz });
+    audio.play(giftMiss, start.x, start.z, 0.4, 0.8);
+  }
+
+  /** The heap in a bag's mouth: its gifts (up to 5), each in its thrower's color, in two layers (3, then 2). It is rebuilt whenever the bag's gifts change; a new one pops in just after the thrown gift has dropped in. */
+  private syncHeap(b: BagVisual, seconds: number, cinch: number) {
+    const gifts = b.view.gifts ?? [];
+    const key = gifts.map((x) => x.owner + ':' + x.kind).join('|');
+    if (key !== b.heapKey) {
+      const grew = gifts.length > b.heapGifts.length;
+      for (const g of b.heapGifts) b.heap.remove(g);
+      b.heapGifts = gifts.map((x, i) => {
+        const g = this.makeGift(this.colorOf(x.owner), x.kind);
+        const layer = i < 3 ? 0 : 1, n = layer === 0 ? 3 : 2, j = layer === 0 ? i : i - 3;
+        const a = (j / n) * Math.PI * 2 + (layer === 0 ? 0.5 : 1.6), rad = (layer === 0 ? 0.42 : 0.2) * b.r;
+        g.position.set(Math.cos(a) * rad, b.r * 2.12 + 0.4 + layer * 0.85, Math.sin(a) * rad);
+        g.rotation.set(0.15 * Math.sin(i * 3.1), i * 1.9, 0.15 * Math.cos(i * 2.3));
+        g.userData.born = grew && i === gifts.length - 1 ? seconds + 0.25 : -1e9; // (only a gift that has just gone in pops in)
+        b.heap.add(g);
+        return g;
+      });
+      b.heapKey = key;
+    }
+    for (const g of b.heapGifts) { const u = clamp((seconds - (g.userData.born as number)) / 0.25, 0, 1); g.scale.setScalar(Math.max(0.001, 0.3 + 0.7 * smooth(u)) * (u <= 0 ? 0.001 : 1)); }
+    b.heap.visible = cinch < 0.25; // (the heap is inside the bag: it goes when the mouth cinches shut)
+  }
+
   /** A gift has come down: into a bag (it drops into the mouth with a gold flash and sparkles and disappears), or onto the floor (it bounces, then fades). */
   private land(l: SantaLandedView) {
     const group = this.makeGift(this.colorOf(l.owner), l.kind);
@@ -448,7 +504,8 @@ export class SantaSackScene {
     bowPivot.add(bowGroup);
     const mouth = new Object3D(); // (the middle of the mouth: where a gift goes in; 2.3 mouths up)
     mouth.position.y = r * MOUTH_HEIGHT;
-    tilt.add(bag, lipGroup, inside, ring, tails, bowPivot, mouth);
+    const heap = new Group();
+    tilt.add(bag, lipGroup, inside, ring, tails, bowPivot, mouth, heap);
     tilt.rotation.x = BAG_TILT; // (leaning out: the group is turned so that its +z points away from the middle, see the loop)
     group.add(tilt);
     // The glow: a soft ring of light on the snow round the bag (shown for the bag's controller and for the closing warning).
@@ -457,7 +514,7 @@ export class SantaSackScene {
     haloMesh.rotation.x = -Math.PI / 2; haloMesh.position.y = 0.08;
     this.scene.add(haloMesh, group);
     const p = this.orbitAt(b, this.serverNow());
-    const v: BagVisual = { id: b.id, group, tilt, mouth, body, rim, halo, haloMesh, shape, r, lipGroup, inside, ring, tails, tailSegs, lip, bowPivot, bowGroup, bowLoops, color: new Color(SANTA_NEUTRAL_BAG_COLOR), glow: 0, cinch: -1, strobe: 0, wasShut: false, scale: 1, view: b, x: p.x, z: p.z, y: 0 };
+    const v: BagVisual = { id: b.id, group, tilt, mouth, body, rim, halo, haloMesh, shape, r, lipGroup, inside, ring, tails, tailSegs, lip, bowPivot, bowGroup, bowLoops, heap, heapKey: '\u0000', heapGifts: [], color: new Color(SANTA_NEUTRAL_BAG_COLOR), glow: 0, cinch: -1, strobe: 0, wasShut: false, scale: 1, view: b, x: p.x, z: p.z, y: 0 };
     this.bags.set(b.id, v);
     this.shapeBag(v, 0);
     return v;
@@ -503,7 +560,7 @@ export class SantaSackScene {
     const phi0 = Math.PI / 2 + KNOT_ANGLE;
     const lift = 0.05 * r, A = new Vector3(), B = new Vector3(), dir = new Vector3(), nor = new Vector3(), xa = new Vector3(), m4 = new Matrix4();
     const at = (j: number, phi: number, out: Vector3) => out.set((pr[j] + lift) * Math.sin(phi), py[j], (pr[j] + lift) * Math.cos(phi));
-    const tailsOf: [number[], number][] = [[[NECK, 6, 5, 4], 1.05], [[NECK, 6, 5], 0.65]]; // (the profile points each tail passes, and how far round it drifts, in radians)
+    const tailsOf: [number[], number][] = [[[NECK, 6, 5, 4], 1.3], [[NECK, 6, 5], 0.3]]; // (the profile points each tail passes, and how far round it drifts, in radians: they fan out from the knot, one going well round the body and the other staying nearer)
     let seg = 0;
     for (const [pts, drift] of tailsOf) {
       for (let k = 0; k + 1 < pts.length; k++) {
@@ -522,11 +579,13 @@ export class SantaSackScene {
     // The bow is tied at the same knot when the bag is cinched (it pops in as the neck closes), on the side of the neck, its loops across the neck.
     const bowShow = Math.max(0, (e - 0.55) / 0.45);
     b.bowGroup.visible = bowShow > 0.02;
-    b.bowPivot.rotation.y = KNOT_ANGLE;
-    b.bowGroup.position.set(pr[NECK] + 0.03 * r + 0.25 * r, py[NECK], 0); // (the bow sits 0.25 bag radii further out than the neck, on the same side as the knot)
-    b.bowGroup.rotation.x = Math.PI; // (the bow is tied turned 180 degrees round its own x axis: 45, 45, then 90 more the same way)
-    b.bowGroup.rotation.z = Math.PI / 4; // (and turned 45 degrees round its z axis, the way the loops point)
-    b.bowGroup.scale.setScalar(Math.max(0.001, bowShow));
+    // The bow sits 0.25 bag radii further out than the neck, on the side of the knot (a place in the bag's own axes: the pivot is put there), and its whole turn is: round to the knot's side,
+    // then 45 degrees more about the bag's z axis (the way it leans), which is the pose chosen in the bow harness.
+    b.bowPivot.position.set(pr[NECK] + 0.03 * r + 0.25 * r, py[NECK], 0).applyAxisAngle(BAG_UP, KNOT_ANGLE);
+    b.bowPivot.quaternion.setFromAxisAngle(BAG_UP, KNOT_ANGLE).premultiply(BOW_TURN);
+    b.bowGroup.position.set(0, 0, 0);
+    b.bowGroup.quaternion.copy(BOW_BASE).multiply(BOW_FINE); // (the bow's own turn: the base pose, then the final adjustment chosen in the bow harness about its own axes)
+    b.bowGroup.scale.setScalar(Math.max(0.001, bowShow * BOW_SIZE));
   }
 
   // ---------- the loop ----------
@@ -594,6 +653,7 @@ export class SantaSackScene {
       else if (serverMs >= openAt && sinceOpen < 350) cinch = 1 - smooth(sinceOpen / 350);
 
       this.shapeBag(b, Math.min(1, Math.max(0, cinch)));
+      this.syncHeap(b, seconds, cinch);
       if (b.bowGroup.visible) b.bowLoops.forEach((loop, i) => { const side = loop.userData.side as number; loop.rotation.x = side * 0.07 * Math.sin(seconds * 2.2 + b.id * 1.3 + i); loop.position.y = -b.r * (0.05 + 0.02 * Math.sin(seconds * 2.2 + b.id * 1.3 + i + 1)); }); // (the bow keeps the pose set in shapeBag and only flops a very little round it)
       if (shut !== b.wasShut) { // the bag has just been cinched or let go: a pull (a thunk) or a loosening pop (not for someone arriving mid-round)
         if (Math.abs(serverMs - (shut ? closeAt : openAt)) < 800) audio.playFlat(shut ? giftMiss : giftGrab, shut ? 0.5 : 0.35);
@@ -616,7 +676,14 @@ export class SantaSackScene {
     for (let i = this.effects.length - 1; i >= 0; i--) {
       const e = this.effects[i];
       e.age += dt;
-      if (e.kind === 'in') {
+      if (e.kind === 'kick') {
+        // Tumbling out of the mouth and falling: down by gravity with the bag's own sideways speed (no more once it is on the floor), spinning; then it shrinks away.
+        const t = e.age, y = Math.max(0.45, e.y - 0.5 * 16 * t * t), onFloor = y <= 0.451, slide = onFloor ? 0.25 : 1;
+        e.group.position.set(e.x + (e.vx ?? 0) * Math.min(t, 0.9) * slide, y, e.z + (e.vz ?? 0) * Math.min(t, 0.9) * slide);
+        if (!onFloor) e.group.rotation.set(t * 6, t * 4, t * 5);
+        e.group.scale.setScalar(t > 1.0 ? Math.max(0.01, 1 - (t - 1.0) / 0.4) : 1);
+        if (t > 1.4) this.dropEffect(i);
+      } else if (e.kind === 'in') {
         const bag = e.bag !== null ? this.bags.get(e.bag) : undefined;
         const mouthAt = new Vector3(e.x, 1, e.z);
         if (bag) bag.mouth.getWorldPosition(mouthAt);

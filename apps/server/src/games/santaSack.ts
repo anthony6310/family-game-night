@@ -1,4 +1,4 @@
-import { SANTA_SECONDS, bagFrame, lobPlan, inScoringZone, outerZoneNormal, type SantaBagView, type SantaFlyingView, type SantaLandedView, type SantaSackView } from '@fgn/shared';
+import { SANTA_SECONDS, bagFrame, lobPlan, inScoringZone, outerZoneNormal, type SantaBagView, type SantaFlyingView, type SantaKickedView, type SantaLandedView, type SantaSackView } from '@fgn/shared';
 import type { GameEngine } from './types';
 
 /**
@@ -10,7 +10,8 @@ import type { GameEngine } from './types';
  *
  * Everything is decided here: where each bag is (a function of the clock, so it is exact and predictable), which bags are shut, where a throw goes, whether it goes in, bounces or lands.
  * Every elf has an endless pile of gifts and may throw them as fast as they like (a human can't throw faster than every 0.12 seconds).
- * How many gifts are in a bag is never sent to phones: the players only see who controls it.
+ * A bag holds at most 5 gifts (the phones see them as a heap in the bag's mouth, each in its thrower's color). When a 6th goes in, a random gift of ANOTHER color (never the thrower's) is kicked out
+ * to make room: it just tumbles out and falls (it takes no part in the physics).
  */
 export interface SantaConfig {
   durationMs: number;
@@ -40,6 +41,7 @@ export interface SantaConfig {
   floorY: number; // a gift that falls this low has hit the floor
   restitution: number; // how much of its speed a gift keeps (along the surface's push) when it bounces off a bag
   maxBounces: number; // after this many bounces a gift just falls
+  bagCapacity: number; // a bag holds at most this many gifts: a new one pushes out a random gift of another color
   stepMs: number; // gifts are simulated in steps of this length, so a result never depends on how often the server ticks
   landedShowMs: number; // a gift that has come down stays in the view this long (for the animation)
 }
@@ -72,6 +74,7 @@ export const DEFAULT_SANTA: SantaConfig = {
   floorY: 0.4,
   restitution: 0.45,
   maxBounces: 3,
+  bagCapacity: 5,
   stepMs: 10,
   landedShowMs: 1600,
 };
@@ -80,13 +83,15 @@ interface Bag {
   id: number;
   radius: number; // the radius of its mouth
   slot: number;
-  counts: Record<string, number>; // the gifts each player has put in (never sent to phones)
+  gifts: { owner: string; kind: number }[]; // the gifts in the bag, oldest first (at most bagCapacity); the phones see them as a heap in the mouth
   closeAt: number; // the server time it is cinched shut...
   openAt: number; // ...and opens again
 }
 interface Vec { x: number; y: number; z: number }
 /** A gift in the air: it moves by gravity from (p0, v0) at time t0 (a new segment starts at every bounce). */
 interface Flying { id: number; owner: string; kind: number; p0: Vec; v0: Vec; g: number; t0: number; bounces: number }
+/** A gift pushed out of a full bag: shown tumbling out of its mouth (a picture only: it is not simulated). */
+interface Kicked { id: number; owner: string; kind: number; bag: number; at: number }
 interface Landed { id: number; owner: string; kind: number; x: number; y: number; z: number; bag: number | null; at: number }
 
 interface SantaState {
@@ -97,6 +102,7 @@ interface SantaState {
   bags: Bag[];
   flying: Flying[];
   landed: Landed[];
+  kicked: Kicked[];
   simAt: number; // the time everything has been simulated up to (in steps of stepMs)
   nextId: number;
   clock: number;
@@ -132,7 +138,9 @@ export function createSantaSack(options: Partial<SantaConfig> = {}): GameEngine<
 
   const isClosed = (bag: Bag, t: number) => t >= bag.closeAt && t < bag.openAt;
   /** The player with strictly the most gifts in a bag; null if it is empty or the best is tied (neutral). */
-  function leaderOf(counts: Record<string, number>): string | null {
+  const countsOf = (gifts: Bag['gifts']) => { const counts: Record<string, number> = {}; for (const g of gifts) counts[g.owner] = (counts[g.owner] ?? 0) + 1; return counts; };
+  function leaderOf(gifts: Bag['gifts']): string | null {
+    const counts = countsOf(gifts);
     let best = 0, leader: string | null = null, tied = false;
     for (const [id, n] of Object.entries(counts)) {
       if (n > best) { best = n; leader = id; tied = false; } else if (n === best && n > 0) tied = true;
@@ -142,7 +150,7 @@ export function createSantaSack(options: Partial<SantaConfig> = {}): GameEngine<
   /** How many bags each player controls (this is the score). */
   function controlled(state: SantaState): Record<string, number> {
     const result: Record<string, number> = Object.fromEntries(Object.keys(state.stations).map((id) => [id, 0]));
-    for (const bag of state.bags) { const l = leaderOf(bag.counts); if (l && l in result) result[l] += 1; }
+    for (const bag of state.bags) { const l = leaderOf(bag.gifts); if (l && l in result) result[l] += 1; }
     return result;
   }
 
@@ -161,13 +169,13 @@ export function createSantaSack(options: Partial<SantaConfig> = {}): GameEngine<
       const first = new Set([...Array(count).keys()].sort(() => Math.random() - 0.5).slice(0, howMany));
       const bags: Bag[] = Array.from({ length: count }, (_, i) => {
         const phase = first.has(i) ? 1 : 2; // (phase 1 = the second quarter of the round, phase 2 = the third)
-        return { id: i + 1, radius: round(rand(cfg.bagRadiusMin, cfg.bagRadiusMax), 3), slot: offset + (i * Math.PI * 2) / count, counts: {}, closeAt: now + phase * cfg.phaseMs, openAt: now + (phase + 1) * cfg.phaseMs };
+        return { id: i + 1, radius: round(rand(cfg.bagRadiusMin, cfg.bagRadiusMax), 3), slot: offset + (i * Math.PI * 2) / count, gifts: [], closeAt: now + phase * cfg.phaseMs, openAt: now + (phase + 1) * cfg.phaseMs };
       });
       const each = <T,>(v: T) => Object.fromEntries(playerIds.map((id) => [id, v])) as Record<string, T>;
       return {
         startsAt: now, endsAt: now + cfg.durationMs, stations,
         lastThrowAt: each(-Infinity),
-        bags, flying: [], landed: [], simAt: now, nextId: 1, clock: now,
+        bags, flying: [], landed: [], kicked: [], simAt: now, nextId: 1, clock: now,
       };
     },
 
@@ -199,8 +207,10 @@ export function createSantaSack(options: Partial<SantaConfig> = {}): GameEngine<
 
     tick(state, _dt, now) {
       if (now < state.startsAt) return state;
-      const bags = state.bags.map((b) => ({ ...b, counts: { ...b.counts } }));
+      const bags = state.bags.map((b) => ({ ...b, gifts: [...b.gifts] }));
       let landed = state.landed.filter((l) => now - l.at < cfg.landedShowMs);
+      const kicked = state.kicked.filter((k) => now - k.at < cfg.landedShowMs);
+      let nextId = state.nextId;
       let flying = state.flying;
       let simAt = state.simAt;
       // Everything moves in fixed steps (so the outcome never depends on how often the server ticks): bags float round their route, lids go on and off, gifts fly and bounce.
@@ -217,8 +227,16 @@ export function createSantaSack(options: Partial<SantaConfig> = {}): GameEngine<
           // Into an OPEN bag's scoring zone: the gift has gone in, and counts for whoever threw it (the player with the most gifts in a bag controls it).
           const scored = frames.find((f) => !f.closed && inScoringZone(f.frame, pos));
           if (scored) {
-            if (g.owner in state.stations) scored.bag.counts[g.owner] = (scored.bag.counts[g.owner] ?? 0) + 1;
-            landed.push({ id: g.id, owner: g.owner, kind: g.kind, x: round(pos.x), y: round(pos.y), z: round(pos.z), bag: scored.bag.id, at: t });
+            const bag = scored.bag;
+            let counted = g.owner in state.stations;
+            if (counted && bag.gifts.length >= cfg.bagCapacity) {
+              // The bag is full: a random gift of another color (never the thrower's) is pushed out to make room. If it holds only the thrower's own, nothing can be pushed out and this gift does not count.
+              const others = bag.gifts.map((x, i) => i).filter((i) => bag.gifts[i].owner !== g.owner);
+              if (others.length === 0) counted = false;
+              else { const [out] = bag.gifts.splice(others[Math.floor(Math.random() * others.length)], 1); kicked.push({ id: nextId++, owner: out.owner, kind: out.kind, bag: bag.id, at: t }); }
+            }
+            if (counted) bag.gifts.push({ owner: g.owner, kind: g.kind });
+            landed.push({ id: g.id, owner: g.owner, kind: g.kind, x: round(pos.x), y: round(pos.y), z: round(pos.z), bag: counted ? bag.id : null, at: t });
             continue;
           }
           // Hitting the outside of a bag (its neck or its belly, or the lid of a closed one: the neck cylinder is solid with the scoring zone switched off): it bounces off.
@@ -249,7 +267,7 @@ export function createSantaSack(options: Partial<SantaConfig> = {}): GameEngine<
         }
         flying = stillFlying;
       }
-      return { ...state, bags, flying, landed, simAt, clock: now };
+      return { ...state, bags, flying, landed, kicked, nextId, simAt, clock: now };
     },
 
     isOver: (state, now) => now >= state.endsAt,
@@ -265,15 +283,16 @@ export function createSantaSack(options: Partial<SantaConfig> = {}): GameEngine<
 
     removePlayer(state, playerId) {
       const drop = <T,>(rec: Record<string, T>) => Object.fromEntries(Object.entries(rec).filter(([id]) => id !== playerId)) as Record<string, T>;
-      return { ...state, stations: drop(state.stations), lastThrowAt: drop(state.lastThrowAt), bags: state.bags.map((b) => ({ ...b, counts: drop(b.counts) })), flying: state.flying.filter((f) => f.owner !== playerId) }; // (their gifts leave with them)
+      return { ...state, stations: drop(state.stations), lastThrowAt: drop(state.lastThrowAt), bags: state.bags.map((b) => ({ ...b, gifts: b.gifts.filter((x) => x.owner !== playerId) })), flying: state.flying.filter((f) => f.owner !== playerId) }; // (their gifts leave with them)
     },
 
     view(state): SantaSackView {
       const bags: SantaBagView[] = state.bags.map((b) => ({
-        id: b.id, radius: b.radius, slot: round(b.slot, 4), leader: leaderOf(b.counts), lid: { closeAt: b.closeAt, openAt: b.openAt },
+        id: b.id, radius: b.radius, slot: round(b.slot, 4), leader: leaderOf(b.gifts), gifts: b.gifts.map((x) => ({ owner: x.owner, kind: x.kind })), lid: { closeAt: b.closeAt, openAt: b.openAt },
       }));
       const flying: SantaFlyingView[] = state.flying.map((f) => ({ id: f.id, owner: f.owner, kind: f.kind, x0: round(f.p0.x), y0: round(f.p0.y), z0: round(f.p0.z), vx: round(f.v0.x), vy: round(f.v0.y), vz: round(f.v0.z), g: round(f.g, 3), t0: f.t0, bounces: f.bounces }));
       const landed: SantaLandedView[] = state.landed.map((l) => ({ ...l }));
+      const kicked: SantaKickedView[] = state.kicked.map((k) => ({ ...k }));
       const own = controlled(state);
       return {
         gameId: 'santa-sack',
@@ -288,7 +307,7 @@ export function createSantaSack(options: Partial<SantaConfig> = {}): GameEngine<
         lob: { throwSpeed: cfg.throwSpeed, flightMinMs: cfg.flightMinMs, gravity: cfg.gravity, handHeight: cfg.handHeight, aimHeight: cfg.aimHeight, lobFactor: cfg.lobFactor, baseLobFactor: cfg.baseLobFactor, flightTimeScale: cfg.flightTimeScale },
         throwMinPower: cfg.throwMinPower,
         players: Object.fromEntries(Object.keys(state.stations).map((id) => [id, { controlled: own[id] ?? 0 }])),
-        flying, landed,
+        flying, landed, kicked,
       };
     },
   };

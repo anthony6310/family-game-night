@@ -1,3 +1,4 @@
+import { Icon } from '../components/Icon';
 import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { DEFAULT_ROOM_NAME, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing } from '@fgn/shared';
@@ -79,7 +80,7 @@ export function PlayPage() {
           {rooms?.map((room) => (
             <li key={room.code} className="room-item">
               <div className="room-info">
-                <strong className="room-name">{room.hasPassword && <span title="Needs a password">🔒 </span>}{room.name}</strong>
+                <strong className="room-name">{room.hasPassword && <span title="Needs a password"><Icon name="lock" /> </span>}{room.name}</strong>
                 <span className="muted">
                   Host: {room.hostName} · {room.members}/{room.capacity} · {room.gameName ?? 'No game picked'} · {status(room)}
                 </span>

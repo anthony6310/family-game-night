@@ -34,6 +34,7 @@ const ERROR_TEXT: Record<RoomError, string> = {
   NO_GAME_SELECTED: 'Wait for the host to pick a game.',
   TEAMS_LOCKED: 'The host has turned team swapping off.',
   NOT_A_TEAM_GAME: 'That is not a team game.',
+  TEAMS_NOT_FILLED: 'Each team needs at least one player before the game can start.',
 };
 
 interface RoomContextValue {
@@ -54,6 +55,10 @@ interface RoomContextValue {
   /** Team games: pick my team (while the host allows it); the host sets each team's handicap. */
   setTeam: (team: TeamId) => Promise<string | null>;
   setHandicap: (team: TeamId, value: number) => Promise<string | null>;
+  /** The team step (the Random tile landed on a team game), host only: start the round. */
+  startFromTeams: () => Promise<string | null>;
+  /** The team step, host only: cancel the start countdown. */
+  cancelTeamStart: () => Promise<string | null>;
   /** Spectators: bet on a player to win (null = take the bet back), with `stake` extra victory points. */
   placeBet: (targetId: string | null, stake: number) => Promise<string | null>;
   leaveRoom: () => void;
@@ -233,6 +238,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setColor: (color) => command((s, ack) => s.emit('player:color', color, ack)),
     setTeam: (team) => command((s, ack) => s.emit('player:team', team, ack)),
     setHandicap: (team, value) => command((s, ack) => s.emit('room:handicap', team, value, ack)),
+    startFromTeams: () => command((s, ack) => s.emit('room:start-teams', ack)),
+    cancelTeamStart: () => command((s, ack) => s.emit('room:cancel-start', ack)),
     placeBet: (targetId, stake) => command((s, ack) => s.emit('player:bet', targetId, stake, ack)),
     endSession: () => command((s, ack) => s.emit('session:end', ack)),
     updateSettings: (change) => command((s, ack) => s.emit('room:settings', change, ack)),

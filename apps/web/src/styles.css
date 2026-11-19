@@ -307,3 +307,69 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .tug-fill { transition: width 0.25s; }
 .tug-rest { flex: 1; }
 
+
+/* ---------- the lobby hub (GAME_RULES.md #19) ---------- */
+.hub { justify-content: flex-start; gap: 0.7rem; padding-bottom: 5.5rem; }
+.hub-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 0.5rem; width: min(100%, 30rem); }
+.hub-title { flex: 1; min-width: 0; text-align: center; padding-left: 2.6rem; }
+.hub-title .muted { margin: 0; }
+.hub-gear { width: 2.6rem; padding: 0.4rem; font-size: 1.4rem; background: #26264a; color: #fff; border-radius: 50%; flex: none; }
+.players-strip { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.6rem; width: min(100%, 30rem); padding: 0.5rem; background: #1f1f3d; color: #fff; border-radius: 0.9rem; }
+.strip-player { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; width: 3.6rem; }
+.strip-player.watching { opacity: 0.5; }
+.strip-avatar { position: relative; display: block; border-radius: 50%; border: 3px solid #555; line-height: 0; }
+.strip-ready { position: absolute; right: -0.35rem; bottom: -0.25rem; background: #6ee7a0; color: #0b2a16; border-radius: 50%; width: 1.1rem; height: 1.1rem; font-size: 0.8rem; display: flex; align-items: center; justify-content: center; line-height: 1; }
+.strip-host { position: absolute; left: -0.3rem; top: -0.7rem; font-size: 1rem; line-height: 1; color: #ffd23d; }
+.strip-away { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: #0008; border-radius: 50%; line-height: 1; font-weight: bold; }
+.strip-name { font-size: 0.72rem; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.game-hero { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; width: min(100%, 30rem); }
+.game-hero-tile { width: min(100%, 22rem); }
+.game-hero-name { margin: 0; font-weight: bold; }
+.game-hero-line { margin: 0; text-align: center; font-size: 0.95rem; }
+.hub-steps { list-style: none; display: flex; gap: 0.4rem; flex-wrap: wrap; justify-content: center; padding: 0; margin: 0; }
+.chip { width: auto; padding: 0.35rem 0.8rem; font-size: 0.9rem; border-radius: 999px; background: #26264a; color: #fff; display: inline-block; }
+button.chip { cursor: pointer; }
+.chip.done { background: #1e4d36; color: #bff5d6; }
+.hub-status { margin: 0; text-align: center; }
+.hub-ready { width: min(100%, 22rem); }
+.hub-bar { position: fixed; left: 0; right: 0; bottom: 0; display: flex; justify-content: center; gap: 0.4rem; padding: 0.5rem 0.6rem calc(0.5rem + env(safe-area-inset-bottom)); background: #151530ee; backdrop-filter: blur(6px); z-index: 20; }
+.hub-bar button { flex: 1; max-width: 8rem; width: auto; padding: 0.5rem 0.2rem; font-size: 0.8rem; background: #26264a; color: #fff; display: flex; flex-direction: column; align-items: center; gap: 0.1rem; }
+.hub-bar button { font-size: 0.95rem; padding: 0.8rem 0.2rem; }
+/* The sheets: slide up over the lobby (a centered card on a wide screen). */
+.sheet-layer { position: fixed; inset: 0; z-index: 50; background: #000a; display: flex; align-items: flex-end; justify-content: center; animation: sheet-fade 0.18s ease-out both; }
+.sheet { width: min(100%, 34rem); max-height: 88dvh; display: flex; flex-direction: column; background: #1a1a2e; border-radius: 1.2rem 1.2rem 0 0; box-shadow: 0 -6px 30px #0009; animation: sheet-up 0.24s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; padding: 0.8rem 1rem 0.4rem; }
+.sheet-head h2 { margin: 0; font-size: 1.3rem; }
+.sheet-close { width: 2.4rem; padding: 0.2rem; font-size: 1.6rem; line-height: 1; background: #26264a; color: #fff; border-radius: 50%; }
+.sheet-body { overflow-y: auto; padding: 0.4rem 1rem calc(1.2rem + env(safe-area-inset-bottom)); display: flex; flex-direction: column; align-items: center; gap: 0.8rem; }
+.room-sheet { display: flex; flex-direction: column; align-items: center; gap: 0.7rem; width: 100%; }
+.room-sheet form { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; width: min(100%, 20rem); }
+@keyframes sheet-up { from { transform: translateY(100%); } to { transform: translateY(0); } }
+@keyframes sheet-fade { from { opacity: 0; } to { opacity: 1; } }
+@media (min-width: 700px) { .sheet-layer { align-items: center; } .sheet { border-radius: 1.2rem; } }
+@media (prefers-reduced-motion: reduce) { .sheet, .sheet-layer { animation: none; } }
+
+/* Icons (Icon.tsx): drawn in the text color, as tall as the text. Never emojis (GAME_RULES.md #20). */
+.icon { display: inline-block; vertical-align: -0.14em; flex: none; }
+.chip-dot { display: inline-block; width: 0.7em; height: 0.7em; border: 2px solid currentColor; border-radius: 50%; vertical-align: -0.05em; margin-right: 0.1em; }
+
+.team-badge { margin-left: 0.4rem; font-size: 0.65rem; vertical-align: middle; }
+
+/* The team step (after the Random tile lands on a team game). */
+.team-step { justify-content: flex-start; gap: 0.8rem; }
+.team-step-game { margin: 0; text-align: center; max-width: 30rem; }
+.team-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.team-panel { max-width: 30rem; }
+/* In a team column the handicap reads "head start N" on its own line with the - and + under it. */
+.team-col .stepper { flex-wrap: wrap; justify-content: center; border-radius: 1rem; }
+.team-col .stepper .stepper-value { order: -1; flex: 1 0 100%; }
+
+/* The handicap: a label, then - [number] + on one line (any whole number can be typed). */
+.handicap { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; width: 100%; }
+.handicap-label { font-size: 0.85rem; opacity: 0.85; }
+.handicap-row { display: flex; align-items: center; justify-content: center; gap: 0.3rem; width: 100%; }
+.handicap-row button { width: 2.2rem; min-width: 2.2rem; height: 2.2rem; padding: 0; border-radius: 50%; font-size: 1.3rem; line-height: 1; background: #fff; color: #111; }
+.handicap-row input { width: 3.6rem; min-width: 0; text-align: center; font-size: 1.1rem; font-weight: bold; padding: 0.3rem; border-radius: 0.5rem; border: 2px solid #555; background: #1a1a2e; color: #fff; }
+/* The "Players can choose their team" box and its words sit on ONE line. */
+.team-swap { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 0.5rem; width: auto; }
+.team-swap input { width: 1.2rem; height: 1.2rem; flex: none; margin: 0; }

@@ -39,13 +39,14 @@ export const RANDOM_GAME = 'random';
  *             plays over the frozen game for a few seconds
  * 'results'   the round summary screen (moves on by itself after a few seconds)
  * 'roulette'  (only when the host chose the Random tile) the countdown is over and everyone, the host included, watches the game being picked: the carousel spins and slows onto it
+ * 'teams'     (only when the Random tile landed on a TEAM game) the round pauses so the players can manage the teams; the host starts it (no Ready step)
  * 'underdog'  (only when there is an underdog) the countdown is over and everyone is shown the underdog for a few seconds
  *             before the round starts
  * 'starting'  the flash step (like a loading screen): the screen flashes and fades to a plain page, and the round begins almost at the end of the
  *             flash (see START_FLASH_* in config.ts). Nobody can play yet.
  * 'session-over' the host ended the session (or the room emptied): the player with the most wins is crowned
  */
-export type RoomPhase = 'lobby' | 'countdown' | 'roulette' | 'underdog' | 'starting' | 'playing' | 'finish' | 'results' | 'session-over';
+export type RoomPhase = 'lobby' | 'countdown' | 'roulette' | 'teams' | 'underdog' | 'starting' | 'playing' | 'finish' | 'results' | 'session-over';
 
 /**
  * What a phone may send during a round. The server decides what it actually means.
@@ -372,6 +373,8 @@ export interface RoomState {
   underdogEndsAt: number | null;
   /** Players whose connection dropped (a refresh, a bad signal): their seat is held for a grace period, and they come back by reconnecting. */
   offlineIds: string[];
+  /** The team step: when the host pressed Start, the server time the start countdown ends (null = not counting; the host can cancel). */
+  teamCountdownEndsAt: number | null;
   /** The roulette (only when the host picked Random): the game the server chose, and when the spin starts and ends (server clock). Everyone's carousel lands on `gameId` at `endsAt`. */
   roulette: { gameId: GameId; startsAt: number; endsAt: number } | null;
   /** Server clock when the 'starting' (flash) step ends and the round begins, or null. */
@@ -421,7 +424,8 @@ export type RoomError =
   | 'WRONG_PHASE'
   | 'NO_GAME_SELECTED'
   | 'TEAMS_LOCKED' // the host has turned team swapping off
-  | 'NOT_A_TEAM_GAME';
+  | 'NOT_A_TEAM_GAME'
+  | 'TEAMS_NOT_FILLED'; // the team step: each team needs a player before the host can start
 
 /** Reply shape for events that expect an answer (Socket.io "acknowledgements"). */
 export type Ack<T> = { ok: true; data: T } | { ok: false; error: RoomError };
@@ -474,6 +478,10 @@ export interface ClientToServerEvents {
   /** Switch between playing (false) and watching (true). Lobby/countdown only. Your points are kept either way. */
   'player:watching': (watching: boolean, ack?: (res: Ack<null>) => void) => void;
   'room:leave': () => void;
+  /** The team step (the Random tile landed on a team game), host only: the teams are set, start the round. */
+  'room:start-teams': (ack?: (res: Ack<null>) => void) => void;
+  /** The team step, host only: cancel the start countdown. */
+  'room:cancel-start': (ack?: (res: Ack<null>) => void) => void;
   /** Team games: pick my team (only while the host allows swapping). It resets everyone's Ready. */
   'player:team': (team: TeamId, ack?: (res: Ack<null>) => void) => void;
   /** Team games, host only: set a team's handicap (a whole number, may be negative). */

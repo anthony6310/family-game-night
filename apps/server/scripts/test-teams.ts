@@ -12,12 +12,13 @@ const player = (id: string): Player => ({ id, name: id, avatarUrl: null, isGuest
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 function setup(ids: string[], spectators: string[] = []) {
-  const rooms = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, startingMs: 0, introMs: 0 } as never);
+  const rooms = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, startingMs: 0, introMs: 0, forceRandom: null } as never);
   const made = rooms.create(player(ids[0]));
   if (!made.ok) throw new Error('create failed');
   const code = made.room.code;
   for (const id of [...ids.slice(1), ...spectators]) rooms.join(code, player(id));
   for (const id of spectators) rooms.setWatching(id, true);
+  rooms.setSettings(ids[0], { teamSwap: true }); // (swapping is OFF by default: most tests here want it on)
   return { rooms, code, state: () => rooms.stateOf(code)!, ids, spectators };
 }
 const teamsOf = (r: ReturnType<typeof setup>, ids = r.ids) => Object.fromEntries(ids.map((id) => [id, r.state().teams[id]])) as Record<string, TeamId>;
@@ -31,6 +32,21 @@ const wins = (r: ReturnType<typeof setup>) => (r.rooms as unknown as { rooms: Ma
   const r5 = setup(['A', 'B', 'C', 'D', 'E']);
   check('an odd number of players gives uneven teams (3 and 2), which is allowed', Math.abs(count(r5, 'yellow') - count(r5, 'purple')) === 1);
   check('teams are not part of a normal game: nothing needs them', r.state().settings.gameId === null);
+}
+
+// ---- the default and the memory of team swapping ----
+{
+  const rooms = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, startingMs: 0, introMs: 0, forceRandom: null } as never);
+  const made = rooms.create(player('A')); if (!made.ok) throw new Error('create failed');
+  const code = made.room.code; rooms.join(code, player('B'));
+  check('team swapping is OFF by default (the teams start random and locked)', rooms.stateOf(code)!.settings.teamSwap === false);
+  rooms.setSettings('A', { teamSwap: true });
+  rooms.setSettings('A', { gameId: 'tug-of-war' });
+  rooms.setReady('A', true); rooms.setReady('B', true);
+  const playing = rooms.finishCountdown(code, rooms.stateOf(code)!.countdownEndsAt!)!;
+  rooms.finishRound(code, playing.game!.endsAt);
+  rooms.returnToLobby('A');
+  check('the host\'s choice is remembered for the session: it is still on after a round (and after a reset)', rooms.stateOf(code)!.settings.teamSwap === true && (rooms.reset('A'), rooms.stateOf(code)!.settings.teamSwap === true));
 }
 
 // ---- swapping and handicap ----
@@ -110,6 +126,69 @@ const wins = (r: ReturnType<typeof setup>) => (r.rooms as unknown as { rooms: Ma
   check('(the round is running)', r.state().phase === 'playing');
   r.rooms.leave('A');
   check('when a team has nobody left the round is called off', r.state().phase === 'lobby');
+}
+
+// ---- the Random tile landing on a team game: the round pauses in a team step, and the host starts it ----
+{
+  const rooms = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, startingMs: 0, introMs: 0, rouletteMs: 5000, forceRandom: 'tug-of-war' });
+  const made = rooms.create(player('A'));
+  if (!made.ok) throw new Error('create failed');
+  const code = made.room.code;
+  for (const id of ['B', 'C', 'S']) rooms.join(code, player(id));
+  rooms.setWatching('S', true);
+  rooms.setSettings('A', { teamSwap: true });
+  rooms.setSettings('A', { gameId: 'random' });
+  rooms.setBet('S', 'A', 0); // (a bet on a player: the game was not known yet)
+  for (const id of ['A', 'B', 'C', 'S']) rooms.setReady(id, true);
+  const st = () => rooms.stateOf(code)!;
+  rooms.finishCountdown(code, st().countdownEndsAt!);
+  check('(the roulette runs and lands on the team game)', st().phase === 'roulette' && st().roulette?.gameId === 'tug-of-war');
+  rooms.finishRoulette(code, st().roulette!.endsAt);
+  check('when the roulette lands on a team game the round PAUSES in the team step (no game running, no Ready step)', st().phase === 'teams' && st().game === null && st().readyIds.length === 0 && st().settings.gameId === 'tug-of-war');
+  check('bets placed before the game was known are cleared (spectators bet on a team now)', Object.keys(st().bets).length === 0);
+  check('a spectator bets on a team in the team step', rooms.setBet('S', 'yellow', 0).ok === false || rooms.setBet('S', 'purple', 0).ok);
+  check('nobody can ready up in the team step', rooms.setReady('B', true).ok === false);
+  check('players can pick their team in the team step (while swapping is on)', rooms.setTeam('B', 'yellow').ok && st().teams.B === 'yellow' && st().phase === 'teams');
+  check('the host can still change team swapping, but nothing else, in the team step', rooms.setSettings('A', { teamSwap: false }).ok && rooms.setSettings('A', { gameId: 'tap-race' }).ok === false && st().settings.teamSwap === false);
+  check('with swapping off the teams are locked', rooms.setTeam('B', 'purple').ok === false);
+  rooms.setSettings('A', { teamSwap: true });
+  check('the host sets a handicap in the team step', rooms.setHandicap('A', 'yellow', 3).ok && st().settings.handicap.yellow === 3);
+  check('only the host can start it', rooms.startFromTeams('B').ok === false);
+  rooms.setTeam('A', 'yellow'); rooms.setTeam('B', 'yellow'); rooms.setTeam('C', 'yellow');
+  check('the host cannot start while a team has nobody in it', rooms.startFromTeams('A').ok === false && st().phase === 'teams');
+  rooms.setTeam('C', 'purple');
+  check('the host starts the round once each team has a player', rooms.startFromTeams('A').ok && st().phase === 'playing' && st().game?.gameId === 'tug-of-war');
+  rooms.returnToLobby('A');
+  // leaving in the team step so a team is empty calls it off
+  rooms.setSettings('A', { gameId: 'random' });
+  for (const id of ['A', 'B', 'C', 'S']) rooms.setReady(id, true);
+  rooms.finishCountdown(code, st().countdownEndsAt!); rooms.finishRoulette(code, st().roulette!.endsAt);
+  rooms.setTeam('A', 'yellow'); rooms.setTeam('B', 'purple'); rooms.setTeam('C', 'purple');
+  rooms.leave('A');
+  check('a team with nobody left in the team step calls the round off', st().phase === 'lobby');
+}
+
+// ---- the team step's start countdown (the host can cancel) ----
+{
+  const rooms = new RoomManager({ countdownMs: 200, roundMs: 10_000, finishMs: 0, resultsMs: 0, startingMs: 0, introMs: 0, rouletteMs: 0, forceRandom: 'tug-of-war' } as never);
+  const made = rooms.create(player('A')); if (!made.ok) throw new Error('create failed');
+  const code = made.room.code; for (const id of ['B', 'C']) rooms.join(code, player(id));
+  const st = () => rooms.stateOf(code)!;
+  rooms.setSettings('A', { gameId: 'random' }); rooms.setSettings('A', { teamSwap: true });
+  for (const id of ['A', 'B', 'C']) rooms.setReady(id, true);
+  rooms.finishCountdown(code, st().countdownEndsAt!);
+  check('(the Random pick landed on the team game: the team step)', st().phase === 'teams');
+  rooms.setTeam('A', 'yellow'); rooms.setTeam('B', 'purple'); rooms.setTeam('C', 'purple');
+  check('Start begins a short countdown in the team step (nothing starts yet)', rooms.startFromTeams('A').ok && st().phase === 'teams' && st().teamCountdownEndsAt !== null && st().game === null);
+  check('only the host can cancel it', rooms.cancelTeamStart('B').ok === false && st().teamCountdownEndsAt !== null);
+  check('the host cancels it: back to managing the teams', rooms.cancelTeamStart('A').ok && st().teamCountdownEndsAt === null && st().phase === 'teams');
+  rooms.startFromTeams('A');
+  rooms.setTeam('C', 'yellow'); // a change cancels the countdown
+  check('any change to the teams cancels the countdown', st().teamCountdownEndsAt === null);
+  rooms.setTeam('C', 'purple'); rooms.startFromTeams('A');
+  check('a stale countdown timer does nothing', rooms.finishTeamCountdown(code, 1) === null && st().phase === 'teams');
+  const started = rooms.finishTeamCountdown(code, st().teamCountdownEndsAt!)!;
+  check('when the countdown ends the round starts', started.phase === 'playing' && started.game?.gameId === 'tug-of-war' && started.teamCountdownEndsAt === null);
 }
 
 // ---- the Random tile never picks a team game ----

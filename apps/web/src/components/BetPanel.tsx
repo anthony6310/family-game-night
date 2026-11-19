@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import { MIN_STAKE, type Bet, type Player } from '@fgn/shared';
 
 interface Props {
@@ -44,7 +45,7 @@ export function BetPanel({ players, bet, points, onBet, teams = false }: Props) 
         <button aria-label="One more point" disabled={!bet || (stake === 0 ? points < MIN_STAKE : stake >= points)} onClick={() => bet && onBet(bet.targetId, stake === 0 ? MIN_STAKE : stake + 1)}>+</button>
       </div>
       <p className="muted">
-        You have 🏆 {points}.{' '}
+        You have <Icon name="trophy" /> {points}.{' '}
         {bet ? `Win: +${Math.max(1, stake)} · Lose: ${stake > 0 ? `−${stake}` : 'nothing'}` : 'No bet: just watching.'}
       </p>
     </section>

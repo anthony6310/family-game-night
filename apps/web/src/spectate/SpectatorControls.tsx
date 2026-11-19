@@ -1,3 +1,4 @@
+import { Icon } from '../components/Icon';
 import { Joystick } from '../components/Joystick';
 import type { SpectatorCamera } from './useSpectatorCamera';
 
@@ -16,7 +17,7 @@ export function SpectatorControls({ camera, allowFree = true }: { camera: Specta
       {allowFree && mode === 'free' && <Joystick onChange={camera.setStick} />}
 
       <div className="spectate-bar" onPointerDown={(e) => e.stopPropagation()}>
-        <p className="spectate-title">👀 You're watching</p>
+        <p className="spectate-title"><Icon name="eye" /> You're watching</p>
         {allowFree && (
           <div className="mode-toggle small" role="radiogroup" aria-label="Camera">
             <button role="radio" aria-checked={mode === 'follow'} className={mode === 'follow' ? 'on' : ''} onClick={() => camera.setMode('follow')}>Follow</button>

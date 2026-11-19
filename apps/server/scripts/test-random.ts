@@ -10,7 +10,7 @@ let failures = 0;
 const check = (name: string, ok: boolean) => { if (!ok) failures++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`); };
 const player = (id: string): Player => ({ id, name: id, avatarUrl: null, isGuest: true });
 
-const rooms = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, rouletteMs: 5000, startingMs: 0, introMs: 0 });
+const rooms = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, rouletteMs: 5000, startingMs: 0, introMs: 0, forceRandom: null }); // (forceRandom null: these tests check the real Random rules, whatever the temporary switch in rooms.ts says)
 const made = rooms.create(player('A'));
 if (!made.ok) throw new Error('create failed');
 const code = made.room.code;
@@ -44,7 +44,7 @@ check('a player leaving during the roulette calls it off when too few remain', s
 
 // over many rolls every game comes up, and picking a game by hand clears the random mark
 const seen = new Set<string>();
-const many = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, rouletteMs: 1000, startingMs: 0, introMs: 0 });
+const many = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, rouletteMs: 1000, startingMs: 0, introMs: 0, forceRandom: null }); // (forceRandom null: these tests check the real Random rules, whatever the temporary switch in rooms.ts says)
 const m = many.create(player('X')); if (!m.ok) throw new Error('create failed');
 many.join(m.room.code, player('Y'));
 for (let i = 0; i < 80; i++) {

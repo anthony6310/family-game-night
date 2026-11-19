@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { GameAction, Player, RoundResult, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './Joystick';
+import { Icon } from './Icon';
 import { useStarted } from './useStarted';
 import { SnowballScene, type BallStyle } from './snowball/SnowballScene';
 import { SprintButton, StaminaBar } from './snowball/SprintControls';
@@ -109,14 +110,14 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
           {standings.map(({ id, size, style, leader, fish }) => (
             <li key={id} className={id === selfId ? 'me' : ''}>
               <span className="dot" style={{ background: style?.color }} />
-              <span className="snow-name">{leader && '👑 '}{style?.name ?? '?'}</span>
-              {fish > 0 && <span className="snow-fish" title="Fish: each adds +5 damage to the next hit">🐟{fish}</span>}
+              <span className="snow-name">{leader && <><Icon name="crown" /> </>}{style?.name ?? '?'}</span>
+              {fish > 0 && <span className="snow-fish" title="Fish: each adds +5 damage to the next hit"><Icon name="fish" />{fish}</span>}
               <span className="snow-size">{size}</span>
             </li>
           ))}
         </ul>
         {!frozen && subjectBall && <StaminaBar stamina={subjectBall.stamina} startAt={game.staminaStart} sprinting={subjectBall.sprinting} recovering={subjectBall.escape} />}
-        {isPlayer && !frozen && <p className="snow-hint">Drag to steer · WASD / arrows · hold Shift, Space or ⚡ to sprint</p>}
+        {isPlayer && !frozen && <p className="snow-hint">Drag to steer · WASD / arrows · hold Shift, Space or the sprint button to sprint</p>}
       </div>
 
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}

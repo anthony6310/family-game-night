@@ -4,6 +4,7 @@ import type { GameAction, PenguinLassoView, Player, RoundResult } from '@fgn/sha
 import { useRemainingMs } from './Countdown';
 import { BagMeter } from './BagMeter';
 import { Joystick } from './Joystick';
+import { Icon } from './Icon';
 import { useStarted } from './useStarted';
 import { PenguinScene, type SkaterStyle } from './penguin/PenguinScene';
 import { useSteering } from './snowball/useSteering';
@@ -116,8 +117,8 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
             <li key={id} className={id === selfId ? 'me' : ''}>
               <span className="dot" style={{ background: style?.color }} />
               <span className="snow-name">{style?.name ?? '?'}</span>
-              {/* 🎒 = points in the bag (not banked yet), the plain number = points cashed in at the igloo (the score) */}
-              {carried > 0 && <span className="snow-fish" title="Points in the bag: skate home to the igloo to cash them in">🎒{carried}{full && ' full'}{bears > 0 && ` 🐻×${bears} slow`}</span>}
+              {/* the bag icon = points in the bag (not banked yet), the plain number = points cashed in at the igloo (the score) */}
+              {carried > 0 && <span className="snow-fish" title="Points in the bag: skate home to the igloo to cash them in"><Icon name="bag" />{carried}{full && ' full'}{bears > 0 && ` · ${bears} ${bears === 1 ? 'bear' : 'bears'}: slow`}</span>}
               <span className="snow-size" title="Points cashed in at the igloo: the score">{banked} pts</span>
             </li>
           ))}

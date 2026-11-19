@@ -285,7 +285,7 @@ A hook catches a fish when the hook is **inside the fish's catch box**: a rectan
 
 A few games are **team games** (`teams: true` in `packages/shared/src/games.ts`). Not every game becomes one; the others are unchanged. There are only ever **two teams, Team Yellow and Team Purple** (`packages/shared/src/teams.ts`, fixed colors).
 
-- **Before the ready step the lobby shows a Team panel** (`TeamPanel.tsx`) whenever the picked game is a team game: the two teams with who is on each. **Everyone starts on a random team** (shared out evenly: a newcomer goes to the smaller team; uneven teams are fine). The **host** can allow or forbid **team swapping**; while allowed, any player can **join the other team**, which drops everyone's Ready (the teams changed). The **host sets a handicap for each team**: a whole number (may be negative) that is a **head start in the game's own score**, added to that team's total (`settings.handicap`). Changing a handicap does **not** drop Ready (everyone sees the numbers). A team game cannot start until **each team has at least one player**; spectators are not on teams.
+- **Before the ready step the lobby shows a Team panel** (`TeamPanel.tsx`) whenever the picked game is a team game: the two teams with who is on each. **Everyone starts on a random team** (shared out evenly: a newcomer goes to the smaller team; uneven teams are fine). Team swapping is **OFF by default** (the random teams start locked); the **host** can turn it on, and the choice is **remembered for the whole session** (it is part of the room's settings, kept between rounds and after a session reset). While on, any player can **join the other team**, which drops everyone's Ready (the teams changed). The **host sets a handicap for each team**: a whole number (may be negative, **typed into a text box or nudged with the - and + buttons**) that is a **head start in the game's own score**, added to that team's total (`settings.handicap`). Changing a handicap does **not** drop Ready (everyone sees the numbers). A team game cannot start until **each team has at least one player**; spectators are not on teams.
 - **Winning:** a team's total is the sum of its players' scores plus its handicap; the higher total wins (equal = a draw). **Every member of the winning team gets one victory point** (and one database record each: `Outcome.rounds`). There is **no underdog** in a team game.
 - **Betting is on a team**, not a player (a spectator picks Team Yellow or Team Purple; the stake and payout rules are the usual ones).
 - **The Random tile never picks a team game** (they need the team step first). Team games are picked by hand.
@@ -307,4 +307,47 @@ A few games are **team games** (`teams: true` in `packages/shared/src/games.ts`)
 **The closing sequence** (after the 15 seconds; `TUG_STRAIN_SECONDS` + `TUG_PULL_SECONDS` + `TUG_FALL_SECONDS` = 3.9 s, timed from the server's `endsAt`, then the usual 4 second winner moment, so `finishSeconds` = 3.9 + 4): the same kind of **anticipation as Fishing's closing**: first the teams **STRAIN** (1.5 s): everything holds, the rope trembles, the winners dig in and lean right back, the losers hold on, the camera creeps in; then **the massive PULL** (0.7 s): the winners heave with an overshoot, the whole tug is yanked their way and the camera slides along; then **the FALL** (1.7 s): the rope is let go, the losing team is dragged off balance and **falls forward onto the grass, one after another**, while the winning team **stands tall with their arms raised, cheering and jumping**. A draw has the strain and then both teams just let go and stand. Then the camera **pans right out** and the banner names the winning team (rule 17).
 
 **How it is done.** Engine: `apps/server/src/games/tugOfWar.ts` (counts each player's taps, 40 ms apart at most, shows team totals; the room decides the winning team). Screen: `TugOfWarScreen.tsx`. Test: `npm run test:tug -w @fgn/server`. **Not done yet:** the tile picture (`/games/tug-of-war.png`), sounds beyond the tap click and a thump on landing, a cheer for the winners.
+
+---
+
+## 19. The lobby is a HUB: one job (get everyone to Ready), with menus that slide up for everything else
+
+**The rule.** The lobby screen (`apps/web/src/components/lobby/LobbyHub.tsx`) shows only what getting to Ready needs; everything else lives in a **sheet** (`Sheet.tsx`: a panel that slides up over the lobby with a title and a close button; tap the dark area or press Escape to close; a centered card on a wide screen), so a menu opens without leaving the room. **Anything that belongs to the host only is not shown to anyone else** (a non-host never sees the Game menu, the team swap switch, the handicap steppers or the room settings).
+
+**On the main screen, top to bottom:**
+- **The room** (name, a lock icon if it has a password, "Round N · players · watching") and a **settings icon** that opens the Room menu.
+- **The players strip** (`PlayersStrip.tsx`): everyone as an avatar with a ring in their color (their **team's** color in a team game), a tick when ready, a crown icon for the host, dimmed when watching, "..." while reconnecting. Tapping it opens Scores.
+- **The game** (`GameHero.tsx`): the picked game, big. The **host** sees it as a button that opens the Game menu; **everyone else** sees the looping carousel. Under it a **one-line summary** (the first sentence of its description) and a **How to play** toggle for the full text.
+- **Chips:** a **Team** chip (only in a team game, for players; it opens the Teams menu) and a **Ready** chip (the state of your Ready). There is no chip for the game: the status line says when none is picked.
+- **The status line** (why the round has not started yet), any error, the countdown.
+- **A spectator's bet**, right above the Ready button, **only while you are watching** (`BetPanel`; on a team game the bet is on a team).
+- The big **Ready** button.
+- **The bottom bar**: **Game** (the host only), **Team** (team games, players only), **Me**, **Scores**. Text only.
+
+**The menus (sheets):**
+- **Game** (host only): the picker with the Random tile, team games marked with a "Teams" tag. Picking closes the sheet.
+- **Teams**: the team panel (rule 17). Everyone can join a team while swapping is allowed; only the host sees the swap switch and the handicap steppers (everyone sees the handicaps).
+- **Me**: your color, and Play or Watch.
+- **Scores**: the full player list with wins, ready ticks and who is reconnecting.
+- **Room** (the settings icon): for the **host** the room's name and password, End session and Close room; for **everyone** Leave room.
+
+**Not changed:** the steps after Ready (countdown, roulette, underdog, loading page, game, results) work as before; the sheets only organise the lobby. A change that resets Ready (the game, your team) still does so; **a toast that says why is a later step**. If the roulette lands on a team game, the team step (rule 21) follows it.
+
+---
+
+## 20. No emojis, anywhere in the UI
+
+**The rule.** The UI never uses emojis (not in buttons, labels, banners, headings or text). They look different on every device and clash with the games' look. Use **words**, or a small **inline icon** (`apps/web/src/components/Icon.tsx`: trophy, crown, lock, fish, bag, bolt, eye, alert, sliders, check: simple shapes drawn in the text color, as tall as the text). Plain typographic marks like the multiplication sign for a close button are fine. This applies to every screen and every new feature.
+
+---
+
+## 21. The team step (the Random tile landing on a team game)
+
+**The rule.** Team games chosen directly have their teams set in the lobby, before Ready (rule 17). When the **Random tile lands on a team game** (normally it never does: it is allowed only while the temporary switch `TEMP_RANDOM_ALWAYS` in `rooms.ts` is on, or in tests via `forceRandom`), the teams were never managed, so the round **pauses in its own step** right after the roulette's hold: phase **`'teams'`**.
+- It is **the same team UI as the lobby** (`TeamPanel`: the two teams, "Join Team ..." while swapping is allowed, and for the host the swap switch and the handicap steppers), on its own screen (`apps/web/src/components/lobby/TeamStep.tsx`).
+- **There is no Ready step.** It waits for **the host to press "Start the game"** (disabled until each team has a player; `startFromTeams` on the server). Start begins the **same short countdown as a normal game** (`COUNTDOWN_SECONDS`, `teamCountdownEndsAt`); **the host can Cancel it**, and **any change to the teams, handicaps, swap switch or bets cancels it too**. When it ends the round carries on (`finishTeamCountdown`). The host may also go back to the lobby. Nothing else about the round is decided here: after Start it carries on as normal (the flash and loading page, the in-game start).
+- **Spectators bet on a team** in this step (bets placed before the game was known were on players and are cleared when the step begins).
+- **Settings:** only team swapping can change (by the host); the game, the room's name and password cannot.
+- **Leaving:** a player who joins now is a spectator; if a team ends up with nobody, the round is called off back to the lobby, like any step before the round.
+- Nothing times out: the step waits for the host.
 

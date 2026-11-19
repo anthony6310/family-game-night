@@ -1,3 +1,4 @@
+import { Icon } from '../components/Icon';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { SessionHistoryRow } from '@fgn/shared';
@@ -27,7 +28,7 @@ export function HistoryPage() {
       <ul className="players">
         {rows?.map((r) => (
           <li key={r.id}>
-            <span className="crown">👑</span>
+            <span className="crown"><Icon name="crown" /></span>
             <span className="player-name">
               {r.winner_name}
               {r.is_guest && <span className="muted"> (guest)</span>}
@@ -36,7 +37,7 @@ export function HistoryPage() {
                 {' · '}{r.total_rounds} rounds{r.tiebreaker_rounds > 0 && ' + tie-breaker'}
               </small>
             </span>
-            <span className="badge wins">🏆 {r.winner_wins}</span>
+            <span className="badge wins"><Icon name="trophy" /> {r.winner_wins}</span>
           </li>
         ))}
       </ul>

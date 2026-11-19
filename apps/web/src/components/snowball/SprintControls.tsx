@@ -1,3 +1,4 @@
+import { Icon } from '../Icon';
 import type { PointerEvent } from 'react';
 
 /** The big on-screen SPRINT button: hold it to sprint (+50% speed, using stamina). Sits above the steering stick's touch layer, so pressing it never steers. */
@@ -7,7 +8,7 @@ export function SprintButton({ onHold, active }: { onHold: (on: boolean) => void
   return (
     <button className={active ? 'sprint-btn on' : 'sprint-btn'} aria-label="Sprint: hold to run faster"
       onPointerDown={down} onPointerUp={up} onPointerCancel={up} onContextMenu={(e) => e.preventDefault()}>
-      ⚡<span>SPRINT</span>
+      <Icon name="bolt" /><span>SPRINT</span>
     </button>
   );
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { TEAM_COLORS, TEAM_NAMES, WINNER_SECONDS, type Player, type RoundResult } from '@fgn/shared';
 import { audio } from '../audio/spatialAudio';
+import { Icon } from './Icon';
 import { drawChime, drumrollFor, victoryFanfare } from '../audio/gameSounds';
 
 /**
@@ -90,7 +91,7 @@ export function WinnerBanner({ result, players }: { result: RoundResult; players
       </strong>
       {underdog && (
         <p className="winner-underdog">
-          🚨 {underdog.byDraw ? 'The underdog wins the draw!' : 'The underdog wins!'}
+          <Icon name="alert" /> {underdog.byDraw ? 'The underdog wins the draw!' : 'The underdog wins!'}
           {underdog.bonus > 0 && <em className="winner-vp" style={{ fontSize: `${vpScale(underdog.bonus)}em` }}>+{underdog.bonus}</em>}
         </p>
       )}

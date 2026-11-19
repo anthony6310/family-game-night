@@ -46,6 +46,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   const underdogTimers = new Map<string, ScheduledTimer>();
   const startingTimers = new Map<string, ScheduledTimer>();
   const rouletteTimers = new Map<string, ScheduledTimer>();
+  const teamStartTimers = new Map<string, ScheduledTimer>();
   // Slowing down abuse (each keyed by the connection's network address, which a guest can't just change by making a new name):
   const wrongPasswords = new AttemptLimiter(8, 5 * 60_000); // wrong room passwords: 8 in 5 minutes
   const roomsMade = new AttemptLimiter(6, 10 * 60_000); // rooms created: 6 in 10 minutes
@@ -87,6 +88,10 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       const started = rooms.finishRoulette(state.code, endsAt);
       if (started) publish(started); // the roulette has landed on a game: on to the underdog announcement or the flash step
     });
+    syncTimer(teamStartTimers, state.code, state.phase === 'teams' ? state.teamCountdownEndsAt : null, (endsAt) => {
+      const started = rooms.finishTeamCountdown(state.code, endsAt);
+      if (started) publish(started); // the team step's countdown ended: the round begins
+    });
     syncTimer(underdogTimers, state.code, state.phase === 'underdog' ? state.underdogEndsAt : null, (endsAt) => {
       const started = rooms.finishUnderdog(state.code, endsAt);
       if (started) publish(started); // the underdog announcement is over: the flash step begins (or the round, with no flash step)
@@ -110,7 +115,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   }
 
   function clearTimers(code: string) {
-    for (const timers of [countdownTimers, rouletteTimers, underdogTimers, startingTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
+    for (const timers of [countdownTimers, rouletteTimers, teamStartTimers, underdogTimers, startingTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
   }
 
   function publishOutcome({ room, round, rounds, session }: Outcome) {
@@ -246,6 +251,8 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     socket.on('room:settings', (settings, ack) => {
       command(rooms.setSettings(player.id, settings && typeof settings === 'object' ? settings : {}), ack);
     });
+    socket.on('room:cancel-start', (ack) => command(rooms.cancelTeamStart(player.id), ack));
+    socket.on('room:start-teams', (ack) => command(rooms.startFromTeams(player.id), ack));
     socket.on('player:team', (team, ack) => command(rooms.setTeam(player.id, team), ack));
     socket.on('room:handicap', (team, value, ack) => command(rooms.setHandicap(player.id, team, value), ack));
     socket.on('player:color', (color, ack) => command(rooms.setColor(player.id, String(color)), ack));

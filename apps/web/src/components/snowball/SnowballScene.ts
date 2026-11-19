@@ -1,7 +1,7 @@
 import {
   BufferAttribute, CanvasTexture, CircleGeometry, Color, CylinderGeometry, DirectionalLight, DoubleSide, Fog, Group,
   HemisphereLight, IcosahedronGeometry, Mesh, MeshBasicMaterial, MeshLambertMaterial, MeshStandardMaterial,
-  PerspectiveCamera, RepeatWrapping, RingGeometry, Scene, SRGBColorSpace, Sprite, SpriteMaterial, TextureLoader,
+  PerspectiveCamera, RepeatWrapping, RingGeometry, Scene, SRGBColorSpace, Sprite, SpriteMaterial,
   TorusGeometry, Vector3, WebGLRenderer,
   type Texture,
 } from 'three';
@@ -19,7 +19,6 @@ import { createTerrain, type SnowballBall, type SnowballItem, type Terrain, type
 export interface BallStyle {
   name: string;
   color: string; // CSS color of the ring under the ball and the name tag
-  avatarUrl: string | null; // the player's profile picture, wrapped around the ball (null = plain white)
 }
 
 /**
@@ -136,14 +135,6 @@ interface BallVisual {
 const INTERP_DELAY_MS = 120;
 const MAX_EXTRAPOLATE_MS = 150;
 
-/**
- * A profile picture is tiled over the whole ball: this many copies around the equator and this many
- * from pole to pole (2:1, because the ball's "map" is twice as wide as it is tall, so the pictures
- * stay roughly square). Tiling means every part of the ball is covered and no white shows through.
- */
-const AVATAR_TILES_AROUND = 4;
-const AVATAR_TILES_POLE_TO_POLE = 2;
-
 const Z_AXIS = new Vector3(0, 0, 1);
 
 /**
@@ -166,7 +157,6 @@ export class SnowballScene {
   private disposed = false;
   private crownMaterial!: SpriteMaterial; // one gold crown picture shared by every ball's crown sprite
   private terrain: Terrain; // this round's hills and ditch (random each round, fixed during it)
-  private textureLoader = new TextureLoader().setCrossOrigin('anonymous'); // profile pictures may live on another site (Supabase)
 
   // Shared by every ball (one geometry, many meshes).
   private ballGeometry = new IcosahedronGeometry(1, 1); // 80 triangles: clearly a ball, clearly low poly
@@ -378,33 +368,7 @@ export class SnowballScene {
     });
 
     this.scene.add(ball, ring, shadow, label, crown);
-    if (style.avatarUrl) this.loadAvatar(style.avatarUrl, material);
     return { ball, material, ring, shadow, label, crown, fish, fishShown: 0, fishPopStart: -1e9, last: null };
-  }
-
-  /**
-   * Wraps the player's profile picture around their ball. The ball starts plain white and the picture
-   * fades in when it has downloaded; if it fails to load, the ball just stays white.
-   */
-  private loadAvatar(url: string, material: MeshStandardMaterial) {
-    this.textureLoader.load(
-      url,
-      (texture) => {
-        if (this.disposed) {
-          texture.dispose();
-          return;
-        }
-        texture.colorSpace = SRGBColorSpace;
-        texture.wrapS = texture.wrapT = RepeatWrapping; // repeat the picture instead of stretching it
-        texture.repeat.set(AVATAR_TILES_AROUND, AVATAR_TILES_POLE_TO_POLE);
-        texture.anisotropy = 4;
-        this.disposables.push(texture);
-        material.map = texture;
-        material.needsUpdate = true;
-      },
-      undefined,
-      () => {},
-    );
   }
 
   private removeVisual(id: string) {

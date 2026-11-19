@@ -38,7 +38,7 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
 
   // Colors, names and profile pictures are fixed when the round starts (a player leaving mustn't recolor everyone).
   const styles = useMemo<Record<string, BallStyle>>(
-    () => Object.fromEntries(players.map((p) => [p.id, { name: p.name, color: colors[p.id] ?? FALLBACK_COLOR, avatarUrl: p.avatarUrl }])),
+    () => Object.fromEntries(players.map((p) => [p.id, { name: p.name, color: colors[p.id] ?? FALLBACK_COLOR}])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );

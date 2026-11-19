@@ -92,6 +92,7 @@ export class SantaSackScene {
   private aimGroup = new Group();
   private aimTube: Mesh; // the arc the gift would fly (a thick tube: thicker the harder you pull)
   private aimHead: Mesh; // its arrowhead
+  private candyTexture: CanvasTexture; // the red and white diagonal stripes of the arc
   private aimRing: Mesh; // the cursor at the end of the arc, in the air at the height of the bags' mouths (plus 15%), turned to face the incoming gift
   private selfId: string | null;
 
@@ -126,8 +127,12 @@ export class SantaSackScene {
     const lineMaterial = new MeshBasicMaterial({ color: '#ffffff', transparent: true, opacity: 0.85, depthWrite: false });
     const ringGeometry = new RingGeometry(0.85, 1, 32);
     this.disposables.push(lineMaterial, ringGeometry);
-    this.aimTube = new Mesh(new BufferGeometry(), lineMaterial);
-    this.aimHead = new Mesh(new ConeGeometry(1, 1, 12), lineMaterial);
+    // The arc and its arrowhead are a see-through candy cane: diagonal red and white stripes that spiral round the tube, with the same transparency as the plain line had.
+    this.candyTexture = makeCandyTexture();
+    const candyMaterial = new MeshBasicMaterial({ map: this.candyTexture, transparent: true, opacity: 0.85, depthWrite: false });
+    this.disposables.push(candyMaterial, this.candyTexture);
+    this.aimTube = new Mesh(new BufferGeometry(), candyMaterial);
+    this.aimHead = new Mesh(new ConeGeometry(1, 1, 12), candyMaterial);
     this.aimRing = new Mesh(ringGeometry, lineMaterial);
     this.aimGroup.add(this.aimTube, this.aimHead, this.aimRing);
     this.aimGroup.visible = false;
@@ -684,7 +689,9 @@ export class SantaSackScene {
       const head = radius * 5; // (the arrowhead's length)
       const body = points.slice(0, -2); body.push(end.clone().addScaledVector(tangent, -head * 0.8)); // (the tube stops where the arrowhead starts)
       this.aimTube.geometry.dispose();
-      this.aimTube.geometry = new TubeGeometry(new CatmullRomCurve3(body), 28, radius, 8, false);
+      const curve = new CatmullRomCurve3(body);
+      this.aimTube.geometry = new TubeGeometry(curve, 28, radius, 12, false);
+      this.candyTexture.repeat.set(curve.getLength() / (radius * 9), 1); // (the stripes keep the same size however long or thick the arc is)
       this.aimHead.scale.set(radius * 2.4, head, radius * 2.4);
       this.aimHead.quaternion.setFromUnitVectors(new Vector3(0, 1, 0), tangent);
       this.aimHead.position.copy(end).addScaledVector(tangent, -head * 0.3);
@@ -813,6 +820,25 @@ function makeSnowTexture(): CanvasTexture {
 }
 
 /** Bold red and white stripes for a bag's ribbon (a few wide stripes, so they stay readable from far away). */
+/** Diagonal red and white stripes that tile in both directions (45 degrees on the texture: they spiral round the tube like a candy cane). */
+function makeCandyTexture(): CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 64;
+  const g = c.getContext('2d')!;
+  g.fillStyle = '#ffffff';
+  g.fillRect(0, 0, 64, 64);
+  g.fillStyle = '#e5322d';
+  for (let i = -2; i <= 3; i++) {
+    g.beginPath();
+    g.moveTo(i * 32, 0); g.lineTo(i * 32 + 16, 0); g.lineTo(i * 32 + 16 - 64, 64); g.lineTo(i * 32 - 64, 64);
+    g.closePath(); g.fill();
+  }
+  const t = new CanvasTexture(c);
+  t.wrapS = t.wrapT = RepeatWrapping;
+  t.colorSpace = SRGBColorSpace;
+  return t;
+}
+
 function makeRibbonTexture(): CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 32;

@@ -22,8 +22,10 @@ export interface FishingConfig {
   fishSizeMax: number;
   bob: number; // fish bob up and down by this much (cosmetic, but the catch follows what is drawn)
   fishMargin: number; // fish swim this far beyond the ends of the ocean before they come back in from the other side (off every screen)
-  catchX: number; // a hook catches a fish when it is within this far of its mouth sideways...
-  catchY: number; // ...and this far in depth
+  catchBackFrac: number; // a hook catches a fish when it is inside the fish's CATCH BOX: a rectangle over its head that reaches this far back from the nose (as a fraction of the fish's length)...
+  bigCatchBackFrac: number; // the BIG fish's box is narrower: it reaches back this far from the nose (still ending at the tip of its lips)
+  catchFrontFrac: number; // ...and this far in front of the nose...
+  catchHalfHeightFrac: number; // ...and this far above and below the fish's middle (also a fraction of its length: the box is about as tall as the body). Every box scales with its fish.
   caughtShowMs: number; // a caught fish stays in the view this long (for the reel-in animation)
 
   // ----- schools of small fish -----
@@ -40,8 +42,6 @@ export interface FishingConfig {
   bigFishCount: number; // how many big fish are in every game (spread evenly down the ocean, like the regular fish)
   bigSize: number; // bigger than the biggest regular fish
   bigSpeedFactor: number; // it swims like a regular fish, but this many times faster (1.4 = 40% faster)
-  bigCatchX: number; // a bigger mouth: it is caught within this far sideways and in depth
-  bigCatchY: number;
 
   // ----- mines -----
   mineCountMin: number; // every game has this many mines IN EACH LANE (a random number between these), laid out EXACTLY the same in every lane (fair)...
@@ -78,8 +78,10 @@ export const DEFAULT_FISHING: FishingConfig = {
   fishSizeMax: 2.6,
   bob: 0.35,
   fishMargin: 8,
-  catchX: 0.45, // (about the size of the drawn hook's opening: a fish is only caught when its mouth is really on the hook)
-  catchY: 0.75,
+  catchBackFrac: 0.65, // (the box covers the head: from 65% of the fish's length back from the nose...
+  bigCatchBackFrac: 0.39, // (the big fish only: 40% narrower than the others' 65%; its front edge is still the tip of its lips)
+  catchFrontFrac: 0, // ...to the tip of its lips: the box's front edge is exactly the nose; its height is 22.1% of the length each way from the middle. (The width, 65%, and height are the first box made 30% bigger.) Same for every kind: see GAME_RULES.md #16)
+  catchHalfHeightFrac: 0.221,
   caughtShowMs: 1200,
 
   schoolsPerLane: 2,
@@ -94,8 +96,6 @@ export const DEFAULT_FISHING: FishingConfig = {
   bigFishCount: 5,
   bigSize: 3.6,
   bigSpeedFactor: 1.4,
-  bigCatchX: 0.525, // (was 0.7: reduced by 25%)
-  bigCatchY: 0.825, // (was 1.1: reduced by 25%)
 
   mineCountMin: 1,
   mineCountMax: 4,
@@ -172,8 +172,12 @@ export function createFishing(overrides: Partial<FishingConfig> = {}): GameEngin
   const mineX = (m: Mine, now: number) => m.cx + m.amp * Math.sin(now / 1000 * (2 * Math.PI / m.period) + m.phase);
   const kindOf = (f: Fish): FishKind => f.kind ?? 'regular';
   const fishDepth = (f: Fish, now: number) => f.baseY + cfg.bob * Math.sin(now / 1000 * 1.3 + f.phase);
-  const catchBox = (f: Fish) => (kindOf(f) === 'big' ? { x: cfg.bigCatchX, y: cfg.bigCatchY } : { x: cfg.catchX, y: cfg.catchY });
-  const mouthX = (f: Fish) => f.x + f.dir * f.size * 0.5; // the mouth is at the front
+  /** A fish's catch box: the sideways range (lo..hi) and half the height. It covers the fish's head: from `catchBackFrac` of its length behind the nose to `catchFrontFrac` in front of it (the way it swims), and as tall as its body, all relative to its size. */
+  const catchBox = (f: Fish) => {
+    const nose = f.x + f.dir * f.size * 0.5;
+    const a = nose - f.dir * f.size * (kindOf(f) === 'big' ? cfg.bigCatchBackFrac : cfg.catchBackFrac), b = nose + f.dir * f.size * cfg.catchFrontFrac;
+    return { lo: Math.min(a, b), hi: Math.max(a, b), y: f.size * cfg.catchHalfHeightFrac };
+  };
 
   /** A mine goes off at a hook: take 10% of its points (rounded up) away, as fish chosen at random. Returns the hook with its fish, points and kinds lowered to match. */
   function shakeOff(h: Hook): Hook {
@@ -311,12 +315,13 @@ export function createFishing(overrides: Partial<FishingConfig> = {}): GameEngin
           if (f.caughtBy) return f;
           const box = catchBox(f);
           const fy = fishDepth(f, now);
-          const mx = mouthX(f);
+          const middle = (box.lo + box.hi) / 2;
           let best: string | null = null;
-          let bestGap = box.x;
+          let bestGap = Infinity;
           for (const [id, h] of Object.entries(hooks)) {
+            if (h.x < box.lo || h.x > box.hi) continue; // (the hook is not inside the box sideways)
             if (Math.abs(fy - (depth - h.lift)) > box.y) continue; // (each hook may be lifted a different amount above the steady ascent)
-            const gap = Math.abs(h.x - mx);
+            const gap = Math.abs(h.x - middle);
             if (gap <= bestGap) { best = id; bestGap = gap; }
           }
           if (best === null) return f;

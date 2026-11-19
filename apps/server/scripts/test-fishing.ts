@@ -75,22 +75,22 @@ const passDepth = cfg.depth - (cfg.depth - cfg.endDepth) * (20 / 60); // where t
   check('the mouth (the front) is what counts: facing right', runTo(right, 0, 25000 + 30000).hooks.a.fish === 1);
   const left = withFish(4.5, passDepth); left.fish[0].size = 3; left.fish[0].dir = -1; left.fish[0].x = 6; // mouth at 6 - 1.5 = 4.5
   check('...and facing left', runTo(left, 0, 25000 + 30000).hooks.a.fish === 1);
-  const bodyOnly = withFish(4.5, passDepth); bodyOnly.fish[0].size = 3; bodyOnly.fish[0].dir = -1; bodyOnly.fish[0].x = 4.5; // body over the hook, mouth at 3
-  check('a fish with its body over the hook but its mouth away from it is missed', runTo(bodyOnly, 0, 25000 + 30000).hooks.a.fish === 0);
+  const bodyOnly = withFish(4.5, passDepth); bodyOnly.fish[0].size = 3; bodyOnly.fish[0].dir = -1; bodyOnly.fish[0].x = 3.1; // its tail end over the hook (the body runs 1.6 to 4.6), mouth at 1.6: the catch box (the head) is well clear of the hook
+  check('a fish with its tail over the hook but its head (the catch box) away from it is missed', runTo(bodyOnly, 0, 25000 + 30000).hooks.a.fish === 0);
 }
 {
   // A swimming fish is caught as its mouth passes the hook (the hook stays put at x = 4.5).
   const st = fresh();
-  st.fish = [{ id: 1, x: -3, baseY: passDepth, phase: 0, dir: 1, speed: 5, size: 2, variant: 0 }]; // mouth reaches 4.5 at about 20.3 s
+  st.fish = [{ id: 1, x: -1.5, baseY: passDepth, phase: 0, dir: 1, speed: 5, size: 2, variant: 0 }]; // its nose reaches 4.5 at about 20.0 s, the moment the hook is at its depth (the box covers the head, 0.2 s of passing at this speed)
   const done = runTo(st, at(st, 19000), at(st, 22000));
-  check('a fish swimming past is caught as its mouth reaches the hook', done.hooks.a.fish === 1);
+  check('a fish swimming past is caught as its head (the catch box) goes over the hook', done.hooks.a.fish === 1);
 }
 {
   const st = fresh();
-  st.fish = [{ id: 1, x: 8.2, baseY: passDepth, phase: 0, dir: 1, speed: 0, size: 2, variant: 0 }]; // mouth at 9.2: between lane a's edge (8.4) and lane b's (9.6)
+  st.fish = [{ id: 1, x: 8.7, baseY: passDepth, phase: 0, dir: 1, speed: 0, size: 2.6, variant: 0 }]; // nose at 10.0: its catch box (8.31 to 10.0) covers both lane a's edge (8.4) and lane b's (9.6)
   st.hooks.a.x = 8.4; st.hooks.b.x = 9.6;
   const done = runTo(st, at(st, 19000), at(st, 21000));
-  check('when two hooks can reach one fish, only the closest catches it', done.hooks.a.fish + done.hooks.b.fish === 1 && done.hooks.b.fish === 1); // (mouth 9.2: 0.4 from b's hook, 0.8 from a's)
+  check('when two hooks can reach one fish, only the closest catches it', done.hooks.a.fish + done.hooks.b.fish === 1 && done.hooks.b.fish === 1); // (the box's middle is 9.155: 0.445 from b's hook, 0.755 from a's)
 }
 {
   const early = runTo(withFish(4.5, cfg.depth - 0.5), 0, 1000); // the fish is at the bottom, where the hooks hang while the lines are cast

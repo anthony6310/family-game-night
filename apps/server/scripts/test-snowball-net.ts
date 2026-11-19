@@ -75,7 +75,14 @@ try {
   const towardCentreX = startA.x > 0 ? -1 : 1;
   const towardCentreZ = startA.z > 0 ? -1 : 1;
   const statesBefore = a.stateEventsWhilePlaying;
-  for (let i = 0; i < 12; i++) { steer(a, 3 * towardCentreX, 3 * towardCentreZ); await sleep(80); } // an oversized vector on purpose
+  for (let i = 0; i < 12; i++) {
+    if (i === 6) { a.socket.emit('game:action', { type: 'sprint', on: true }); b.socket.emit('game:action', { type: 'sprint', on: 'yes' } as never); } // Alice sprints; Bob sends junk
+    steer(a, 3 * towardCentreX, 3 * towardCentreZ);
+    await sleep(80);
+  } // (an oversized steering vector on purpose)
+  const sprintView = a.views[a.views.length - 1];
+  check('a sprint reaches the server: the ball is sprinting and its stamina is going down', sprintView.balls[a.id].sprinting && sprintView.balls[a.id].stamina < 1);
+  check('junk sprint input is ignored: the other ball is not sprinting and has full stamina', !sprintView.balls[b.id].sprinting && sprintView.balls[b.id].stamina === 1);
 
   check('live snapshots stream during the round (~20 per second)', a.views.length >= 15 && a.views.length <= 45);
   check('both players receive the same stream', b.views.length >= 15);
@@ -86,7 +93,7 @@ try {
   check('the steering player\'s ball moved', dist(latest.balls[a.id], startA) > 2);
   check('the player who sent junk (and no valid input) did not move', dist(latest.balls[b.id], startB) < 1e-6);
   check('the moving ball grew', latest.balls[a.id].radius > 1.01);
-  check('speed stays within the cap (130% downhill at most) despite the oversized steering vector', Math.hypot(latest.balls[a.id].vx, latest.balls[a.id].vz) <= cfg.maxSpeed * cfg.downhillMaxFactor + 0.01);
+  check('speed stays within the cap (115% downhill, 150% more with a sprint) despite the oversized steering vector', Math.hypot(latest.balls[a.id].vx, latest.balls[a.id].vz) <= cfg.maxSpeed * (1 + cfg.hillSpeedEffect) * cfg.sprintFactor + 0.01);
   check('every ball stays inside the arena',
     a.views.every((v) => Object.values(v.balls).every((ball) => Math.hypot(ball.x, ball.z) + ball.radius <= v.arenaRadius + 0.01)));
 
@@ -118,9 +125,9 @@ try {
   const m2 = start; // the 2-player round from above
   const m4 = await mapFor(4);
   const m8 = await mapFor(8);
-  check('map size: 2 players get the base 45-radius map with 3 features', Math.abs(m2.arenaRadius - 45) < 1e-9 && m2.terrain.length === 3);
-  check('map size: 4 players get a bigger map (45 × √2) with 5 features', Math.abs(m4.arenaRadius - 45 * Math.SQRT2) < 0.01 && m4.terrain.length === 5);
-  check('map size: 8 players get the radius-90 map with 9 features', Math.abs(m8.arenaRadius - 90) < 0.01 && m8.terrain.length === 9);
+  check('map size: 2 players get the base map (radius 51.75) with 3 features', Math.abs(m2.arenaRadius - cfg.arenaRadius) < 1e-9 && m2.terrain.length === 3);
+  check('map size: 4 players get a bigger map (base × √2) with 5 features', Math.abs(m4.arenaRadius - cfg.arenaRadius * Math.SQRT2) < 0.01 && m4.terrain.length === 5);
+  check('map size: 8 players get the double-size map (radius 103.5) with 9 features', Math.abs(m8.arenaRadius - cfg.arenaRadius * 2) < 0.01 && m8.terrain.length === 9);
   check('map size: every feature fits inside its round\'s arena and the base three types are present', [m4, m8].every((m) =>
     m.terrain.every((f) => Math.hypot(f.x, f.z) + f.radius <= m.arenaRadius + 0.01) && ['big-hill', 'small-hill', 'ditch'].every((id) => m.terrain.some((f) => f.id === id))));
   check('map size: all balls start inside the bigger walls', Object.values(m8.balls).every((b) => Math.hypot(b.x, b.z) + b.radius < m8.arenaRadius));

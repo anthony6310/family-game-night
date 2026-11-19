@@ -108,6 +108,10 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .game-tile { display: flex; flex-direction: column; width: 100%; padding: 0; overflow: hidden; background: #26264a; color: #fff;
   border: 3px solid transparent; border-radius: 0.8rem; }
 .game-tile.selected { border-color: #ff5d8f; }
+.game-tile.picked { border-color: #ffb3c9; } /* (the game the Random tile rolled: the Random tile itself is the selected one) */
+/* The Random tile's picture: a big question mark in the same look as the in-game start countdown's numbers (bold, pink, white edge and glow), on the plain tile background. */
+.game-art.random-art { display: flex; align-items: center; justify-content: center; }
+.random-q { font-size: 4.4rem; font-weight: bold; line-height: 1; color: #ff5d8f; text-shadow: 0 0.04em 0 #fff, 0 0 0.25em rgba(255, 93, 143, 0.6), 0 0.08em 0.4em rgba(0, 0, 0, 0.4); }
 .game-art { display: block; width: 100%; aspect-ratio: 16 / 10; background: #31315c; }
 .game-art img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .game-name { padding: 0.45rem 0.4rem; font-size: 0.95rem; font-weight: bold; }
@@ -173,3 +177,112 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .winner-underdog { margin: 0.25rem 0 0; font-size: 1.1rem; font-weight: 800; color: #ffd84a; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.7); }
 .winner-underdog .winner-vp { margin-left: 0.4rem; font-style: normal; color: #7dffb0; -webkit-text-stroke: 0.05em #14142a; paint-order: stroke fill; font-weight: 900; }
 .my-bet-result { margin: 0; }
+
+/* Penguin Lasso: the bag as a row of circles, one per space, with the animals' faces in them. */
+.bag-meter { position: absolute; left: 50%; bottom: 3.6rem; transform: translateX(-50%); display: flex; gap: 0.35rem; padding: 0.35rem 0.5rem; border-radius: 999px;
+  background: rgba(20, 33, 61, 0.55); pointer-events: none; z-index: 3; }
+.bag-cell { width: 3rem; height: 3rem; border-radius: 50%; display: grid; place-items: center; overflow: hidden; border: 2px solid rgba(255, 255, 255, 0.55); box-sizing: border-box; }
+.bag-cell.empty { background: rgba(255, 255, 255, 0.08); }
+.bag-cell.face { background: #dff0ff; border-color: #ffffff; }
+.bag-cell img { width: 100%; height: 100%; object-fit: contain; }
+@media (max-width: 24rem) { .bag-cell { width: 2.2rem; height: 2.2rem; } }
+/* No room: the circles flash red and shake for a moment. */
+.bag-meter.flashing { animation: bag-shake 0.7s ease-in-out; }
+.bag-meter.flashing .bag-cell { animation: bag-flash 0.7s ease-in-out; }
+@keyframes bag-flash { 20%, 60% { background-color: #ff4d4d; border-color: #ff4d4d; } 40%, 80% { background-color: #b32020; border-color: #ff4d4d; } } /* (each circle goes back to its own color at the end) */
+@keyframes bag-shake { 0%, 100% { transform: translateX(-50%); } 15% { transform: translateX(calc(-50% - 6px)); } 30% { transform: translateX(calc(-50% + 6px)); } 45% { transform: translateX(calc(-50% - 4px)); } 60% { transform: translateX(calc(-50% + 4px)); } 75% { transform: translateX(calc(-50% - 2px)); } }
+@media (prefers-reduced-motion: reduce) { .bag-meter.flashing { animation: none; } }
+
+/* The color picker (under the game settings): one swatch with your color; tap it to open all the choices. And the color dots in the player list. */
+.color-picker { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; width: min(100%, 20rem); }
+.color-picker p { margin: 0; }
+.color-current { display: flex; align-items: center; gap: 0.6rem; width: auto; padding: 0.3rem 0.8rem 0.3rem 0.4rem; background: #26264a; border-radius: 999px; box-shadow: none; color: inherit; }
+.color-current .color-swatch { width: 2rem; height: 2rem; }
+.color-grid { display: grid; grid-template-columns: repeat(8, 1fr); gap: 0.4rem; width: 100%; }
+.color-swatch { display: block; aspect-ratio: 1; width: 100%; padding: 0; min-width: 0; border-radius: 50%; border: 3px solid transparent; box-shadow: none; }
+.color-swatch.selected { border-color: #fff; box-shadow: 0 0 0 2px #14142a, 0 0 0 4px #fff; }
+.color-dot { width: 0.8rem; height: 0.8rem; border-radius: 50%; flex: none; box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.5); }
+
+/* Snowball: the stamina bar (bottom centre) and the SPRINT button (bottom right, above the steering touch layer). */
+.stamina-bar { position: absolute; left: 50%; bottom: 3.4rem; transform: translateX(-50%); width: min(70vw, 16rem); height: 0.9rem; border-radius: 999px;
+  background: rgba(20, 33, 61, 0.55); border: 2px solid rgba(255, 255, 255, 0.7); overflow: hidden; pointer-events: none; }
+.stamina-fill { height: 100%; background: #46d17a; transition: width 0.1s linear; }
+.stamina-notch { position: absolute; top: 0; bottom: 0; width: 2px; background: rgba(255, 255, 255, 0.9); }
+.stamina-bar.sprinting .stamina-fill { background: #ffb02e; }
+.stamina-bar.low .stamina-fill { background: #ff5d5d; }
+.stamina-bar.recovering { box-shadow: 0 0 0.9rem 0.2rem #5ec8ff; border-color: #5ec8ff; }
+.stamina-bar.recovering .stamina-fill { background: #5ec8ff; }
+.sprint-btn { position: absolute; right: 1rem; bottom: 4.6rem; z-index: 5; width: 5rem; height: 5rem; padding: 0; border-radius: 50%; display: grid; place-items: center; align-content: center;
+  font-size: 1.7rem; line-height: 1; background: rgba(20, 33, 61, 0.7); color: #fff; border: 3px solid #fff; touch-action: none; user-select: none; -webkit-user-select: none; }
+.sprint-btn span { font-size: 0.6rem; font-weight: 800; letter-spacing: 0.06em; }
+.sprint-btn.on { background: #ffb02e; color: #14213d; border-color: #fff; }
+
+/* Fishing: the hint stays up through the first part of the rise (the cast plays before it appears), then fades. */
+.fishing-screen { background: #0a2b52; }
+.fish-hint { animation: fade-out 1s 7s forwards; }
+.fish-depth { position: absolute; left: 0.8rem; bottom: 1.2rem; margin: 0; padding: 0.25rem 0.6rem; border-radius: 0.5rem; background: rgba(8, 30, 60, 0.55); color: #fff; font-size: 0.9rem; font-variant-numeric: tabular-nums; }
+
+/* The "starting" step before a round: a plain pale page (the same color as the start flash) that the flash fades away from, like a loading screen. */
+/* The loading page between the countdown and the game: the game's picture and title on the flash's pale color. Its content fades in as the flash fades away; when the round
+   begins it is laid over the game (.leaving) and fades out, after a short hold (0.35 s, so a heavy game has time to draw its first frames before the page starts to lift). */
+.starting-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; z-index: 1000; background: #eafcff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.4rem; padding: 1rem; }
+.starting-art { width: min(86vw, 30rem); aspect-ratio: 16 / 10; object-fit: cover; border-radius: 1rem; box-shadow: 0 0.6rem 2rem rgba(60, 100, 140, 0.35); animation: starting-in 1s ease-out both; }
+.starting-screen p { margin: 0; font-size: 2rem; font-weight: bold; color: #5a7d99; letter-spacing: 0.05em; text-align: center; animation: starting-in 1s ease-out 0.15s both; }
+.starting-screen.leaving { pointer-events: none; animation: starting-out 0.8s ease-in-out 0.35s both; }
+.starting-screen.leaving .starting-art, .starting-screen.leaving p { animation: none; }
+@keyframes starting-in { from { opacity: 0; transform: translateY(0.6rem) scale(0.97); } to { opacity: 1; transform: none; } }
+@keyframes starting-out { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .starting-art, .starting-screen p { animation: none; } }
+
+/* The room list (hub) and the room's name and password (lobby): everything centered, with each thing's buttons stacked under it. */
+.rooms-section { width: 100%; max-width: 32rem; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 0.5rem; margin-top: 1rem; }
+.rooms-section h2 { margin: 0; font-size: 1.1rem; }
+.room-list { list-style: none; margin: 0; padding: 0; width: 100%; display: flex; flex-direction: column; gap: 0.6rem; }
+.room-item { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; padding: 0.8rem 1rem; border-radius: 0.75rem; background: rgba(255, 255, 255, 0.07); text-align: center; }
+.room-info { display: flex; flex-direction: column; align-items: center; gap: 0.15rem; min-width: 0; }
+.room-name { overflow-wrap: anywhere; } /* (a name is only ever plain text) */
+.room-password { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; width: 100%; }
+.room-password input { width: min(100%, 20rem); }
+.room-item button, .room-password button { min-width: 8rem; }
+.room-form { display: flex; flex-direction: column; align-items: center; gap: 0.6rem; width: 100%; text-align: center; }
+.room-form label, .room-settings label { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; width: min(100%, 20rem); }
+.room-form input, .room-settings input { width: 100%; text-align: center; }
+.room-title { margin: 0.2rem 0; overflow-wrap: anywhere; text-align: center; }
+.room-settings { width: 100%; max-width: 32rem; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.room-settings summary { cursor: pointer; margin-bottom: 0.4rem; }
+.room-settings form { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; width: min(100%, 20rem); margin-top: 0.6rem; }
+.room-settings button { width: 100%; }
+.rooms-section .error, .rooms-section .muted { text-align: center; margin: 0; }
+/* The carousel (a LOOP, positioned by script each frame: see LoopTrack): tiles are 60% of its width; the one in the middle is bright and full size, the others dimmer and smaller. A hidden tile
+   gives it its height; the real tiles are laid over it. The roulette uses the same loop. */
+.game-carousel { position: relative; width: 100%; overflow: hidden; padding: 0.4rem 0; }
+.game-carousel-tile { width: 60%; }
+.game-carousel-sizer { visibility: hidden; margin: 0 auto; }
+.game-carousel-abs { position: absolute; left: 0; top: 0.4rem; will-change: transform, opacity; }
+.game-tile.picked { border-color: #ffb3c9; }
+/* The roulette step: the options are gone, just the wheel (the same loop, spinning), a pointer over the middle tile, then the name. */
+.roulette-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; min-height: 100vh; min-height: 100dvh; padding: 1rem; box-sizing: border-box; text-align: center; }
+.roulette-kicker { margin: 0; font-size: 1.3rem; font-weight: bold; letter-spacing: 0.04em; opacity: 0.9; }
+.roulette-wheel { position: relative; width: min(100%, 34rem); }
+.roulette-pointer { position: absolute; left: 50%; top: -0.1rem; width: 0; height: 0; margin-left: -0.9rem; border-left: 0.9rem solid transparent; border-right: 0.9rem solid transparent; border-top: 1.4rem solid #ff5d8f; filter: drop-shadow(0 2px 2px #0008); }
+.roulette-name { margin: 0; font-size: 2rem; min-height: 1.2em; }
+.roulette-name.landed { animation: roulette-land 0.5s cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+@keyframes roulette-land { 0% { transform: scale(0.6); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+.roulette-desc { max-width: 28rem; margin: 0; }
+/* The picked game's tile, as shown to people who are not the host: one tile, centered (the host picks from the full grid). */
+.game-tile-shown { width: 100%; margin: 0 auto; border-radius: 0.75rem; border: 2px solid #ff5d8f; }
+
+/* The in-game start countdown (StartCountdown): a big "3, 2, 1, GO!" in the middle of the scene. Each number pops in (big, settling) and fades; each is bigger than the last (--grow). */
+.start-count { position: fixed; inset: 0; z-index: 1100; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+.start-count-num { font-size: calc(clamp(7rem, 26vw, 15rem) * var(--grow, 1)); font-weight: bold; line-height: 1; color: #ff5d8f; text-shadow: 0 0.04em 0 #fff, 0 0 0.25em rgba(255, 93, 143, 0.6), 0 0.08em 0.4em rgba(0, 0, 0, 0.4); animation: start-count-pop 1s cubic-bezier(0.2, 0.9, 0.3, 1) both; }
+.start-count-num.go { color: #ffd23d; text-shadow: 0 0.04em 0 #fff, 0 0 0.3em rgba(255, 210, 61, 0.7), 0 0.08em 0.4em rgba(0, 0, 0, 0.4); animation-duration: 0.9s; }
+@keyframes start-count-pop { 0% { transform: scale(1.7); opacity: 0; } 18% { transform: scale(1); opacity: 1; } 72% { transform: scale(0.96); opacity: 1; } 100% { transform: scale(0.9); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .start-count-num { animation-name: start-count-fade; } @keyframes start-count-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } } }
+
+/* Santa's Sack: the drag-and-launch pad (covers the screen like the steering joystick) and the little pull indicator under the finger. */
+.throw-pad { position: fixed; inset: 0; z-index: 4; touch-action: none; user-select: none; -webkit-user-select: none; }
+.throw-base { position: fixed; width: 5rem; height: 5rem; margin: -2.5rem 0 0 -2.5rem; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.6); background: rgba(255, 255, 255, 0.12); pointer-events: none; }
+.throw-knob { position: fixed; width: 2.4rem; height: 2.4rem; margin: -1.2rem 0 0 -1.2rem; border-radius: 50%; background: rgba(255, 93, 143, 0.9); box-shadow: 0 0 0 3px #fff; pointer-events: none; }
+.throw-line { position: fixed; inset: 0; pointer-events: none; }
+.throw-line line { stroke: rgba(255, 255, 255, 0.7); stroke-width: 3; stroke-dasharray: 6 6; }
+.santa-left { margin-top: 0.4rem; }

@@ -1,12 +1,16 @@
 import { randomInt } from 'node:crypto';
+import { hashPassword, verifyPassword } from './passwords';
 import {
-  MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
-  COUNTDOWN_SECONDS, FINISH_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
-  PENGUIN_SECONDS, SNOWBALL_SECONDS, TAP_RACE_SECONDS, getGame,
+  PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
+  COUNTDOWN_SECONDS, FINISH_SECONDS, RANDOM_GAME, ROULETTE_SECONDS, GAME_INTRO_COUNT_SECONDS, GAME_INTRO_HOLD_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
+  PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, getGame,
+  DEFAULT_ROOM_NAME, MAX_ROOMS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult, type Bet, type BetResult, type Underdog,
 } from '@fgn/shared';
 import { createPenguinLasso } from './games/penguinLasso';
+import { createSantaSack } from './games/santaSack';
+import { createFishing } from './games/fishing';
 import { createSnowball } from './games/snowball';
 import { createTapRace } from './games/tapRace';
 import type { GameEngine } from './games/types';
@@ -15,18 +19,25 @@ interface Room {
   code: string;
   hostId: string;
   players: Map<string, Player>; // a Map keeps insertion order = join order
+  colors: Map<string, string>; // each member's color (from PLAYER_COLORS), different for everyone; freed when they leave
   roster: Map<string, Player>; // EVERYONE who has joined this session, kept after they leave, so a departed player's wins can still crown them
   watching: Set<string>; // members (a subset of `players`) sitting rounds out: no slot, no Ready, not in the game, but their wins still count
   settings: RoomSettings;
   bets: Record<string, Bet>; // spectators' bets on who wins the coming round (stakes are locked in when it starts)
   ready: Set<string>;
   phase: RoomPhase;
+  name: string; // what the room is called in the list
+  passwordHash: string | null; // a salted hash of the room's password, or null for none (the password itself is never kept)
+  badGuesses: number[]; // when wrong passwords were tried on this room (to slow down guessing)
   countdownEndsAt: number | null;
   underdog: Underdog | null; // this round's underdog (decided when the countdown ends), if there is one
   underdogEndsAt: number | null; // when the underdog announcement ends
+  offline: Set<string>; // players whose connection dropped: their seat is held (the server's timer removes them if they do not come back)
+  roulette: { gameId: GameId; startsAt: number; endsAt: number } | null; // the Random tile's roulette step: the chosen game and when the spin ends
+  startingEndsAt: number | null; // when the 'starting' (flash) step ends and the round begins
   wins: Record<string, number>; // rounds won this session, by player id (kept when a player leaves)
   sessionSaved: boolean; // this session's winner has already been handed out for saving (never save twice)
-  game: { engine: GameEngine; state: unknown; lastTickAt: number } | null; // set while phase is 'playing' or 'finish' (frozen in 'finish')
+  game: { engine: GameEngine; state: unknown; lastTickAt: number; playStartsAt: number } | null; // (playStartsAt: when the start countdown ends and the round really begins) // set while phase is 'playing' or 'finish' (frozen in 'finish')
   result: RoundResult | null; // set while phase is 'finish' or 'results'
   finishEndsAt: number | null; // when the "you won / you lost" sequence ends
   resultsEndsAt: number | null;
@@ -68,37 +79,58 @@ export class RoomManager {
   private rooms = new Map<string, Room>();
   private roomOfPlayer = new Map<string, string>(); // playerId -> room code
   private countdownMs: number;
+  private rouletteMs: number; // how long the Random tile's roulette step lasts (0 in tests that shorten the countdown, unless they ask)
   private resultsMs: number;
+  private introMsOverride: number | undefined; // set by tests: the in-game start countdown lasts this long for every game
+  private startingMs: number; // how long the flash step before every round lasts (0 = none)
   private finishMsOverride: number | undefined; // set by tests: every game's finish sequence lasts this long
   private engines: Record<GameId, GameEngine>;
 
   /** Durations are injectable so tests can run fast. */
-  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number } = {}) {
+  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number; startingMs?: number; introMs?: number; rouletteMs?: number } = {}) {
     this.countdownMs = options.countdownMs ?? COUNTDOWN_SECONDS * 1000;
+    this.rouletteMs = options.rouletteMs ?? (options.countdownMs !== undefined ? 0 : ROULETTE_SECONDS * 1000);
     this.resultsMs = options.resultsMs ?? RESULTS_SECONDS * 1000;
+    // The flash step lasts STARTING_MS, except in tests: a test that shortens the countdown wants fast rounds too, so it gets no flash step unless it asks for one.
+    this.startingMs = options.startingMs ?? (options.countdownMs !== undefined ? 0 : STARTING_MS);
+    // The in-game start countdown (GAME_INTRO_SECONDS, or the game's own): none in tests that shorten the countdown, unless they ask for one.
+    this.introMsOverride = options.introMs ?? (options.countdownMs !== undefined ? 0 : undefined);
     this.finishMsOverride = options.finishMs;
     this.engines = {
       'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000),
       snowball: createSnowball({ durationMs: options.snowballMs ?? SNOWBALL_SECONDS * 1000 }),
+      'santa-sack': createSantaSack({ durationMs: options.snowballMs ?? SANTA_SECONDS * 1000 }),
       'penguin-lasso': createPenguinLasso({ durationMs: options.snowballMs ?? PENGUIN_SECONDS * 1000 }),
+      // (tests shorten the rise and the cast the same way they shorten the other games' rounds)
+      fishing: createFishing(options.snowballMs !== undefined ? { ascentMs: options.snowballMs, castMs: Math.min(1000, options.snowballMs / 4) } : {}),
     };
   }
 
-  create(host: Player): Result {
+  create(host: Player, options: { name?: unknown; password?: unknown } = {}): Result {
     if (this.roomOfPlayer.has(host.id)) return fail('ALREADY_IN_ROOM');
+    if (this.rooms.size >= MAX_ROOMS) return fail('TOO_MANY_ROOMS');
+    const password = cleanPassword(options.password);
+    if (password === false) return fail('INVALID_SETTING');
     const room: Room = {
       code: this.newCode(),
+      name: cleanName(options.name),
+      passwordHash: password ? hashPassword(password) : null,
+      badGuesses: [],
       hostId: host.id,
       players: new Map([[host.id, host]]),
+      colors: new Map([[host.id, PLAYER_COLORS[0]]]), // the host gets the first color
       roster: new Map([[host.id, host]]),
       watching: new Set(),
-      settings: { gameId: null },
+      settings: { gameId: null, random: false },
       bets: {},
       ready: new Set(),
       phase: 'lobby',
       countdownEndsAt: null,
       underdog: null,
       underdogEndsAt: null,
+      offline: new Set(),
+      roulette: null,
+      startingEndsAt: null,
       wins: {},
       sessionSaved: false,
       game: null,
@@ -119,18 +151,48 @@ export class RoomManager {
    * Someone arriving mid-round (the finish sequence still belongs to the round) simply starts out WATCHING; with a seat,
    * they can switch to playing between rounds (see setWatching).
    */
-  join(rawCode: string, player: Player): Result {
+  join(rawCode: string, player: Player, password?: unknown): Result {
     if (this.roomOfPlayer.has(player.id)) return fail('ALREADY_IN_ROOM');
     const room = this.rooms.get(rawCode.trim().toUpperCase()); // codes are case-insensitive
     if (!room) return fail('ROOM_NOT_FOUND');
     if (room.players.size >= MAX_PLAYERS + MAX_SPECTATORS) return fail('ROOM_FULL');
-    const midRound = room.phase === 'underdog' || room.phase === 'playing' || room.phase === 'finish';
+    if (room.passwordHash) {
+      // Whoever is guessing, only so many wrong guesses are allowed against one room in a minute (on top of the per-connection limit in sockets.ts).
+      const now = Date.now();
+      room.badGuesses = room.badGuesses.filter((t) => now - t < 60_000);
+      if (room.badGuesses.length >= 12) return fail('TOO_MANY_ATTEMPTS');
+      if (typeof password !== 'string' || password.length > ROOM_PASSWORD_MAX || !verifyPassword(password, room.passwordHash)) {
+        room.badGuesses.push(now);
+        return fail('WRONG_PASSWORD');
+      }
+    }
+    const midRound = room.phase === 'roulette' || room.phase === 'underdog' || room.phase === 'starting' || room.phase === 'playing' || room.phase === 'finish';
     if (midRound || room.players.size >= MAX_PLAYERS) room.watching.add(player.id); // (size = how many are already in: their place in line)
     room.players.set(player.id, player);
     room.roster.set(player.id, player);
+    room.colors.set(player.id, this.freeColor(room)); // everyone starts with a color nobody has; they can change it
     this.roomOfPlayer.set(player.id, room.code);
     this.reconcile(room); // the newcomer isn't ready, so a running countdown is cancelled
     return ok(room);
+  }
+
+  /**
+   * The rooms anyone can try to join, for the list. Only public things go in it: never the password, only whether there is one. Rooms that are
+   * open to joining come first, then full ones; within each, the oldest first.
+   */
+  list(): RoomListing[] {
+    const listings = [...this.rooms.values()].map((room): RoomListing => ({
+      code: room.code,
+      name: room.name,
+      hasPassword: room.passwordHash !== null,
+      hostName: room.players.get(room.hostId)?.name ?? '',
+      members: room.players.size,
+      capacity: MAX_PLAYERS + MAX_SPECTATORS,
+      full: room.players.size >= MAX_PLAYERS + MAX_SPECTATORS,
+      gameName: getGame(room.settings.gameId)?.name ?? null,
+      phase: room.phase,
+    }));
+    return listings.sort((a, b) => Number(a.full) - Number(b.full)).slice(0, 100);
   }
 
   /** Removes a player. `room` is null if the room is now empty and deleted. */
@@ -143,6 +205,7 @@ export class RoomManager {
     room.watching.delete(playerId);
     room.ready.delete(playerId);
     delete room.bets[playerId]; // a leaver's bet is void
+    room.colors.delete(playerId); // their color is free for someone else
     // NOTE: their wins (and roster entry) stay, so they can still be named the session winner.
     this.roomOfPlayer.delete(playerId);
 
@@ -155,9 +218,10 @@ export class RoomManager {
     // Host left: promote whoever has been here longest (first in the Map), so the room always has a host.
     if (room.hostId === playerId) room.hostId = room.players.keys().next().value!;
 
+    room.offline.delete(playerId);
     if (room.underdog?.playerId === playerId) room.underdog = null; // the underdog left: there is nobody to win the bonus
-    // Between the countdown and the start (the underdog announcement): too few players left means the round is called off.
-    if (room.phase === 'underdog' && this.participants(room).length < this.minPlayers(room)) this.abortRound(room);
+    // Between the countdown and the start (the underdog announcement, the flash): too few players left means the round is called off.
+    if ((room.phase === 'roulette' || room.phase === 'underdog' || room.phase === 'starting') && this.participants(room).length < this.minPlayers(room)) this.abortRound(room);
     // Mid-round: the leaver forfeits. If too few players remain for the game, call the round off.
     if (room.phase === 'playing' && room.game) {
       room.game.state = room.game.engine.removePlayer(room.game.state, playerId);
@@ -184,18 +248,35 @@ export class RoomManager {
   }
 
   /** The host picks the game (any time between rounds). A real change resets everyone's Ready. */
-  setSettings(playerId: string, change: { gameId?: string | null }): Result {
+  setSettings(playerId: string, change: { gameId?: string | null; name?: unknown; password?: unknown }): Result {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.hostId !== playerId) return fail('NOT_HOST');
     if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
 
+    // The room's name and password. (An empty name goes back to the default; an empty password, or null, removes it.)
+    if (change.name !== undefined) room.name = cleanName(change.name);
+    if (change.password !== undefined) {
+      const password = change.password === null ? '' : cleanPassword(change.password);
+      if (password === false) return fail('INVALID_SETTING');
+      room.passwordHash = password ? hashPassword(password) : null;
+      room.badGuesses = [];
+    }
     if (change.gameId !== undefined) {
-      if (!GAMES.some((g) => g.id === change.gameId)) return fail('INVALID_SETTING');
-      if (change.gameId !== room.settings.gameId) {
-        room.settings = { ...room.settings, gameId: change.gameId as GameId };
-        room.ready.clear(); // everyone must agree to the NEW game
-        this.reconcile(room); // cancels a countdown, since nobody is ready any more
+      if (change.gameId === RANDOM_GAME) {
+        // The Random tile: no game is chosen yet. Once everyone is ready and the countdown ends, the server picks one and everyone watches the roulette (see finishCountdown).
+        if (!room.settings.random || room.settings.gameId !== null) {
+          room.settings = { ...room.settings, gameId: null, random: true };
+          room.ready.clear(); this.reconcile(room);
+        }
+      } else {
+        if (!GAMES.some((g) => g.id === change.gameId)) return fail('INVALID_SETTING');
+        const changed = change.gameId !== room.settings.gameId;
+        room.settings = { ...room.settings, gameId: change.gameId as GameId, random: false };
+        if (changed) {
+          room.ready.clear(); // everyone must agree to the NEW game
+          this.reconcile(room); // cancels a countdown, since nobody is ready any more
+        }
       }
     }
     return ok(room);
@@ -223,6 +304,26 @@ export class RoomManager {
   }
 
   /**
+   * Pick your color: one of PLAYER_COLORS that nobody else in the room has. It is your color in every game (colors are not chosen
+   * per round any more). Lobby/countdown only, so it never changes under a round that is running.
+   */
+  setColor(playerId: string, color: string): Result {
+    const room = this.roomFor(playerId);
+    if (!room) return fail('NOT_IN_ROOM');
+    if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
+    if (!(PLAYER_COLORS as readonly string[]).includes(color)) return fail('INVALID_COLOR');
+    for (const [id, taken] of room.colors) if (taken === color && id !== playerId) return fail('COLOR_TAKEN');
+    room.colors.set(playerId, color);
+    return ok(room);
+  }
+
+  /** The first color in the list that nobody in the room has (a room never holds more people than there are colors). */
+  private freeColor(room: Room): string {
+    const used = new Set(room.colors.values());
+    return PLAYER_COLORS.find((c) => !used.has(c)) ?? PLAYER_COLORS[0];
+  }
+
+  /**
    * A spectator bets on a player to win the coming round, optionally putting up `stake` of their own victory points on top.
    * Lobby/countdown only. Changing a bet drops your Ready (you ready up again with the bet you want), which may cancel a
    * countdown. `targetId` null takes the bet back.
@@ -245,11 +346,41 @@ export class RoomManager {
     return ok(room);
   }
 
+  /**
+   * A player's connection dropped (a refresh, a bad signal): they are NOT removed. Their seat, color, bets and score are held (the server removes them with `leave` if they have not
+   * come back after the grace period). Meanwhile: they are no longer ready (so a countdown they were holding up is cancelled), and in a round their character stands still (their steering
+   * and sprint are let go) while the round carries on for everyone else. The host stays host until they actually leave.
+   */
+  setOffline(playerId: string): Result {
+    const room = this.roomFor(playerId);
+    if (!room) return fail('NOT_IN_ROOM');
+    room.offline.add(playerId);
+    room.ready.delete(playerId);
+    if (room.phase === 'playing' && room.game) { // (let go of the controls: no one should keep skating on their last steer)
+      this.gameAction(playerId, { type: 'steer', x: 0, z: 0 });
+      this.gameAction(playerId, { type: 'sprint', on: false });
+    }
+    this.reconcile(room);
+    return ok(room);
+  }
+
+  /** The player is back (their new connection asks to be put back in their room): the seat is theirs again. */
+  rejoin(playerId: string): Result {
+    const room = this.roomFor(playerId);
+    if (!room) return fail('NOT_IN_ROOM');
+    room.offline.delete(playerId);
+    return ok(room);
+  }
+
+  isOffline(playerId: string): boolean {
+    return this.roomFor(playerId)?.offline.has(playerId) ?? false;
+  }
+
   setReady(playerId: string, ready: boolean): Result {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.phase !== 'lobby' && room.phase !== 'countdown') return fail('WRONG_PHASE');
-    if (!room.settings.gameId) return fail('NO_GAME_SELECTED');
+    if (!room.settings.gameId && !room.settings.random) return fail('NO_GAME_SELECTED'); // (the Random tile counts: the game is chosen when everyone is ready)
 
     if (ready) room.ready.add(playerId);
     else room.ready.delete(playerId);
@@ -269,21 +400,72 @@ export class RoomManager {
       bet.stake = Math.min(bet.stake, this.points(room, id)); // the stakes are locked in now (never more than they have)
       if (bet.stake < MIN_STAKE) bet.stake = 0; // (and a stake below the minimum is just a free bet)
     }
-    // Is there an underdog? If so, everyone is shown them for a few seconds before the round begins.
+    // The Random tile: the server picks the game now (one that can be played with this many players), and everyone watches the roulette spin onto it.
+    if (room.settings.random) {
+      const pool = this.randomPool(room);
+      const picked = pool[Math.floor(Math.random() * pool.length)].id as GameId;
+      room.settings = { ...room.settings, gameId: picked };
+      if (this.rouletteMs > 0) {
+        room.phase = 'roulette';
+        const startsAt = Date.now();
+        room.roulette = { gameId: picked, startsAt, endsAt: startsAt + this.rouletteMs };
+        return toState(room);
+      }
+    }
+    this.afterPicking(room);
+    return toState(room);
+  }
+
+  /** The games a Random pick may land on: every game this many players can play. */
+  private randomPool(room: Room) {
+    const n = this.participants(room).length;
+    const pool = GAMES.filter((g) => n >= g.minPlayers && n <= g.maxPlayers);
+    return pool.length > 0 ? pool : GAMES;
+  }
+
+  /** The roulette is over: carry on as a normal start. Same stale-timer guard as the countdown. */
+  finishRoulette(code: string, expectedEndsAt: number): RoomState | null {
+    const room = this.rooms.get(code);
+    if (!room || room.phase !== 'roulette' || room.roulette?.endsAt !== expectedEndsAt) return null;
+    room.roulette = null;
+    this.afterPicking(room);
+    return toState(room);
+  }
+
+  /** The game is known (picked by the host, or by the roulette): is there an underdog? If so, everyone is shown them for a few seconds; then the flash step and the round. */
+  private afterPicking(room: Room) {
     room.underdog = this.findUnderdog(room);
     if (room.underdog) {
       room.phase = 'underdog';
       room.underdogEndsAt = Date.now() + UNDERDOG_SECONDS * 1000;
-      return toState(room);
+      return;
     }
-    this.startRound(room);
-    return toState(room);
+    this.beginStarting(room);
   }
 
-  /** The underdog announcement is over: the round starts now. Same stale-timer guard as the countdown. */
+  /** The underdog announcement is over: the flash step begins. Same stale-timer guard as the countdown. */
   finishUnderdog(code: string, expectedEndsAt: number): RoomState | null {
     const room = this.rooms.get(code);
     if (!room || room.phase !== 'underdog' || room.underdogEndsAt !== expectedEndsAt) return null;
+    room.underdogEndsAt = null;
+    this.beginStarting(room);
+    return toState(room);
+  }
+
+  /**
+   * The flash step (see START_FLASH_* in config.ts): phones flash and fade to a plain page, and the round begins when it is almost over. With no
+   * flash time configured (the tests turn it off) the round simply starts.
+   */
+  private beginStarting(room: Room) {
+    if (this.startingMs <= 0) { this.startRound(room); return; }
+    room.phase = 'starting';
+    room.startingEndsAt = Date.now() + this.startingMs;
+  }
+
+  /** The flash step is over: the round starts now. Same stale-timer guard as the countdown. */
+  finishStarting(code: string, expectedEndsAt: number): RoomState | null {
+    const room = this.rooms.get(code);
+    if (!room || room.phase !== 'starting' || room.startingEndsAt !== expectedEndsAt) return null;
     this.startRound(room);
     return toState(room);
   }
@@ -293,8 +475,11 @@ export class RoomManager {
     room.phase = 'playing';
     room.countdownEndsAt = null;
     room.underdogEndsAt = null;
-    const now = Date.now();
-    room.game = { engine, state: engine.init(this.participants(room), now), lastTickAt: now };
+    room.startingEndsAt = null;
+    // The in-game start countdown: the scene is shown at once, but the round's clock (and everything in it) starts `introMs` later; until then nothing moves and actions are ignored.
+    const introMs = this.introMsOverride ?? (GAME_INTRO_HOLD_SECONDS + (getGame(room.settings.gameId)?.introSeconds ?? GAME_INTRO_COUNT_SECONDS)) * 1000; // (every game gets the static buffer; then the usual 3, 2, 1, or none for a game with its own opening)
+    const playStartsAt = Date.now() + introMs;
+    room.game = { engine, state: engine.init(this.participants(room), playStartsAt), lastTickAt: playStartsAt, playStartsAt };
   }
 
   /** A phone sent an in-game action (e.g. a tap). Returns null if it was ignored entirely. */
@@ -303,6 +488,7 @@ export class RoomManager {
     if (!room || room.phase !== 'playing' || !room.game) return null;
     if (room.watching.has(playerId)) return null; // watchers can't act, whatever they send
     const now = Date.now();
+    if (now < room.game.playStartsAt) return null; // the start countdown is still running: no one can act yet
     room.game.state = room.game.engine.reduce(room.game.state, playerId, action, now);
     // Some games end early (first to N); Tap Race just waits for its timer.
     if (room.game.engine.isOver(room.game.state, now)) return this.endRound(room);
@@ -318,7 +504,7 @@ export class RoomManager {
     const results: { code: string; view?: GameView; ended?: Outcome }[] = [];
     for (const room of this.rooms.values()) {
       const game = room.game;
-      if (room.phase !== 'playing' || !game?.engine.tick) continue;
+      if (room.phase !== 'playing' || !game?.engine.tick || now < game.playStartsAt) continue; // (nothing moves during the start countdown)
       // Real elapsed time, capped so a stalled server can't make balls teleport.
       const dt = Math.min(0.1, Math.max(0, (now - game.lastTickAt) / 1000));
       game.lastTickAt = now;
@@ -371,7 +557,7 @@ export class RoomManager {
     const room = this.roomFor(playerId);
     if (!room) return fail('NOT_IN_ROOM');
     if (room.hostId !== playerId) return fail('NOT_HOST');
-    if (room.phase === 'playing' || room.phase === 'underdog') {
+    if (room.phase === 'playing' || room.phase === 'roulette' || room.phase === 'underdog' || room.phase === 'starting') {
       this.abortRound(room);
       return ok(room);
     }
@@ -482,6 +668,9 @@ export class RoomManager {
     room.bets = {}; // bets are for one round only
     room.underdog = null;
     room.underdogEndsAt = null;
+    room.startingEndsAt = null;
+    room.roulette = null;
+    if (room.settings.random) room.settings = { ...room.settings, gameId: null }; // (the Random tile stays chosen: the next round rolls again)
     room.ready.clear();
   }
 
@@ -561,9 +750,10 @@ export class RoomManager {
     if (room.phase === 'lobby' || room.phase === 'countdown') this.cleanBets(room);
     const game = getGame(room.settings.gameId);
     const ids = this.participants(room);
+    const randomOk = room.settings.random && ids.length >= Math.min(...GAMES.map((g) => g.minPlayers)); // (the Random tile: any game that fits will do)
     // EVERYONE has to be ready: the players, and the spectators too (they are choosing their bets).
     const everyoneReady = [...room.players.keys()].every((id) => room.ready.has(id));
-    const canStart = Boolean(game) && ids.length >= game!.minPlayers && everyoneReady;
+    const canStart = (randomOk || (Boolean(game) && ids.length >= game!.minPlayers)) && everyoneReady;
 
     if (room.phase === 'lobby' && canStart) {
       room.phase = 'countdown';
@@ -593,13 +783,19 @@ const ok = (room: Room): Result => ({ ok: true, room: toState(room) });
 function toState(room: Room): RoomState {
   return {
     code: room.code,
+    name: room.name,
+    hasPassword: room.passwordHash !== null,
     hostId: room.hostId,
     players: [...room.players.values()],
     watchingIds: [...room.watching],
+    colors: Object.fromEntries(room.colors),
     spectatorOnlyIds: [...room.players.keys()].slice(MAX_PLAYERS),
     bets: { ...room.bets }, // (everyone's, for the server's own use: `personalize` cuts it down to the recipient's before it is sent)
     underdog: room.underdog,
     underdogEndsAt: room.underdogEndsAt,
+    offlineIds: [...room.offline],
+    roulette: room.roulette,
+    startingEndsAt: room.startingEndsAt,
     settings: { ...room.settings },
     readyIds: [...room.ready],
     phase: room.phase,
@@ -626,4 +822,28 @@ export function personalize(state: RoomState, playerId: string): RoomState {
     bets: mine ? { [playerId]: mine } : {},
     result: state.result ? { ...state.result, bets: state.result.bets.filter((b) => b.bettorId === playerId) } : null,
   };
+}
+
+
+/**
+ * A room name from whatever a phone sent: only text, with control characters and the invisible direction-changing ones removed (so a name can't
+ * be hidden or flipped), whitespace tidied, cut to ROOM_NAME_MAX. Nothing usable left (or not text at all) means the default name. (Names are
+ * always drawn as plain text, never as markup.)
+ */
+export function cleanName(raw: unknown): string {
+  if (typeof raw !== 'string') return DEFAULT_ROOM_NAME;
+  const name = raw
+    .replace(/[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u206F\uFEFF]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, ROOM_NAME_MAX)
+    .trim();
+  return name || DEFAULT_ROOM_NAME;
+}
+
+/** A password from whatever a phone sent: '' (none), the text, or false if it isn't text or is too long. */
+function cleanPassword(raw: unknown): string | false {
+  if (raw === undefined || raw === null) return '';
+  if (typeof raw !== 'string' || raw.length > ROOM_PASSWORD_MAX) return false;
+  return raw;
 }

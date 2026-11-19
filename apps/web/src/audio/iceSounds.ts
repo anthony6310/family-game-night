@@ -28,10 +28,10 @@ function note(ctx: BaseAudioContext, out: AudioNode, t: number, freq: number, le
   }
 }
 
-/** Caught a penguin! A quick rising three-note sparkle (a major arpeggio) with a squeaky "peep" at the start. */
+/** Caught an animal! A quick rising three-note sparkle (a major arpeggio) with a squeaky "peep" at the start. */
 export const captureChime: SoundFn = (ctx, out, t) => {
   [523.25, 659.25, 783.99].forEach((f, i) => note(ctx, out, t + 0.07 + i * 0.08, f, 0.5, 0.32)); // C, E, G
-  const peep = ctx.createOscillator(); // the penguin's startled squeak: a fast upward chirp
+  const peep = ctx.createOscillator(); // the animal's startled squeak: a fast upward chirp
   peep.type = 'square';
   peep.frequency.setValueAtTime(900, t);
   peep.frequency.exponentialRampToValueAtTime(1700, t + 0.07);

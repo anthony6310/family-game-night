@@ -21,6 +21,7 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const rounds: RoundRecord[] = [];
 const sessions: SessionRecord[] = [];
 const httpServer = createGameServer('http://localhost:5173', {
+  reconnectGraceMs: 0, // (these tests close a connection to mean "leave": no grace period, see test-reconnect.ts for the real one)
   countdownMs: 100, roundMs: 300, finishMs: 50, resultsMs: 200,
   onRound: (r) => rounds.push(r), onSession: (s) => sessions.push(s),
 });

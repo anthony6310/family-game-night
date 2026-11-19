@@ -1,17 +1,22 @@
+import { StartCountdown, introProgress } from './StartCountdown';
 import { useEffect, useMemo, useRef } from 'react';
 import type { GameAction, Player, RoundResult, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './Joystick';
-import { PLAYER_COLORS } from './playerColors';
 import { SnowballScene, type BallStyle } from './snowball/SnowballScene';
+import { SprintButton, StaminaBar } from './snowball/SprintControls';
+import { useSprint } from './snowball/useSprint';
 import { useSteering } from './snowball/useSteering';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
+import { FALLBACK_COLOR } from './playerColors';
 import { SpectatorControls } from '../spectate/SpectatorControls';
 import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
 
 interface Props {
   game: SnowballView;
   players: Player[];
+  /** Each player's chosen color (see the lobby's color picker): the same color in every game. */
+  colors: Record<string, string>;
   selfId: string | null;
   serverNow: () => number;
   sendAction: (action: GameAction) => void;
@@ -27,13 +32,13 @@ interface Props {
  * The Snowball round: a full-screen three.js view, a small HUD, and steering controls.
  * Loaded on demand (see LobbyPage) so the landing page doesn't download three.js.
  */
-export default function SnowballScreen({ game, players, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
+export default function SnowballScreen({ game, players, colors, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<SnowballScene | null>(null);
 
-  // Colours, names and profile pictures are fixed when the round starts (a player leaving mustn't recolour everyone).
+  // Colors, names and profile pictures are fixed when the round starts (a player leaving mustn't recolor everyone).
   const styles = useMemo<Record<string, BallStyle>>(
-    () => Object.fromEntries(players.map((p, i) => [p.id, { name: p.name, color: PLAYER_COLORS[i % PLAYER_COLORS.length], avatarUrl: p.avatarUrl }])),
+    () => Object.fromEntries(players.map((p) => [p.id, { name: p.name, color: colors[p.id] ?? FALLBACK_COLOR}])),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -41,8 +46,10 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
   // Create the 3D scene once; tear it down (freeing GPU memory) when the round screen closes.
   useEffect(() => {
     const s = new SnowballScene(container.current!, game.arenaRadius, game.terrain, styles, selfId);
+    s.setBaseSpeed(game.speedRange.base);
     s.setMaxSpeedFactor(game.speedRange.max / game.speedRange.base);
     scene.current = s;
+    s.introFactor = () => introProgress(game.startsAt, serverNow()); // the camera's start-countdown move (see StartCountdown)
     return () => {
       s.dispose();
       scene.current = null;
@@ -57,6 +64,7 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
   }, [game]);
 
   const setStick = useSteering(sendAction, !frozen);
+  const setSprintHeld = useSprint(sendAction, !frozen); // hold the button (or Shift / Space) to sprint
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   useEffect(() => {
     scene.current?.setSecondsLeft(remainingMs / 1000); // the last 5 seconds tick, then the whistle: the same countdown as every game
@@ -81,12 +89,16 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
     else if (!isPlayer) scene.current?.setCameraView({ mode: camera.mode, targetId: camera.targetId });
   }, [winnerMoment, winnerId, isPlayer, camera.mode, camera.targetId]);
 
+  // The stamina bar shows the ball you are playing (or, for a spectator, the one they follow).
+  const subjectBall = (isPlayer ? selfId : camera.targetId) ? game.balls[(isPlayer ? selfId : camera.targetId)!] : undefined;
+
   const standings = Object.entries(game.balls)
     .map(([id, ball]) => ({ id, size: Math.round(ball.radius * 100), style: styles[id], leader: ball.leader, fish: ball.fish }))
     .sort((a, b) => b.size - a.size);
 
   return (
     <div className="snow-screen">
+      <StartCountdown goAt={game.startsAt} serverNow={serverNow} />
       <div className="snow-canvas" ref={container} />
 
       <div className="snow-hud">
@@ -101,12 +113,14 @@ export default function SnowballScreen({ game, players, selfId, serverNow, sendA
             </li>
           ))}
         </ul>
-        {isPlayer && !frozen && <p className="snow-hint">Drag to steer · or use WASD / arrow keys</p>}
+        {!frozen && subjectBall && <StaminaBar stamina={subjectBall.stamina} startAt={game.staminaStart} sprinting={subjectBall.sprinting} recovering={subjectBall.escape} />}
+        {isPlayer && !frozen && <p className="snow-hint">Drag to steer · WASD / arrows · hold Shift, Space or ⚡ to sprint</p>}
       </div>
 
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
       {isPlayer && !frozen && <Joystick onChange={setStick} />}
+      {isPlayer && !frozen && <SprintButton onHold={setSprintHeld} active={Boolean(subjectBall?.sprinting)} />}
       {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );

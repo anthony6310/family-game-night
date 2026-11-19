@@ -9,7 +9,7 @@ export function SoundButton() {
   return (
     <button className="sound-btn" aria-pressed={muted} aria-label={label} title={label}
       onClick={() => { audio.unlock(); setMuted(!muted); }}>
-      {/* A flat speaker icon (inline SVG, so it takes the button's text colour): sound waves when on, a cross when off. */}
+      {/* A flat speaker icon (inline SVG, so it takes the button's text color): sound waves when on, a cross when off. */}
       <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor" stroke="currentColor" strokeLinecap="round" aria-hidden="true">
         <path d="M3 9.5v5h4l5 4.5v-14l-5 4.5H3z" stroke="none" />
         {muted ? (

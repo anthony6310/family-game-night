@@ -1,5 +1,7 @@
 import type { TerrainFeature } from './terrain';
+import type { SantaLobParams } from './santaThrow';
 import type { GameId } from './games';
+import type { CreatureKind, FishKind } from './config';
 
 /**
  * The Socket.io contract between phones and server. Both sides import these types, so
@@ -17,7 +19,11 @@ export interface Player {
 /** Host-controlled session settings. */
 export interface RoomSettings {
   gameId: GameId | null; // null until the host picks a game
+  /** True when the host picked the Random tile: the game is only chosen once everyone is ready and the countdown ends (the roulette); `gameId` is null until then (and again after the round). */
+  random: boolean;
 }
+/** What the host sends to pick the game: a game's id, or 'random' to have the server pick one. */
+export const RANDOM_GAME = 'random';
 
 /**
  * 'lobby'     choosing settings and readying up
@@ -26,18 +32,25 @@ export interface RoomSettings {
  * 'finish'    the round just ended: the result is decided, input is stopped and a "you won / you lost" message
  *             plays over the frozen game for a few seconds
  * 'results'   the round summary screen (moves on by itself after a few seconds)
+ * 'roulette'  (only when the host chose the Random tile) the countdown is over and everyone, the host included, watches the game being picked: the carousel spins and slows onto it
  * 'underdog'  (only when there is an underdog) the countdown is over and everyone is shown the underdog for a few seconds
  *             before the round starts
+ * 'starting'  the flash step (like a loading screen): the screen flashes and fades to a plain page, and the round begins almost at the end of the
+ *             flash (see START_FLASH_* in config.ts). Nobody can play yet.
  * 'session-over' the host ended the session (or the room emptied): the player with the most wins is crowned
  */
-export type RoomPhase = 'lobby' | 'countdown' | 'underdog' | 'playing' | 'finish' | 'results' | 'session-over';
+export type RoomPhase = 'lobby' | 'countdown' | 'roulette' | 'underdog' | 'starting' | 'playing' | 'finish' | 'results' | 'session-over';
 
 /**
  * What a phone may send during a round. The server decides what it actually means.
  * `steer` is a direction on the ground in world axes (x = east, z = south), each -1..1.
  * The server clamps its length to 1, so sending a bigger vector gains nothing.
  */
-export type GameAction = { type: 'tap' } | { type: 'steer'; x: number; z: number };
+export type GameAction =
+  | { type: 'tap' }
+  | { type: 'steer'; x: number; z: number }
+  | { type: 'sprint'; on: boolean }
+  | { type: 'throw'; x: number; z: number; power: number }; // Santa's Sack: throw a gift from your pile in the direction (x, z) on the floor, with `power` 0..1 (how far)
 
 /** Tap Race, as phones see it. */
 export interface TapRaceView {
@@ -72,13 +85,17 @@ export interface SnowballBall {
   vz: number;
   radius: number;
   immune: boolean; // briefly true after being hit (drawn as a flash)
-  /** Current top-speed multiplier, everything included: 1 = normal, below 1 = climbing, above 1 = descending / escaping. */
+  /** Current top-speed multiplier, everything included: 1 = normal, below 1 = climbing, above 1 = descending and/or sprinting. */
   speedFactor: number;
-  /** The part of `speedFactor` that comes from the ground alone (hills and the ditch). */
+  /** The part of `speedFactor` that comes from the ground alone (a little slower uphill, a little faster downhill). */
   hillFactor: number;
-  slowStacks: number; // uphill slow stacks currently active
-  boostStacks: number; // downhill speed-up stacks currently active
-  /** True for 2 s after this (smaller) ball hit a bigger one: a speed boost to get away. */
+  /** The size points the most recent hit took off this ball (0 if it has not been hit yet): phones scale the impact's snow by how hard the hit was. */
+  hitDamage: number;
+  /** Stamina left, from 0 (empty) to 1 (full). Sprinting uses it up; it refills when you stop sprinting. */
+  stamina: number;
+  /** True while the ball is sprinting (+50% speed), which uses stamina up. */
+  sprinting: boolean;
+  /** True for 2 s after this (smaller) ball hit a bigger one: its stamina refills straight away (no waiting) while this lasts. */
   escape: boolean;
   /** True for the single biggest ball: its hits do double damage. */
   leader: boolean;
@@ -92,11 +109,10 @@ export interface SnowballView {
   startsAt: number;
   endsAt: number;
   arenaRadius: number;
-  /**
-   * The speeds the gauge is drawn against (world units per second): normal, slowest possible, fastest from
-   * hills alone, fastest possible with the escape boost on top, and how much that escape boost adds (a fraction).
-   */
-  speedRange: { base: number; min: number; hillMax: number; max: number; escapeBonus: number };
+  /** The speeds effects are drawn against (world units per second): normal, and the fastest possible (downhill AND sprinting). */
+  speedRange: { base: number; max: number };
+  /** You can only START a sprint with at least this much stamina (a fraction, 0..1). The stamina bar marks it. */
+  staminaStart: number;
   /** This round's hills and ditch. They are picked at random for each round and never move during it. */
   terrain: TerrainFeature[];
   /** Pick-ups lying in the arena right now (they appear at the start and in waves later; a collected one is gone). */
@@ -112,19 +128,36 @@ export interface SkaterView {
   vz: number;
   /** The skate trail, oldest point first (it ends at the skater). It is the lasso: it is limited in length, so the old end keeps vanishing. */
   trail: [number, number][];
-  /** Penguins in the skater's bag: caught, but NOT points yet. Skating home to the igloo cashes them in. */
+  /** Points worth of animals in the skater's bag (a penguin is 1, a seal 2, a polar bear 5): caught, but NOT points yet. Skating home to the igloo cashes them in. */
   carried: number;
-  banked: number; // penguins cashed in at the igloo so far this round: the score
+  /**
+   * How many SPACES the bag's contents use up (of `bagCapacity`): a penguin or a seal takes 1 (a seal takes the same room as a penguin,
+   * though it is worth more), a polar bear takes 3. The sack's size follows this.
+   */
+  carriedSpace: number;
+  /** What is in the bag, in the order it was caught (the display of the bag's contents). */
+  bag: CreatureKind[];
+  /** The most valuable kind of animal in the bag (it is the head shown poking out of the sack), or null when the bag is empty. */
+  topCarried: CreatureKind | null;
+  /**
+   * True when the bag is FULL (its contents use all `bagCapacity` spaces): the skater lays no trail and so can't catch anything more
+   * until they cash in at the igloo.
+   */
+  bagFull: boolean;
+  /** True while the bag holds at least one polar bear. Each bear slows the skater (see `bearSpeedFactors`) until they cash in; a bear takes 3 spaces but does not stop other catches. */
+  carryingBear: boolean;
+  banked: number; // points cashed in at the igloo so far this round: the score
 }
 
-/** A penguin. One that was just caught stays in the list for a moment (with `caughtBy`) so phones can show it being collected. */
+/** An animal on the ice (a penguin, a seal or a polar bear). One that was just caught stays in the list for a moment (with `caughtBy`) so phones can show it being collected. */
 export interface PenguinView {
   id: number;
+  kind: CreatureKind;
   x: number;
   z: number;
   /** Which way it is facing (radians, 0 = east, counter-clockwise seen from above is z-down so +angle turns towards south). */
   heading: number;
-  /** True while it is walking (so phones can waddle it); false while it stands still. */
+  /** True while it is moving (walking, or for a seal sliding) so phones can animate it; false while it stands still. */
   walking: boolean;
   caughtBy?: string; // set for ~1.2 s after a catch (it goes into that skater's bag)
 }
@@ -134,6 +167,8 @@ export interface LoopView {
   id: number;
   playerId: string;
   points: [number, number][]; // the corners of the enclosed area
+  /** How many animals were inside this loop but did NOT fit in the bag (phones flash and shake the bag display for the skater who made it). */
+  skipped: number;
 }
 
 /** Penguin Lasso, as phones see it. Streamed ~20 times a second while the round runs. */
@@ -144,17 +179,108 @@ export interface PenguinLassoView {
   arenaRadius: number;
   /** The most trail a skater can have out at once, in world units (phones fade the trail along this length). */
   trailMax: number;
+  /** How many animals a bag holds before it is full (the sack grows in steps up to this). */
+  bagCapacity: number;
   /** Each player's igloo (their home base). Skating within `cashRadius` of your own igloo cashes in your bag. */
-  igloos: Record<string, { x: number; z: number }>;
-  iglooRadius: number; // the igloo's own size (solid: skaters can't skate through it)
+  /** Where each igloo is, and how much it has grown: 1 = its starting size, bigger with every point its owner has cashed in. */
+  igloos: Record<string, { x: number; z: number; scale: number }>;
+  iglooRadius: number; // an igloo's size at scale 1 (solid: skaters can't skate through it). Multiply by its `scale`.
   cashRadius: number;
   skaters: Record<string, SkaterView>;
   penguins: PenguinView[];
   loops: LoopView[];
 }
 
+/** A fish in the ocean (Fishing). `y` is its depth below the surface (0 = the surface). Its mouth is at the front: x + dir x (size / 2). */
+export interface FishView {
+  id: number;
+  x: number;
+  y: number;
+  dir: 1 | -1; // which way it swims along the width (1 = right); fish swim the same way all round, and come back in from the other side
+  speed: number; // units per second (phones move it on between snapshots)
+  size: number; // its length
+  kind: FishKind; // a school fish, a regular fish or a big fish
+  variant: number; // which of the colorful looks a REGULAR fish has (0..5)
+  caughtBy?: string; // set for ~1.2 s after a catch, so phones can show it being reeled in
+}
+
+/** Fishing, as phones see it. Only the fish near the hooks are listed. */
+export interface FishingView {
+  gameId: 'fishing';
+  startsAt: number; // the round begins: the cast sequence plays
+  ascentStartsAt: number; // the hooks are at the bottom and start to rise (input counts from here)
+  endsAt: number; // the hooks reach the surface
+  depth: number; // how deep the ocean is
+  endDepth: number; // the finish line: the hooks rise from `depth` to this depth ("0 m", a little under the surface). When they reach it the round is over.
+  hookDepth: number; // how deep the hooks are right now (all of them, always the same)
+  ascentSpeed: number; // how fast they rise (units per second), so phones can carry on between snapshots
+  laneWidth: number;
+  lanes: string[]; // each player's lane, left to right (a player who left keeps an empty lane)
+  /** Where each hook is along the width, how many fish it has caught, how many POINTS they are worth (the score), and how many of each kind (in FISH_KINDS order: school, regular, big). */
+  hooks: Record<string, { x: number; lift: number; fish: number; points: number; kinds: [number, number, number] }>;
+  /** The mines near the hooks: whose lane each hangs in, where it is now (drifting ones move), and whether it has just gone off (for the explosion). */
+  mines: { id: number; owner: string; x: number; y: number; hit: boolean }[];
+  fish: FishView[];
+}
+
+/**
+ * A bag on its circular route. Where it is at any moment is worked out from `slot`, the route's `radius` and `speed` and the server's clock, so phones never need to be told its position.
+ * The player who has put the most gifts into a bag CONTROLS it (a tie, or an empty bag, leaves it neutral). How many gifts are in it is never sent: only who controls it.
+ * Every bag is open for the first quarter of the round, then cinched shut for one quarter OR the next (some of the bags in each), then open again for the last quarter: `lid` says when this one is shut.
+ */
+export interface SantaBagView {
+  id: number;
+  /** The radius of the bag's open mouth: a gift that goes into its scoring zone adds to its thrower's gifts in this bag. Every bag is the size of the biggest one plus or minus 25% (a bigger bag is a bigger target, and worth the same). */
+  radius: number;
+  /** Its place on the route when the round starts (radians; the route turns at `orbit.speed` radians a second). */
+  slot: number;
+  /** The player who controls the bag right now (the most gifts in it), or null when it is empty or tied (neutral). The bag takes this player's color. */
+  leader: string | null;
+  /** The gifts in the bag, oldest first, at most 5: the phones draw them as a heap in the mouth, each in its thrower's color. */
+  gifts: SantaBagGiftView[];
+  /** While the server clock is between `closeAt` and `openAt` the bag is cinched shut: nothing can go in it and gifts bounce off it. It strobes for `warnMs` before `closeAt`. */
+  lid: { closeAt: number; openAt: number };
+}
+/**
+ * A gift in the air. It moves by plain gravity: at `t` (server clock, milliseconds) it is at p0 + v0 * dt + g * dt^2 / 2, with dt in seconds since `t0` (`g` is negative: down; every throw has its own, so a snappy lob can be both high and quick). When it bounces off a bag the server sends a new
+ * (p0, v0, t0) from the bounce and `bounces` goes up. `kind` is its shape (0..5) and `owner` gives it its color.
+ */
+export interface SantaFlyingView { id: number; owner: string; kind: number; x0: number; y0: number; z0: number; vx: number; vy: number; vz: number; g: number; t0: number; bounces: number }
+/** A gift pushed out of a full bag to make room: drawn tumbling out of the bag's mouth and falling (a picture only; nothing is simulated). */
+export interface SantaKickedView { id: number; owner: string; kind: number; bag: number; at: number }
+/** One gift sitting in a bag: its thrower (the heap shows it in their color) and its shape. */
+export interface SantaBagGiftView { owner: string; kind: number }
+/** A gift that has just come down, at (x, y, z): into the bag `bag` (it went into its scoring zone and scored) or (null) onto the floor. Shown for a moment. */
+export interface SantaLandedView { id: number; owner: string; kind: number; x: number; y: number; z: number; bag: number | null; at: number }
+
+/** Santa's Sack, as phones see it. Streamed ~20 times a second while the round runs. */
+export interface SantaSackView {
+  gameId: 'santa-sack';
+  startsAt: number;
+  endsAt: number;
+  /** Each player's station: where the elf stands and the way it faces (radians: the direction (cos, sin) in x east / z south, towards the bags). */
+  stations: Record<string, { x: number; z: number; facing: number }>;
+  /** The route the bags follow, round the middle of the room (0, 0): its radius and how fast it turns (radians per second). */
+  orbit: { radius: number; speed: number };
+  bags: SantaBagView[];
+  /** How long before a bag closes it strobes as a warning (milliseconds). */
+  warnMs: number;
+  /** A throw is aimed at a point `rangeMin` away at power 0 and `rangeMax` away at power 1 (world units), `lob.aimHeight` up in the air (a little above a bag's mouth): the gift passes through that point on its way down. */
+  rangeMin: number;
+  rangeMax: number;
+  /** How a throw flies (see lobPlan): phones use it to draw the arc a pull would make, and the ring at its end, `lob.aimHeight` up (a little above the bags' mouths). */
+  lob: SantaLobParams;
+  /** A drag shorter than this (as a power, 0..1) is not a throw. */
+  throwMinPower: number;
+  /** How many bags each player controls right now (the player with the most bags at the end wins). Their gifts never run out. */
+  players: Record<string, { controlled: number }>;
+  flying: SantaFlyingView[];
+  landed: SantaLandedView[];
+  kicked: SantaKickedView[];
+}
+
 /** What phones are told about a running round: one shape per game, told apart by `gameId`. */
-export type GameView = TapRaceView | SnowballView | PenguinLassoView;
+export type GameView = TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView;
 
 /** A spectator's bet on one player to win a round. With no stake it is a free bet worth 1 victory point if it wins. With a stake, the spectator puts up victory points of their own and wins (or loses) exactly that many. */
 export interface Bet {
@@ -198,6 +324,8 @@ export interface RoundResult {
 /** Everything a phone needs to draw the lobby. The server sends a fresh copy on every change. */
 export interface RoomState {
   code: string;
+  name: string; // what the room is called in the list
+  hasPassword: boolean; // (the password itself never leaves the server)
   hostId: string;
   /** Everyone in the room, in join order: those playing AND those watching (see `watchingIds`). */
   players: Player[];
@@ -207,6 +335,8 @@ export interface RoomState {
    * Anyone who joins mid-round, or into a full room, starts out watching.
    */
   watchingIds: string[];
+  /** Each member's color (from PLAYER_COLORS), by player id: their color in every game. Everyone has a different one. */
+  colors: Record<string, string>;
   /**
    * Members who can ONLY watch: only the first MAX_PLAYERS people to join a room (in join order) may play, so anyone beyond
    * that is spectator-only and has no Play option. When one of those first people leaves, the earliest of these gets a seat.
@@ -221,6 +351,12 @@ export interface RoomState {
   underdog: Underdog | null;
   /** Server clock when the 'underdog' announcement ends and the round starts, or null. */
   underdogEndsAt: number | null;
+  /** Players whose connection dropped (a refresh, a bad signal): their seat is held for a grace period, and they come back by reconnecting. */
+  offlineIds: string[];
+  /** The roulette (only when the host picked Random): the game the server chose, and when the spin starts and ends (server clock). Everyone's carousel lands on `gameId` at `endsAt`. */
+  roulette: { gameId: GameId; startsAt: number; endsAt: number } | null;
+  /** Server clock when the 'starting' (flash) step ends and the round begins, or null. */
+  startingEndsAt: number | null;
   settings: RoomSettings;
   readyIds: string[]; // ids of players who tapped Ready
   phase: RoomPhase;
@@ -248,6 +384,8 @@ export interface RoomState {
 export type RoomError =
   | 'ROOM_NOT_FOUND'
   | 'ROOM_FULL'
+  | 'COLOR_TAKEN' // someone else already has that color
+  | 'INVALID_COLOR' // not one of PLAYER_COLORS
   | 'NO_SEAT' // a spectator-only member tried to switch to playing
   | 'NOT_A_SPECTATOR' // only spectators can bet
   | 'INVALID_BET' // not a playing player, or more victory points than the bettor has
@@ -256,11 +394,39 @@ export type RoomError =
   | 'NOT_IN_ROOM'
   | 'NOT_HOST'
   | 'INVALID_SETTING'
+  | 'WRONG_PASSWORD' // the room has a password and it was missing or wrong
+  | 'TOO_MANY_ATTEMPTS' // too many wrong passwords (or requests) in a short time: wait a little
+  | 'TOO_MANY_ROOMS' // the server is full of rooms, or you are making them too fast
   | 'WRONG_PHASE'
   | 'NO_GAME_SELECTED';
 
 /** Reply shape for events that expect an answer (Socket.io "acknowledgements"). */
 export type Ack<T> = { ok: true; data: T } | { ok: false; error: RoomError };
+
+/** One room in the list of joinable rooms. Only public things: never the password, only whether there is one. */
+export interface RoomListing {
+  code: string; // the room's id (what `room:join` needs; players never type it)
+  name: string;
+  hasPassword: boolean;
+  hostName: string;
+  members: number; // everyone in it: players and spectators
+  capacity: number; // MAX_PLAYERS + MAX_SPECTATORS
+  full: boolean;
+  gameName: string | null;
+  phase: RoomPhase;
+}
+
+/** What a host can set when making a room. */
+export interface CreateRoomOptions {
+  name?: string; // default: DEFAULT_ROOM_NAME
+  password?: string; // default: none
+}
+
+/** What someone sends to join a room: its id, and the password if it has one. */
+export interface JoinRequest {
+  code: string;
+  password?: string;
+}
 
 export interface JoinResult {
   playerId: string; // which entry in `room.players` is "me"
@@ -271,18 +437,28 @@ export interface JoinResult {
 export interface HandshakeAuth {
   token?: string;
   guestName?: string;
+  /** A guest's signed identity token (given by the server on a first visit, kept by the browser, sent back on every connection): it is what lets a refreshed page be recognised as the same guest. */
+  guestToken?: string;
 }
 
 export interface ClientToServerEvents {
-  'room:create': (ack: (res: Ack<JoinResult>) => void) => void;
-  'room:join': (code: string, ack: (res: Ack<JoinResult>) => void) => void;
+  /** Make a room (options are optional: `room:create` with just an ack makes a "Game Room" with no password). */
+  'room:create': (optionsOrAck: CreateRoomOptions | ((res: Ack<JoinResult>) => void), ack?: (res: Ack<JoinResult>) => void) => void;
+  /** Join a room from the list: its id (a plain string works too, for a room with no password), and the password if it has one. */
+  'room:join': (target: string | JoinRequest, ack: (res: Ack<JoinResult>) => void) => void;
+  /** The list of rooms anyone can try to join. */
+  'rooms:list': (ack: (res: Ack<RoomListing[]>) => void) => void;
   /** Switch between playing (false) and watching (true). Lobby/countdown only. Your points are kept either way. */
   'player:watching': (watching: boolean, ack?: (res: Ack<null>) => void) => void;
   'room:leave': () => void;
+  /** After a refresh or a dropped connection: put me back in the room I was in (the server kept my seat for a short grace period). Fails with NOT_IN_ROOM if there is none. */
+  'room:rejoin': (ack: (res: Ack<JoinResult>) => void) => void;
   /** Host only, in the lobby: end the session. The player with the most wins is crowned and saved. */
   'session:end': (ack?: (res: Ack<null>) => void) => void;
-  /** Host only: pick the game. Changing it cancels a countdown and clears every Ready. */
-  'room:settings': (settings: { gameId?: GameId }, ack?: (res: Ack<null>) => void) => void;
+  /** Host only, in the lobby: pick the game (cancels a countdown and clears every Ready), rename the room, or set (a string) or remove (null) its password. */
+  'room:settings': (settings: { gameId?: GameId | typeof RANDOM_GAME; name?: string; password?: string | null }, ack?: (res: Ack<null>) => void) => void;
+  /** Pick your color (one of PLAYER_COLORS that nobody else has). Lobby/countdown only. It is your color in every game. */
+  'player:color': (color: string, ack?: (res: Ack<null>) => void) => void;
   'player:ready': (ready: boolean, ack?: (res: Ack<null>) => void) => void;
   /**
    * Spectators only, lobby/countdown: bet on a player to win the round (`targetId`, or null to take the bet back), putting up
@@ -302,6 +478,10 @@ export interface ClientToServerEvents {
 
 export interface ServerToClientEvents {
   'room:state': (state: RoomState) => void;
+  /** A guest's signed identity token, for the browser to keep (see HandshakeAuth.guestToken). */
+  'guest:token': (token: string) => void;
+  /** Another connection for the same player took over (a second tab, or the refreshed page): this one is being closed and must not reconnect. */
+  'session:replaced': () => void;
   /** The host closed the room: everyone has been removed from it. */
   'room:closed': () => void;
   /**

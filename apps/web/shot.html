@@ -1,0 +1,16 @@
+<!doctype html><html><head><meta charset="utf-8"><title>bow harness</title>
+<style>
+html,body{margin:0;height:100%;background:#1b2230;color:#fff;font:14px system-ui}
+#c{position:fixed;left:0;right:0;top:0;bottom:170px}
+#o{position:fixed;left:0;right:0;top:0;bottom:170px;pointer-events:none}
+#ui{position:fixed;left:0;right:0;bottom:0;height:170px;padding:10px 16px;box-sizing:border-box;background:#121826;display:flex;gap:28px;align-items:center;flex-wrap:wrap}
+.row{display:flex;align-items:center;gap:10px;margin:4px 0}.row label{width:260px}.row input{width:340px}.row output{width:60px;font-variant-numeric:tabular-nums}
+button{padding:6px 12px}
+</style></head>
+<body><div id="c"></div><canvas id="o"></canvas>
+<div id="ui"><div>
+<div class="row"><label style="color:#ff6b6b">Turn about the bow's X (degrees)</label><input id="rx" type="range" min="-180" max="180" step="1" value="0"><output id="rxv"></output></div>
+<div class="row"><label style="color:#6bff6b">Turn about the bow's Y (degrees)</label><input id="ry" type="range" min="-180" max="180" step="1" value="0"><output id="ryv"></output></div>
+<div class="row"><label style="color:#6b9bff">Turn about the bow's Z (degrees)</label><input id="rz" type="range" min="-180" max="180" step="1" value="0"><output id="rzv"></output></div>
+</div><div><button id="reset">reset</button><div id="read" style="margin-top:10px;font-variant-numeric:tabular-nums"></div><div style="margin-top:6px;opacity:.7">The coloured lines are the BOW's own axes and turn with it. 0 = how the bow is now.<br>Each slider spins the bow about its own line (X, then Y, then Z, each about the bow's already-turned axes).</div></div></div>
+<script type="module" src="/src/shot.ts"></script></body></html>

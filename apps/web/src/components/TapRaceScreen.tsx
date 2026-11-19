@@ -1,15 +1,18 @@
+import { StartCountdown, introProgress } from './StartCountdown';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { type GameAction, type Player, type RoundResult, type TapRaceView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
-import { PLAYER_COLORS } from './playerColors';
 import { TapRaceScene, type ButtonStyle } from './taprace/TapRaceScene';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
+import { FALLBACK_COLOR } from './playerColors';
 import { SpectatorControls } from '../spectate/SpectatorControls';
 import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
 
 interface Props {
   game: TapRaceView;
   players: Player[];
+  /** Each player's chosen color (see the lobby's color picker): the same color in every game. */
+  colors: Record<string, string>;
   selfId: string | null;
   serverNow: () => number;
   sendAction: (action: GameAction) => void;
@@ -30,7 +33,7 @@ interface Props {
  * you just keep looking at your own button (no result yet), then the camera glides to the winner's button and a banner
  * names them for the last WINNER_SECONDS (shared by every winner-pan game: see WinnerMoment).
  */
-export default function TapRaceScreen({ game, players, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
+export default function TapRaceScreen({ game, players, colors, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<TapRaceScene | null>(null);
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
@@ -40,9 +43,9 @@ export default function TapRaceScreen({ game, players, selfId, serverNow, sendAc
   // In a tie-breaker, players outside the tie are spectators: they aren't in the game's tap table.
   const isPlayer = selfId !== null && selfId in game.taps;
 
-  // Colours and names are fixed when the round starts (a player leaving mustn't recolour everyone).
+  // Colors and names are fixed when the round starts (a player leaving mustn't recolor everyone).
   const styles = useMemo<ButtonStyle[]>(
-    () => players.filter((p) => p.id in game.taps).map((p) => ({ id: p.id, name: p.name, color: PLAYER_COLORS[players.indexOf(p) % PLAYER_COLORS.length], avatarUrl: p.avatarUrl })),
+    () => players.filter((p) => p.id in game.taps).map((p) => ({ id: p.id, name: p.name, color: colors[p.id] ?? FALLBACK_COLOR, avatarUrl: p.avatarUrl })),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
@@ -51,6 +54,7 @@ export default function TapRaceScreen({ game, players, selfId, serverNow, sendAc
   useEffect(() => {
     const s = new TapRaceScene(container.current!, styles, isPlayer ? selfId : null);
     scene.current = s;
+    s.introFactor = () => introProgress(game.startsAt, serverNow()); // the camera's start-countdown move (see StartCountdown)
     return () => {
       s.dispose();
       scene.current = null;
@@ -98,6 +102,7 @@ export default function TapRaceScreen({ game, players, selfId, serverNow, sendAc
 
   return (
     <div className="snow-screen tap-screen">
+      <StartCountdown goAt={game.startsAt} serverNow={serverNow} />
       {/* The board. For a player, a tap on it presses their button. (touch-action is off in CSS, so a tap is never a scroll or zoom.) */}
       <div className="snow-canvas" ref={container} onPointerDown={onTap} onContextMenu={(e) => e.preventDefault()} />
 

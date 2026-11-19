@@ -6,7 +6,7 @@
 import type { AddressInfo } from 'node:net';
 import { io, type Socket } from 'socket.io-client';
 import {
-  COUNTDOWN_SECONDS, FINISH_SECONDS, RESULTS_SECONDS,
+  COUNTDOWN_SECONDS, FINISH_SECONDS, GAME_INTRO_SECONDS, RESULTS_SECONDS,
   type Ack, type ClientToServerEvents, type JoinResult, type RoomState, type ServerToClientEvents, type TapRaceView,
 } from '@fgn/shared';
 import { createGameServer } from '../src/server';
@@ -23,7 +23,7 @@ const check = (name: string, ok: boolean) => {
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 // ---- the defaults the real game uses ----
-check('timing: the countdown after everyone is ready is 3 seconds', COUNTDOWN_SECONDS === 3);
+check('timing: a simple 3 second lobby countdown once everyone is ready, then in the game 2 seconds of static camera and a 3 second start countdown (GAME_INTRO_SECONDS = 5)', COUNTDOWN_SECONDS === 3 && GAME_INTRO_SECONDS === 5);
 check('timing: the you-won / you-lost sequence is 3 seconds', FINISH_SECONDS === 3);
 check('timing: the round summary screen is 4 seconds', RESULTS_SECONDS === 4);
 

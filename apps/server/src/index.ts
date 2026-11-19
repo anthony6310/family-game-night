@@ -8,7 +8,7 @@ const PORT = Number(process.env.PORT ?? 3001);
 // Also note: the server listens on ALL network interfaces, so on a public host it is reachable by anyone.
 const CLIENT_ORIGIN = process.env.CLIENT_ORIGIN ?? '';
 
-/** Optional dev-only timing overrides (ms), e.g. COUNTDOWN_MS=1000 ROUND_MS=3000 SNOWBALL_MS=10000 FINISH_MS=1000 RESULTS_MS=1500 npm run dev */
+/** Optional dev-only timing overrides (ms), e.g. COUNTDOWN_MS=1000 ROUND_MS=3000 SNOWBALL_MS=10000 FINISH_MS=1000 RESULTS_MS=1500 STARTING_MS=0 npm run dev */
 const ms = (value: string | undefined) => (value ? Number(value) : undefined);
 
 createGameServer(CLIENT_ORIGIN, {
@@ -17,6 +17,7 @@ createGameServer(CLIENT_ORIGIN, {
   snowballMs: ms(process.env.SNOWBALL_MS),
   finishMs: ms(process.env.FINISH_MS),
   resultsMs: ms(process.env.RESULTS_MS),
+  startingMs: ms(process.env.STARTING_MS), // (0 = no flash step before a round)
 }).listen(PORT, () => {
   console.log(`Server listening on http://localhost:${PORT}`);
   // Handy when testing on a phone: the address to type into its browser (the web app finds this server by itself).

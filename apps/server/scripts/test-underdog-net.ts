@@ -3,7 +3,7 @@
  */
 import type { AddressInfo } from 'node:net';
 import { io, type Socket } from 'socket.io-client';
-import { UNDERDOG_SECONDS, type Ack, type ClientToServerEvents, type JoinResult, type RoomState, type ServerToClientEvents } from '@fgn/shared';
+import { PLAYER_COLORS, UNDERDOG_SECONDS, type Ack, type ClientToServerEvents, type JoinResult, type RoomState, type ServerToClientEvents } from '@fgn/shared';
 import { createGameServer } from '../src/server';
 
 type Client = Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -49,6 +49,11 @@ try {
   await cmd((r) => s3.socket.emit('player:bet', c.id, 0, r));
   await sleep(150);
 
+  check('everyone in the room has their own color, and every client is told them all', Object.keys(a.latest!.colors).length === 7 && new Set(Object.values(a.latest!.colors)).size === 7 && JSON.stringify(a.latest!.colors) === JSON.stringify(s3.latest!.colors));
+  const taken = a.latest!.colors[b.id];
+  check('picking a color someone else has is refused over the wire', (await cmd((r) => c.socket.emit('player:color', taken, r)) as { ok: boolean; error?: string }).ok === false);
+  const free = PLAYER_COLORS.find((col) => !Object.values(a.latest!.colors).includes(col))!;
+  check('picking a free color works and everyone sees it', (await cmd((r) => c.socket.emit('player:color', free, r))).ok && await until(s3, (st) => st.colors[c.id] === free));
   check('a spectator is sent their own bet', s1.latest!.bets[s1.id]?.targetId === a.id && Object.keys(s1.latest!.bets).length === 1);
   check('nobody else can see it: other spectators and players are sent no bet of S1', !(s1.id in s2.latest!.bets) && !(s1.id in a.latest!.bets) && Object.keys(a.latest!.bets).length === 0 && Object.keys(d.latest!.bets).length === 0);
 

@@ -2,7 +2,7 @@ import { createContext, useCallback, useContext, useEffect, useRef, useState, ty
 import { io, type Socket } from 'socket.io-client';
 import {
   MAX_PLAYERS,
-  type Ack, type ClientToServerEvents, type GameAction, type GameId, type JoinResult, type RoomError, type RoomState,
+  type Ack, type ClientToServerEvents, type CreateRoomOptions, type GameAction, type GameId, type JoinResult, type RoomError, type RoomListing, type RoomState,
   type ServerToClientEvents,
 } from '@fgn/shared';
 import { useAuth } from '../auth/AuthContext';
@@ -11,11 +11,19 @@ import { supabase } from '../lib/supabase';
 
 type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
+const GUEST_TOKEN_KEY = 'fgn.guestToken';
+const readGuestToken = () => { try { return localStorage.getItem(GUEST_TOKEN_KEY) ?? undefined; } catch { return undefined; } };
+
 const ERROR_TEXT: Record<RoomError, string> = {
-  ROOM_NOT_FOUND: 'No room with that code.',
+  ROOM_NOT_FOUND: 'That room is gone. Try another one.',
+  WRONG_PASSWORD: 'Wrong password.',
+  TOO_MANY_ATTEMPTS: 'Too many tries in a short time. Wait a minute and try again.',
+  TOO_MANY_ROOMS: 'Too many rooms right now, or you made rooms too fast. Try again in a bit.',
   ROOM_FULL: 'That room is full.',
   NO_SEAT: `The first ${MAX_PLAYERS} people in a room can play. You're a spectator until a seat opens up.`,
   NOT_A_SPECTATOR: 'Only spectators can bet. Players are playing for the win!',
+  COLOR_TAKEN: 'Someone else already has that color.',
+  INVALID_COLOR: "That isn't one of the colors.",
   INVALID_BET: "That bet isn't allowed (pick a player who is playing; a stake is 0 or at least 2 points, and no more than you have).",
   ALREADY_IN_ROOM: "You're already in a room (maybe in another tab).",
   GAME_IN_PROGRESS: 'That room is mid-game. Try again in a moment.', // (no longer sent: late joiners just watch)
@@ -32,17 +40,22 @@ interface RoomContextValue {
   /** My player id, to find "me" in room.players. */
   selfId: string | null;
   /** Each returns an error message to display, or null on success. */
-  createRoom: () => Promise<string | null>;
-  joinRoom: (code: string) => Promise<string | null>;
+  createRoom: (options?: CreateRoomOptions) => Promise<string | null>;
+  /** Join a room from the list (its id), with its password if it has one. */
+  joinRoom: (code: string, password?: string) => Promise<string | null>;
+  /** The rooms that can be joined right now. */
+  listRooms: () => Promise<{ rooms: RoomListing[] } | { error: string }>;
   /** Switch between playing and watching (between rounds). Points are kept either way. */
   setWatching: (watching: boolean) => Promise<string | null>;
+  /** Pick my color (one nobody else has). It is my color in every game. */
+  setColor: (color: string) => Promise<string | null>;
   /** Spectators: bet on a player to win (null = take the bet back), with `stake` extra victory points. */
   placeBet: (targetId: string | null, stake: number) => Promise<string | null>;
   leaveRoom: () => void;
   /** Host, step 1: lock in how many rounds the session lasts (once per session). */
   endSession: () => Promise<string | null>;
   /** Host, step 2: pick the game. */
-  updateSettings: (change: { gameId?: GameId }) => Promise<string | null>;
+  updateSettings: (change: { gameId?: GameId | 'random'; name?: string; password?: string | null }) => Promise<string | null>;
   setReady: (ready: boolean) => Promise<string | null>;
   /** Host: end the current game and go back to the lobby. */
   returnToLobby: () => Promise<string | null>;
@@ -51,6 +64,8 @@ interface RoomContextValue {
   /** Host: start a fresh session in the same room (scores wiped), or close the room for everyone. */
   resetRoom: () => Promise<string | null>;
   closeRoom: () => Promise<string | null>;
+  /** True while the page is finding out whether the player still has a seat in a room (right after a refresh): show a loading state, do not send them away yet. */
+  restoring: boolean;
   /** One-off message to show on the Play page (e.g. "The host closed the room"). */
   notice: string | null;
   clearNotice: () => void;
@@ -61,7 +76,7 @@ interface RoomContextValue {
 const RoomContext = createContext<RoomContextValue | null>(null);
 
 export function RoomProvider({ children }: { children: ReactNode }) {
-  const { session, guestName } = useAuth();
+  const { session, guestName, loading } = useAuth();
   const socketRef = useRef<ClientSocket | null>(null);
   const guestNameRef = useRef(guestName);
   guestNameRef.current = guestName;
@@ -75,6 +90,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   }, []);
   const [selfId, setSelfId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(true); // (until we know whether a refreshed page still has a seat)
+  const inRoomRef = useRef(false); // true once we hold a seat: a reconnect then asks for it back
 
   const disconnect = useCallback(() => {
     socketRef.current?.disconnect();
@@ -97,7 +114,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         // `auth` as a function runs on every (re)connect, so an account always sends a fresh token.
         auth: (send) => {
           supabase.auth.getSession().then(({ data }) =>
-            send(data.session ? { token: data.session.access_token } : { guestName: guestNameRef.current ?? '' }),
+            send(data.session ? { token: data.session.access_token } : { guestName: guestNameRef.current ?? '', guestToken: readGuestToken() }),
           );
         },
       });
@@ -112,14 +129,56 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setSelfId(null);
         setNotice('The room was closed.');
       });
-      socket.on('disconnect', () => {
+      // A guest's signed identity: kept, so after a refresh the server knows it is the same guest.
+      socket.on('guest:token', (token) => { try { localStorage.setItem(GUEST_TOKEN_KEY, token); } catch { /* (private mode: a refresh then makes a new guest) */ } });
+      // Another connection of ours took over (a second tab): this one stops, and says why.
+      socket.on('session:replaced', () => {
+        inRoomRef.current = false;
         setRoom(null);
         setSelfId(null);
+        setNotice('You joined from another tab or window, so this one was closed.');
       });
+      // A dropped connection (a bad signal, or a refresh): the server holds the seat for a while. Keep showing the room; the connection comes back by itself and asks for the seat back (below).
+      socket.on('disconnect', (reason) => {
+        if (reason === 'io server disconnect' || reason === 'io client disconnect') { inRoomRef.current = false; setRoom(null); setSelfId(null); }
+      });
+      // Every (re)connection while we hold a seat: ask for it back and take the fresh state.
+      socket.on('connect', () => { if (inRoomRef.current) rejoin(socket, true); });
       socketRef.current = socket;
     }
     return socketRef.current;
   }
+
+  // Asks the server to put us back in the room we were in. `known`: we were showing a room when the connection dropped (so if the seat is gone, say so).
+  function rejoin(socket: ClientSocket, known: boolean) {
+    socket.emit('room:rejoin', (res) => {
+      if (res.ok) {
+        inRoomRef.current = true;
+        applyState(res.data.room);
+        setSelfId(res.data.playerId);
+      } else {
+        inRoomRef.current = false;
+        if (known) { setRoom(null); setSelfId(null); setNotice('You were away too long, so you were removed from the room.'); }
+        else { socketRef.current?.disconnect(); socketRef.current = null; } // (nothing to restore: do not hold a connection for nothing)
+      }
+      setRestoring(false);
+    });
+  }
+
+  // Right after a refresh: if the server is still holding our seat, take it back (and land in the room). Nothing is shown as "leaving".
+  const triedRestore = useRef(false);
+  useEffect(() => {
+    if (loading) return;
+    if (!hasIdentity || triedRestore.current || socketRef.current) { setRestoring(false); return; } // (nobody to restore, or a connection already exists: a room was made or joined)
+    triedRestore.current = true;
+    const socket = getSocket();
+    const giveUp = () => { socket.off('connect_error', giveUp); disconnect(); setRestoring(false); };
+    socket.once('connect_error', giveUp);
+    socket.once('connect', () => socket.off('connect_error', giveUp));
+    rejoin(socket, false);
+    socket.connect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, hasIdentity]);
 
   // Sends one room request. Resolves with an error message, or null on success.
   function request(send: (socket: ClientSocket, ack: (res: Ack<JoinResult>) => void) => void): Promise<string | null> {
@@ -134,6 +193,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       send(socket, (res) => {
         socket.off('connect_error', onConnectError);
         if (!res.ok) return resolve(ERROR_TEXT[res.error]);
+        inRoomRef.current = true;
         applyState(res.data.room);
         setSelfId(res.data.playerId);
         resolve(null);
@@ -152,9 +212,20 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const value: RoomContextValue = {
     room,
     selfId,
-    createRoom: () => request((s, ack) => s.emit('room:create', ack)),
-    joinRoom: (code) => request((s, ack) => s.emit('room:join', code, ack)),
+    createRoom: (options) => request((s, ack) => (options ? s.emit('room:create', options, ack) : s.emit('room:create', ack))),
+    joinRoom: (code, password) => request((s, ack) => s.emit('room:join', password ? { code, password } : code, ack)),
+    listRooms: () => new Promise((resolve) => {
+      const socket = getSocket(); // (the connection is made if there isn't one yet: being logged in is all it takes to see the list)
+      const onConnectError = (err: Error) => { disconnect(); resolve({ error: err.message }); };
+      socket.once('connect_error', onConnectError);
+      socket.emit('rooms:list', (res) => {
+        socket.off('connect_error', onConnectError);
+        resolve(res.ok ? { rooms: res.data } : { error: ERROR_TEXT[res.error] });
+      });
+      socket.connect();
+    }),
     setWatching: (watching) => command((s, ack) => s.emit('player:watching', watching, ack)),
+    setColor: (color) => command((s, ack) => s.emit('player:color', color, ack)),
     placeBet: (targetId, stake) => command((s, ack) => s.emit('player:bet', targetId, stake, ack)),
     endSession: () => command((s, ack) => s.emit('session:end', ack)),
     updateSettings: (change) => command((s, ack) => s.emit('room:settings', change, ack)),
@@ -163,10 +234,12 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     sendAction: (action) => socketRef.current?.emit('game:action', action),
     resetRoom: () => command((s, ack) => s.emit('room:reset', ack)),
     closeRoom: () => command((s, ack) => s.emit('room:close', ack)),
+    restoring,
     notice,
     clearNotice: () => setNotice(null),
     serverNow: () => Date.now() + clockOffset.current,
     leaveRoom: () => {
+      inRoomRef.current = false;
       socketRef.current?.emit('room:leave');
       setRoom(null);
       setSelfId(null);

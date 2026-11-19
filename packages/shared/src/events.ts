@@ -351,6 +351,8 @@ export interface RoomState {
   underdog: Underdog | null;
   /** Server clock when the 'underdog' announcement ends and the round starts, or null. */
   underdogEndsAt: number | null;
+  /** Players whose connection dropped (a refresh, a bad signal): their seat is held for a grace period, and they come back by reconnecting. */
+  offlineIds: string[];
   /** The roulette (only when the host picked Random): the game the server chose, and when the spin starts and ends (server clock). Everyone's carousel lands on `gameId` at `endsAt`. */
   roulette: { gameId: GameId; startsAt: number; endsAt: number } | null;
   /** Server clock when the 'starting' (flash) step ends and the round begins, or null. */
@@ -435,6 +437,8 @@ export interface JoinResult {
 export interface HandshakeAuth {
   token?: string;
   guestName?: string;
+  /** A guest's signed identity token (given by the server on a first visit, kept by the browser, sent back on every connection): it is what lets a refreshed page be recognised as the same guest. */
+  guestToken?: string;
 }
 
 export interface ClientToServerEvents {
@@ -447,6 +451,8 @@ export interface ClientToServerEvents {
   /** Switch between playing (false) and watching (true). Lobby/countdown only. Your points are kept either way. */
   'player:watching': (watching: boolean, ack?: (res: Ack<null>) => void) => void;
   'room:leave': () => void;
+  /** After a refresh or a dropped connection: put me back in the room I was in (the server kept my seat for a short grace period). Fails with NOT_IN_ROOM if there is none. */
+  'room:rejoin': (ack: (res: Ack<JoinResult>) => void) => void;
   /** Host only, in the lobby: end the session. The player with the most wins is crowned and saved. */
   'session:end': (ack?: (res: Ack<null>) => void) => void;
   /** Host only, in the lobby: pick the game (cancels a countdown and clears every Ready), rename the room, or set (a string) or remove (null) its password. */
@@ -472,6 +478,10 @@ export interface ClientToServerEvents {
 
 export interface ServerToClientEvents {
   'room:state': (state: RoomState) => void;
+  /** A guest's signed identity token, for the browser to keep (see HandshakeAuth.guestToken). */
+  'guest:token': (token: string) => void;
+  /** Another connection for the same player took over (a second tab, or the refreshed page): this one is being closed and must not reconnect. */
+  'session:replaced': () => void;
   /** The host closed the room: everyone has been removed from it. */
   'room:closed': () => void;
   /**

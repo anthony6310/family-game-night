@@ -24,6 +24,7 @@ const tapView = (s: RoomState | null) => (s?.game?.gameId === 'tap-race' ? (s.ga
 
 const saved: RoundRecord[] = []; // what the server asked to persist
 const httpServer = createGameServer('http://localhost:5173', {
+  reconnectGraceMs: 0, // (these tests close a connection to mean "leave": no grace period, see test-reconnect.ts for the real one)
   countdownMs: COUNTDOWN_MS, roundMs: ROUND_MS, finishMs: 50, resultsMs: 60_000, onRound: (r) => saved.push(r), onSession: () => {},
 });
 await new Promise<void>((r) => httpServer.listen(0, r));

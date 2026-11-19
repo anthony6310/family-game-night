@@ -14,6 +14,7 @@ import { checkSupabase } from './supabase';
 export function createGameServer(clientOrigins: string, options: {
     countdownMs?: number; roundMs?: number; snowballMs?: number; finishMs?: number; resultsMs?: number; startingMs?: number;
     onRound?: (round: RoundRecord) => void; onSession?: (session: SessionRecord) => void;
+    reconnectGraceMs?: number;
   } = {}) {
   const app = express();
   // CORS: the browser blocks cross-origin calls unless the server explicitly allows the web page's origin.
@@ -50,6 +51,7 @@ export function createGameServer(clientOrigins: string, options: {
   const stopLoop = registerSockets(io, new RoomManager(options), {
     onRound: options.onRound ?? saveRound,
     onSession: options.onSession ?? saveSession,
+    reconnectGraceMs: options.reconnectGraceMs,
   });
   httpServer.on('close', stopLoop);
   return httpServer;

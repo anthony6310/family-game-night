@@ -11,6 +11,9 @@ import { supabase } from '../lib/supabase';
 
 type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
+const GUEST_TOKEN_KEY = 'fgn.guestToken';
+const readGuestToken = () => { try { return localStorage.getItem(GUEST_TOKEN_KEY) ?? undefined; } catch { return undefined; } };
+
 const ERROR_TEXT: Record<RoomError, string> = {
   ROOM_NOT_FOUND: 'That room is gone. Try another one.',
   WRONG_PASSWORD: 'Wrong password.',
@@ -61,6 +64,8 @@ interface RoomContextValue {
   /** Host: start a fresh session in the same room (scores wiped), or close the room for everyone. */
   resetRoom: () => Promise<string | null>;
   closeRoom: () => Promise<string | null>;
+  /** True while the page is finding out whether the player still has a seat in a room (right after a refresh): show a loading state, do not send them away yet. */
+  restoring: boolean;
   /** One-off message to show on the Play page (e.g. "The host closed the room"). */
   notice: string | null;
   clearNotice: () => void;
@@ -71,7 +76,7 @@ interface RoomContextValue {
 const RoomContext = createContext<RoomContextValue | null>(null);
 
 export function RoomProvider({ children }: { children: ReactNode }) {
-  const { session, guestName } = useAuth();
+  const { session, guestName, loading } = useAuth();
   const socketRef = useRef<ClientSocket | null>(null);
   const guestNameRef = useRef(guestName);
   guestNameRef.current = guestName;
@@ -85,6 +90,8 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   }, []);
   const [selfId, setSelfId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [restoring, setRestoring] = useState(true); // (until we know whether a refreshed page still has a seat)
+  const inRoomRef = useRef(false); // true once we hold a seat: a reconnect then asks for it back
 
   const disconnect = useCallback(() => {
     socketRef.current?.disconnect();
@@ -107,7 +114,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         // `auth` as a function runs on every (re)connect, so an account always sends a fresh token.
         auth: (send) => {
           supabase.auth.getSession().then(({ data }) =>
-            send(data.session ? { token: data.session.access_token } : { guestName: guestNameRef.current ?? '' }),
+            send(data.session ? { token: data.session.access_token } : { guestName: guestNameRef.current ?? '', guestToken: readGuestToken() }),
           );
         },
       });
@@ -122,14 +129,56 @@ export function RoomProvider({ children }: { children: ReactNode }) {
         setSelfId(null);
         setNotice('The room was closed.');
       });
-      socket.on('disconnect', () => {
+      // A guest's signed identity: kept, so after a refresh the server knows it is the same guest.
+      socket.on('guest:token', (token) => { try { localStorage.setItem(GUEST_TOKEN_KEY, token); } catch { /* (private mode: a refresh then makes a new guest) */ } });
+      // Another connection of ours took over (a second tab): this one stops, and says why.
+      socket.on('session:replaced', () => {
+        inRoomRef.current = false;
         setRoom(null);
         setSelfId(null);
+        setNotice('You joined from another tab or window, so this one was closed.');
       });
+      // A dropped connection (a bad signal, or a refresh): the server holds the seat for a while. Keep showing the room; the connection comes back by itself and asks for the seat back (below).
+      socket.on('disconnect', (reason) => {
+        if (reason === 'io server disconnect' || reason === 'io client disconnect') { inRoomRef.current = false; setRoom(null); setSelfId(null); }
+      });
+      // Every (re)connection while we hold a seat: ask for it back and take the fresh state.
+      socket.on('connect', () => { if (inRoomRef.current) rejoin(socket, true); });
       socketRef.current = socket;
     }
     return socketRef.current;
   }
+
+  // Asks the server to put us back in the room we were in. `known`: we were showing a room when the connection dropped (so if the seat is gone, say so).
+  function rejoin(socket: ClientSocket, known: boolean) {
+    socket.emit('room:rejoin', (res) => {
+      if (res.ok) {
+        inRoomRef.current = true;
+        applyState(res.data.room);
+        setSelfId(res.data.playerId);
+      } else {
+        inRoomRef.current = false;
+        if (known) { setRoom(null); setSelfId(null); setNotice('You were away too long, so you were removed from the room.'); }
+        else { socketRef.current?.disconnect(); socketRef.current = null; } // (nothing to restore: do not hold a connection for nothing)
+      }
+      setRestoring(false);
+    });
+  }
+
+  // Right after a refresh: if the server is still holding our seat, take it back (and land in the room). Nothing is shown as "leaving".
+  const triedRestore = useRef(false);
+  useEffect(() => {
+    if (loading) return;
+    if (!hasIdentity || triedRestore.current || socketRef.current) { setRestoring(false); return; } // (nobody to restore, or a connection already exists: a room was made or joined)
+    triedRestore.current = true;
+    const socket = getSocket();
+    const giveUp = () => { socket.off('connect_error', giveUp); disconnect(); setRestoring(false); };
+    socket.once('connect_error', giveUp);
+    socket.once('connect', () => socket.off('connect_error', giveUp));
+    rejoin(socket, false);
+    socket.connect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, hasIdentity]);
 
   // Sends one room request. Resolves with an error message, or null on success.
   function request(send: (socket: ClientSocket, ack: (res: Ack<JoinResult>) => void) => void): Promise<string | null> {
@@ -144,6 +193,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       send(socket, (res) => {
         socket.off('connect_error', onConnectError);
         if (!res.ok) return resolve(ERROR_TEXT[res.error]);
+        inRoomRef.current = true;
         applyState(res.data.room);
         setSelfId(res.data.playerId);
         resolve(null);
@@ -184,10 +234,12 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     sendAction: (action) => socketRef.current?.emit('game:action', action),
     resetRoom: () => command((s, ack) => s.emit('room:reset', ack)),
     closeRoom: () => command((s, ack) => s.emit('room:close', ack)),
+    restoring,
     notice,
     clearNotice: () => setNotice(null),
     serverNow: () => Date.now() + clockOffset.current,
     leaveRoom: () => {
+      inRoomRef.current = false;
       socketRef.current?.emit('room:leave');
       setRoom(null);
       setSelfId(null);

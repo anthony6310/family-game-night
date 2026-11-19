@@ -258,3 +258,17 @@ Santa's Sack follows rules 2, 3, 10 and 11 in the standard way, with these parti
 
 Tap Race happens in a **mechanical, industrial lab**, not a purple room: a dark teal-steel void (`LAB_BACKGROUND`, with fog) around a **steel-plate floor** (a canvas texture of panels, seams and rivets), a ring of **yellow and black warning stripes** and a **glowing teal line** (it breathes) round the board, and **machinery round the edge**: steel tanks with orange bands, control cabinets with glowing screens, posts with **amber warning lamps** (a few pulse and light the floor) and two big pipes running right round on top. The buttons' bases are steel too. It is all in `buildLab` in `apps/web/src/components/taprace/TapRaceScene.ts`; nothing in it moves except the lamps and the line, so it costs little. The game's tile picture (`tap-race.png`) is a close shot of two buttons in the lab (models only: no names, no sparks).
 
+---
+
+## 15. Refreshing the page (or losing signal) never kicks a player out
+
+**The rule.** A dropped connection is not leaving. When a player's connection drops (a page refresh, closing and reopening the tab, a bad signal), **their seat is held for 45 seconds** (`RECONNECT_GRACE_SECONDS` in `packages/shared/src/config.ts`) and everyone else sees "reconnecting…" next to their name. If they are back in time they are put straight back where they were (the lobby, the roulette, the game itself) with their seat, color, ready-up (see below), bets and score. If not, they leave exactly as if they had pressed Leave. Pressing **Leave** is still immediate.
+
+- **Guests work too.** A guest's identity is `guest_<uuid>` **signed by the server** (`signGuestId` / `verifyGuestToken` in `apps/server/src/auth.ts`, secret `GUEST_TOKEN_SECRET`, or a random one per server start). The server sends it on connecting (`guest:token`); the browser keeps it (`localStorage` `fgn.guestToken`) and sends it back in the handshake, so a refreshed page is the same guest. It cannot be forged. Accounts already have a stable id. (Clearing the browser's storage, or a server restart without `GUEST_TOKEN_SECRET`, makes a guest new; that is accepted.)
+- **Mid-round:** the player's character stays in the game and stands still (their steering and sprint are let go, so nobody keeps skating on the last input); the round carries on for everyone else.
+- **Lobby and countdown:** a player who drops is no longer ready, so a countdown they were holding up is cancelled. They ready up again when back.
+- **The host** stays host while reconnecting; if they do not come back the next player is made host, as for any host who leaves.
+- **Two tabs / the refresh racing the old connection:** a new connection for the same player **takes over**: the old one is told (`session:replaced`), closed, and never counts as leaving.
+
+**How it is done.** Server: `setOffline`, `rejoin` and `isOffline` in `rooms.ts`; `sockets.ts` marks a player offline on disconnect, starts a grace timer (cancelled when they send `room:rejoin`), and removes them with the normal leave when it runs out; `RoomState.offlineIds` tells phones who is reconnecting. Phones: `RoomContext` keeps the guest token, and **on every connection while it holds a seat (and once right after a page load) sends `room:rejoin`**; the lobby page shows "Getting you back into the room…" while that is being answered (`restoring`) instead of sending the player away. Test: `npm run test:reconnect -w @fgn/server`. Other socket tests that close a connection to mean "leave" pass `reconnectGraceMs: 0`.
+

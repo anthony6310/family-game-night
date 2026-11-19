@@ -32,6 +32,7 @@ interface Room {
   countdownEndsAt: number | null;
   underdog: Underdog | null; // this round's underdog (decided when the countdown ends), if there is one
   underdogEndsAt: number | null; // when the underdog announcement ends
+  offline: Set<string>; // players whose connection dropped: their seat is held (the server's timer removes them if they do not come back)
   roulette: { gameId: GameId; startsAt: number; endsAt: number } | null; // the Random tile's roulette step: the chosen game and when the spin ends
   startingEndsAt: number | null; // when the 'starting' (flash) step ends and the round begins
   wins: Record<string, number>; // rounds won this session, by player id (kept when a player leaves)
@@ -127,6 +128,7 @@ export class RoomManager {
       countdownEndsAt: null,
       underdog: null,
       underdogEndsAt: null,
+      offline: new Set(),
       roulette: null,
       startingEndsAt: null,
       wins: {},
@@ -216,6 +218,7 @@ export class RoomManager {
     // Host left: promote whoever has been here longest (first in the Map), so the room always has a host.
     if (room.hostId === playerId) room.hostId = room.players.keys().next().value!;
 
+    room.offline.delete(playerId);
     if (room.underdog?.playerId === playerId) room.underdog = null; // the underdog left: there is nobody to win the bonus
     // Between the countdown and the start (the underdog announcement, the flash): too few players left means the round is called off.
     if ((room.phase === 'roulette' || room.phase === 'underdog' || room.phase === 'starting') && this.participants(room).length < this.minPlayers(room)) this.abortRound(room);
@@ -341,6 +344,36 @@ export class RoomManager {
     room.ready.delete(playerId);
     this.reconcile(room);
     return ok(room);
+  }
+
+  /**
+   * A player's connection dropped (a refresh, a bad signal): they are NOT removed. Their seat, color, bets and score are held (the server removes them with `leave` if they have not
+   * come back after the grace period). Meanwhile: they are no longer ready (so a countdown they were holding up is cancelled), and in a round their character stands still (their steering
+   * and sprint are let go) while the round carries on for everyone else. The host stays host until they actually leave.
+   */
+  setOffline(playerId: string): Result {
+    const room = this.roomFor(playerId);
+    if (!room) return fail('NOT_IN_ROOM');
+    room.offline.add(playerId);
+    room.ready.delete(playerId);
+    if (room.phase === 'playing' && room.game) { // (let go of the controls: no one should keep skating on their last steer)
+      this.gameAction(playerId, { type: 'steer', x: 0, z: 0 });
+      this.gameAction(playerId, { type: 'sprint', on: false });
+    }
+    this.reconcile(room);
+    return ok(room);
+  }
+
+  /** The player is back (their new connection asks to be put back in their room): the seat is theirs again. */
+  rejoin(playerId: string): Result {
+    const room = this.roomFor(playerId);
+    if (!room) return fail('NOT_IN_ROOM');
+    room.offline.delete(playerId);
+    return ok(room);
+  }
+
+  isOffline(playerId: string): boolean {
+    return this.roomFor(playerId)?.offline.has(playerId) ?? false;
   }
 
   setReady(playerId: string, ready: boolean): Result {
@@ -760,6 +793,7 @@ function toState(room: Room): RoomState {
     bets: { ...room.bets }, // (everyone's, for the server's own use: `personalize` cuts it down to the recipient's before it is sent)
     underdog: room.underdog,
     underdogEndsAt: room.underdogEndsAt,
+    offlineIds: [...room.offline],
     roulette: room.roulette,
     startingEndsAt: room.startingEndsAt,
     settings: { ...room.settings },

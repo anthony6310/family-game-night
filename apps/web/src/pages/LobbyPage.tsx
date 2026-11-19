@@ -31,7 +31,7 @@ const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-r
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
   const navigate = useNavigate();
-  const { room: liveRoom, selfId, leaveRoom, endSession, updateSettings, setReady, setWatching, setColor, placeBet, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
+  const { restoring, room: liveRoom, selfId, leaveRoom, endSession, updateSettings, setReady, setWatching, setColor, placeBet, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
   const [error, setError] = useState<string | null>(null);
   const [nameDraft, setNameDraft] = useState<string | null>(null); // the host's room name while they are editing it (null = not editing)
   const [passwordDraft, setPasswordDraft] = useState('');
@@ -58,7 +58,7 @@ export function LobbyPage() {
   }, [pickedGame]);
 
   // No room (refresh, lost connection, or the host closed it): back to the hub.
-  if (!room) return <Navigate to="/play" replace />;
+  if (!room) return restoring ? <main className="page"><p className="muted">Getting you back into the room…</p></main> : <Navigate to="/play" replace />; // (right after a refresh the seat is being taken back: do not send them away yet)
 
   // Fire a command and show its error (if any). Success needs no handling: the server's
   // next `room:state` broadcast updates the screen.
@@ -184,6 +184,7 @@ export function LobbyPage() {
               <span className="player-name">{p.name}{p.id === selfId && ' (you)'}</span>
               {p.id === room.hostId && <span className="badge">Host</span>}
               {watching && <span className="muted">watching</span>}
+              {room.offlineIds.includes(p.id) && <span className="muted" title="Their connection dropped: their seat is held for a short while">reconnecting…</span>}
               {(room.scores[p.id] ?? 0) > 0 && <span className="badge wins" title="Rounds won this session">🏆 {room.scores[p.id]}</span>}
               {room.readyIds.includes(p.id) && <span className="ready-mark" title="Ready">✓</span>}
             </li>

@@ -1,6 +1,6 @@
 import type { Server } from 'socket.io';
-import type { Ack, ClientToServerEvents, CreateRoomOptions, JoinRequest, Player, RoomState, ServerToClientEvents } from '@fgn/shared';
-import { AuthError, authenticate } from './auth';
+import { RECONNECT_GRACE_SECONDS, type Ack, type ClientToServerEvents, type CreateRoomOptions, type JoinRequest, type Player, type RoomState, type ServerToClientEvents } from '@fgn/shared';
+import { AuthError, authenticate, signGuestId } from './auth';
 import { AttemptLimiter } from './limits';
 import { RoomManager, personalize, type Outcome, type Result, type RoundRecord, type SessionRecord } from './rooms';
 
@@ -8,8 +8,11 @@ import { RoomManager, personalize, type Outcome, type Result, type RoundRecord, 
 interface SocketData {
   player: Player;
   roomCode?: string; // set while THIS socket is in a room
+  replaced?: boolean; // set when another connection of the same player took over
 }
 
+/** One player's connection. */
+type GameSocket = ReturnType<GameServer['sockets']['sockets']['get']> extends infer T ? NonNullable<T> : never;
 export type GameServer = Server<ClientToServerEvents, ServerToClientEvents, Record<string, never>, SocketData>;
 
 /** Taps arrive far faster than phones need updates, so live tap counts go out in batches. */
@@ -28,10 +31,14 @@ interface ScheduledTimer {
 export interface SocketDeps {
   onRound: (round: RoundRecord) => void;
   onSession: (session: SessionRecord) => void;
+  /** How long a dropped player's seat is held before they count as having left (default RECONNECT_GRACE_SECONDS; tests shorten it). */
+  reconnectGraceMs?: number;
 }
 
 /** Returns a function that stops the game loop (the server calls it when it closes). */
-export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, onSession }: SocketDeps): () => void {
+export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, onSession, reconnectGraceMs = RECONNECT_GRACE_SECONDS * 1000 }: SocketDeps): () => void {
+  const connections = new Map<string, GameSocket>(); // player id -> their current connection (a refreshed page or a second tab replaces the old one)
+  const graceTimers = new Map<string, NodeJS.Timeout>(); // player id -> the timer that removes them if they do not come back
   const countdownTimers = new Map<string, ScheduledTimer>(); // room code -> timer
   const roundTimers = new Map<string, ScheduledTimer>();
   const finishTimers = new Map<string, ScheduledTimer>();
@@ -155,13 +162,9 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   io.on('connection', (socket) => {
     const { player } = socket.data;
 
-    // Remove this socket's player from its room and tell everyone who remains.
-    const leave = () => {
-      // Only act if THIS socket joined (a rejected second tab must not evict the first).
-      if (!socket.data.roomCode) return;
-      const result = rooms.leave(player.id);
-      socket.leave(socket.data.roomCode);
-      socket.data.roomCode = undefined;
+    // Remove a player from their room and tell everyone who remains (used for a deliberate leave, and when a dropped player's grace period runs out).
+    const removeFromRoom = (playerId: string) => {
+      const result = rooms.leave(playerId);
       if (!result) return;
       if (result.room) publishOutcome({ room: result.room, session: result.session });
       else {
@@ -169,6 +172,22 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
         if (result.session) onSession(result.session); // ...and save the winner if the host never ended the session
       }
     };
+    // This connection's player leaves on purpose: out of the room at once.
+    const leave = () => {
+      // Only act if THIS socket joined (a rejected second tab must not evict the first).
+      if (!socket.data.roomCode) return;
+      const code = socket.data.roomCode;
+      socket.leave(code);
+      socket.data.roomCode = undefined;
+      removeFromRoom(player.id);
+    };
+
+    // A new connection for a player takes over from any old one (a second tab, or the refreshed page arriving before the old connection has timed out): the old one is closed, and it
+    // never counts as the player leaving. (A pending grace-period timer is only cancelled once they have actually asked for their seat back: `room:rejoin`.)
+    const old = connections.get(player.id);
+    if (old && old.id !== socket.id) { old.data.replaced = true; old.emit('session:replaced'); old.disconnect(true); }
+    connections.set(player.id, socket);
+    if (player.isGuest) socket.emit('guest:token', signGuestId(player.id)); // (the browser keeps it, so a refresh is recognised as the same guest)
 
     // Joins this socket to the Socket.io room and replies with who "I" am.
     const enter = (result: Result, ack: (res: Ack<{ playerId: string; room: RoomState }>) => void) => {
@@ -187,6 +206,13 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
 
     const address = socket.handshake.address; // (behind a proxy this is the proxy's address: see the note in the deployment docs)
 
+    // After a refresh or a dropped connection: put this player back in the room they were in (their seat was held), or say they have none.
+    socket.on('room:rejoin', (ack) => {
+      if (typeof ack !== 'function') return;
+      const result = rooms.rejoin(player.id);
+      if (result.ok) { const pending = graceTimers.get(player.id); if (pending) { clearTimeout(pending); graceTimers.delete(player.id); } } // (they are back: the seat is theirs)
+      enter(result, ack);
+    });
     // Make a room: `room:create(ack)` (a default room) or `room:create({ name, password }, ack)`.
     socket.on('room:create', (optionsOrAck, maybeAck) => {
       const ack = typeof optionsOrAck === 'function' ? optionsOrAck : maybeAck;
@@ -247,7 +273,20 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       if (outcome.room.phase !== 'playing') publishOutcome(outcome); // the action ended the round
       else if (!rooms.isTicking(outcome.room.code)) scheduleTapBroadcast(outcome.room.code); // tick games stream by themselves
     });
-    socket.on('disconnect', leave); // closing the tab or losing signal counts as leaving (for now)
+    // A dropped connection (a refresh, closing the tab, losing signal) does NOT remove the player at once: their seat is held for the grace period, shown to the others as "reconnecting".
+    // If they have not come back by then (no new connection took the seat over), they leave exactly as if they had pressed Leave.
+    socket.on('disconnect', () => {
+      if (socket.data.replaced) return; // (another connection of theirs has taken over: nothing to do)
+      if (connections.get(player.id) === socket) connections.delete(player.id);
+      if (!socket.data.roomCode) return;
+      const held = rooms.setOffline(player.id);
+      if (held.ok) publish(held.room);
+      graceTimers.set(player.id, setTimeout(() => {
+        graceTimers.delete(player.id);
+        if (!rooms.isOffline(player.id)) return; // (they came back and took their seat)
+        removeFromRoom(player.id);
+      }, reconnectGraceMs));
+    });
   });
 
   return () => clearInterval(loop);

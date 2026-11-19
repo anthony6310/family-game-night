@@ -136,3 +136,6 @@ export const MAX_ROOMS = 200;
 export type FishKind = 'school' | 'regular' | 'big';
 export const FISH_POINTS: Record<FishKind, number> = { school: 1, regular: 3, big: 5 };
 export const FISH_KINDS: FishKind[] = ['school', 'regular', 'big']; // (the order of `kinds` counts in the view)
+
+/** How long a player's seat is held after their connection drops (a page refresh, a bad signal) before they are counted as having left (GAME_RULES.md #15). */
+export const RECONNECT_GRACE_SECONDS = 45;

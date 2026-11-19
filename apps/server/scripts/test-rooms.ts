@@ -23,7 +23,7 @@ const check = (name: string, ok: boolean) => {
 };
 
 // ---- tiny helpers ----
-const httpServer = createGameServer('http://localhost:5173');
+const httpServer = createGameServer('http://localhost:5173', { reconnectGraceMs: 0 }); // (closing a connection means "leave" here: no grace period, see test-reconnect.ts for the real one)
 await new Promise<void>((r) => httpServer.listen(0, r)); // port 0 = pick any free port
 const serverUrl = `http://localhost:${(httpServer.address() as AddressInfo).port}`;
 
@@ -103,10 +103,11 @@ try {
 
   // ---- host reassignment ----
   await new Promise((r) => setTimeout(r, 150)); // let the 9th person's join broadcast arrive first, so we catch the NEXT state
-  const bobSees = nextState(bob);
+  let after: RoomState | undefined;
+  bob.on('room:state', (state) => { after = state; }); // (the host's connection dropping is first shown as "reconnecting", then, with no grace period here, they are gone: take the last state)
   host.close(); // the host disconnects
-  const after = await bobSees;
-  check('host leaving promotes the longest-present player', bobJoin.ok && after.hostId === bobJoin.data.playerId && after.players.length === 8); // 7 players + the watcher
+  await new Promise((r) => setTimeout(r, 300));
+  check('host leaving promotes the longest-present player', bobJoin.ok && after?.hostId === bobJoin.data.playerId && after.players.length === 8); // 7 players + the watcher
 
   // ---- cleanup of empty rooms ----
   const solo = await guest('Solo'); sockets.push(solo);

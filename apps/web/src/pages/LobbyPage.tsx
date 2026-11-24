@@ -16,6 +16,8 @@ const loadSnowballScreen = () => import('../components/SnowballScreen');
 const SnowballScreen = lazy(loadSnowballScreen);
 const loadTapRaceScreen = () => import('../components/TapRaceScreen'); // Tap Race is 3D now too
 const TapRaceScreen = lazy(loadTapRaceScreen);
+const loadAdoptionScreen = () => import('../components/AdoptionScreen');
+const AdoptionScreen = lazy(loadAdoptionScreen);
 const loadGoatScreen = () => import('../components/MountainGoatScreen');
 const MountainGoatScreen = lazy(loadGoatScreen);
 const loadFlakeScreen = () => import('../components/SnowflakeMatchScreen');
@@ -30,7 +32,7 @@ const loadFishingScreen = () => import('../components/FishingScreen');
 const FishingScreen = lazy(loadFishingScreen);
 
 /** A picture of each game for the game picker, taken from the real game (files in public/games). A game with no picture yet shows a plain tile. */
-const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-race.png', snowball: '/games/snowball.png', 'penguin-lasso': '/games/penguin-lasso.png', fishing: '/games/fishing.png', 'santa-sack': '/games/santa-sack.png', 'tug-of-war': '/games/tug-of-war.png', 'mountain-goat': '/games/mountain-goat.png', 'snowflake-match': '/games/snowflake-match.png' };
+const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-race.png', snowball: '/games/snowball.png', 'penguin-lasso': '/games/penguin-lasso.png', fishing: '/games/fishing.png', 'santa-sack': '/games/santa-sack.png', 'tug-of-war': '/games/tug-of-war.png', 'mountain-goat': '/games/mountain-goat.png', 'snowflake-match': '/games/snowflake-match.png', 'adoption-day': '/games/adoption-day.png' };
 
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
@@ -55,6 +57,7 @@ export function LobbyPage() {
     if (pickedGame === 'snowball') void loadSnowballScreen();
     if (pickedGame === 'tap-race') void loadTapRaceScreen();
     if (pickedGame === 'tug-of-war') void loadTugScreen();
+    if (pickedGame === 'adoption-day') void loadAdoptionScreen();
     if (pickedGame === 'snowflake-match') void loadFlakeScreen();
     if (pickedGame === 'mountain-goat') void loadGoatScreen();
     if (pickedGame === 'penguin-lasso') void loadPenguinScreen();
@@ -97,6 +100,11 @@ export function LobbyPage() {
       ) : room.game.gameId === 'santa-sack' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
           <SantaSackScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+            serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+        </Suspense>
+      ) : room.game.gameId === 'adoption-day' ? (
+        <Suspense fallback={<p className="center">Loading…</p>}>
+          <AdoptionScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'mountain-goat' ? (

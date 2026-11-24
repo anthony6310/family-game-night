@@ -390,3 +390,25 @@ button.chip { cursor: pointer; }
 .flake-pop.good { color: #9be7ff; }
 .flake-pop.bad { color: #ff6b6b; }
 @keyframes flake-pop { from { opacity: 1; transform: translateY(0) scale(1.1); } to { opacity: 0; transform: translateY(-40px) scale(1); } }
+
+/* Zoo Adoption: a first-person view of a huge shelter; the adopters' requests as a strip of pictures; walk (left), look (right), one action button */
+.snow-screen.shelter-screen { background: #dfe5ec; }
+.shelter-screen .snow-timer { top: 3.6rem; font-size: 2.2rem; }
+.shelter-screen .snow-standings { top: 3.6rem; background: rgba(20, 33, 61, 0.6); }
+.shelter-wants { position: absolute; top: 0.5rem; left: 50%; transform: translateX(-50%); display: flex; gap: 0.2rem; margin: 0; padding: 0.25rem 0.3rem; list-style: none;
+  background: rgba(20, 33, 61, 0.6); border-radius: 0.7rem; }
+.shelter-wants li { width: 2.3rem; height: 2.3rem; border-radius: 0.45rem; background: rgba(255, 255, 255, 0.88); display: flex; align-items: center; justify-content: center; }
+.shelter-wants li img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.shelter-wants li.done { background: #4fc3ff; animation: want-done 0.9s ease-out; }
+.shelter-wants li.nope { background: #ff6b6b; animation: want-nope 0.5s ease-out; }
+@keyframes want-done { 0% { transform: scale(1.35); } 100% { transform: scale(1); } }
+@keyframes want-nope { 0%, 100% { transform: translateX(0); } 20% { transform: translateX(-4px); } 40% { transform: translateX(4px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(3px); } }
+.shelter-screen .snow-hint { bottom: 9rem; padding: 0 1rem; }
+.joystick-zone.half-left { right: 50%; }
+.fp-look { position: absolute; left: 50%; right: 0; top: 0; bottom: 0; z-index: 2; touch-action: none; }
+.fp-dot { position: absolute; top: 50%; left: 50%; width: 0.45rem; height: 0.45rem; margin: -0.225rem 0 0 -0.225rem; border-radius: 50%; background: rgba(255, 255, 255, 0.9); box-shadow: 0 0 0 1px rgba(20, 33, 61, 0.5); }
+.fp-action { position: absolute; right: 1.1rem; bottom: 2.2rem; z-index: 4; width: 6.2rem; height: 6.2rem; border-radius: 50%; border: 3px solid rgba(255, 255, 255, 0.7);
+  background: rgba(20, 33, 61, 0.55); color: rgba(255, 255, 255, 0.7); font-size: 1.05rem; font-weight: bold; touch-action: none; pointer-events: auto; }
+.fp-action.ready { background: #f2a93b; border-color: #fff; color: #fff; box-shadow: 0 0 18px rgba(242, 169, 59, 0.8); }
+.fp-action.ready.give { background: #3fb36b; box-shadow: 0 0 18px rgba(63, 179, 107, 0.8); }
+.fp-action:disabled { cursor: default; }

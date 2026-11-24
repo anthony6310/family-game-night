@@ -20,7 +20,7 @@ interface Stick {
  * release to stop. It covers the whole screen, so you can't miss it and can use either thumb.
  * It works with a mouse too (handy on desktop).
  */
-export function Joystick({ onChange }: { onChange: (value: Steer | null) => void }) {
+export function Joystick({ onChange, className = '' }: { onChange: (value: Steer | null) => void; className?: string }) {
   const [stick, setStick] = useState<Stick | null>(null);
   const activePointer = useRef<number | null>(null);
 
@@ -52,7 +52,7 @@ export function Joystick({ onChange }: { onChange: (value: Steer | null) => void
   }
 
   return (
-    <div className="joystick-zone" onPointerDown={onPointerDown} onPointerMove={onPointerMove}
+    <div className={`joystick-zone ${className}`} onPointerDown={onPointerDown} onPointerMove={onPointerMove}
       onPointerUp={end} onPointerCancel={end} onContextMenu={(e) => e.preventDefault()}>
       {stick && (
         <>

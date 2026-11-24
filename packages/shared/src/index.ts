@@ -8,3 +8,4 @@ export * from './santaBag';
 export * from './santaThrow';
 export * from './goat';
 export * from './flakes';
+export * from './shelter';

@@ -73,6 +73,8 @@ export const PENGUIN_SECONDS = 60;
 export const SANTA_SECONDS = 60;
 export const GOAT_SECONDS = 45; // Closing the Gap
 export const FLAKE_SECONDS = 60; // Snowflake Match
+export const SHELTER_SECONDS = 90; // Zoo Adoption
+export const SHELTER_PAN_SECONDS = 7; // Zoo Adoption's opening: the camera pans along the adopters (the countdown follows it)
 /** The color of a bag in Santa's Sack that nobody is winning (a leather brown that is NOT one of PLAYER_COLORS, so it is never mistaken for a player). */
 export const SANTA_NEUTRAL_BAG_COLOR = '#8b6b45';
 

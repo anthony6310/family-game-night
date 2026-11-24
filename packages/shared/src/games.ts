@@ -1,4 +1,4 @@
-import { FISHING_BREACH_SECONDS, MAX_PLAYERS, TUG_CLOSING_SECONDS, WINNER_FINISH_SECONDS, WINNER_SECONDS } from './config';
+import { FISHING_BREACH_SECONDS, GAME_INTRO_COUNT_SECONDS, MAX_PLAYERS, SHELTER_PAN_SECONDS, TUG_CLOSING_SECONDS, WINNER_FINISH_SECONDS, WINNER_SECONDS } from './config';
 
 /**
  * Static info about each game, used by the lobby menu and by the server's start rules.
@@ -95,6 +95,16 @@ export const GAMES = [
     scoreLabel: 'taps',
     teams: true,
     finishSeconds: TUG_CLOSING_SECONDS + WINNER_SECONDS, // the strain, the massive pull and the fall (its own closing sequence), then the winner moment
+  },
+  {
+    id: 'adoption-day',
+    name: 'Zoo Adoption',
+    description: 'You are a volunteer at a huge animal shelter with no walls and every kind of animal wandering loose. Six people stand behind the adoption counter, and each has a thought bubble showing the exact animal they want. Walk around in first person, find a matching animal in the crowd (it lights up when you are close), pick it up, and carry it back to the counter. Stand on the marked pad in front of the adopter and press the button to hand it over: the right animal scores a point and the adopter is replaced by a new one, and the wrong one runs off. Everyone is racing for the same six requests. Most adoptions wins!',
+    minPlayers: 2,
+    maxPlayers: MAX_PLAYERS,
+    scoreLabel: 'adoptions',
+    introSeconds: SHELTER_PAN_SECONDS + GAME_INTRO_COUNT_SECONDS, // (the opening pans along the adopters for SHELTER_PAN_SECONDS, then the usual 3, 2, 1 pans into the player's view)
+    finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
   },
 ] as const satisfies readonly GameInfo[];
 

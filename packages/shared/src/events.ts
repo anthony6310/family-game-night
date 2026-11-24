@@ -58,6 +58,9 @@ export type GameAction =
   | { type: 'steer'; x: number; z: number }
   | { type: 'sprint'; on: boolean }
   | { type: 'pick'; flake: number; at: number } // Snowflake Match: tapped falling flake number `flake`, at `at` on the phone's idea of the server clock
+  | { type: 'look'; yaw: number } // Zoo Adoption: which way the volunteer faces (0 = south, +z), so others and spectators see it
+  | { type: 'grab'; target: number } // Zoo Adoption: pick up animal number `target` (it must be within reach)
+  | { type: 'give' } // Zoo Adoption: hand the animal you carry to the adoptee in front of you, or put it down if nobody is in reach
   | { type: 'jump'; at: number } // Mountain Goats: a tap, made at `at` on the phone's idea of the server clock
   | { type: 'throw'; x: number; z: number; power: number }; // Santa's Sack: throw a gift from your pile in the direction (x, z) on the floor, with `power` 0..1 (how far)
 
@@ -328,7 +331,39 @@ export interface SnowflakeMatchView {
   players: Record<string, FlakePlayerView>;
 }
 
-export type GameView = SnowflakeMatchView | MountainGoatView | TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
+/** One animal in the shelter: [id, kind (type and color option, see KIND_COUNT in shelter.ts), x, z, heading, mode (0 standing, 1 walking, 2 running off)]. Heading is the direction it moves in: (cos, sin) on (x, z). */
+export type AnimalRow = [number, number, number, number, number, number];
+/** A volunteer in Zoo Adoption. Others and spectators see them through x, z and which way they face. */
+export interface ShelterPlayerView {
+  x: number;
+  z: number;
+  vx: number;
+  vz: number;
+  yaw: number;
+  carry: { id: number; kind: number } | null;
+  adoptions: number;
+}
+/** One person waiting at the adoption desk (slot = their place in the list, left to right). A new person gets a new `id`. */
+export interface AdopteeView {
+  id: number;
+  kind: number; // the exact animal in their thought bubble
+  doneAt: number | null; // server time they got their animal (they celebrate, then are replaced)
+  nopeAt: number | null; // server time they were handed the wrong animal (the bubble shakes red)
+}
+/** Zoo Adoption, as phones see it. Streamed ~20 times a second while the round runs. */
+export interface AdoptionDayView {
+  gameId: 'adoption-day';
+  startsAt: number;
+  endsAt: number;
+  t: number; // the server clock when this view was made (phones use it to carry the motion forward)
+  width: number;
+  depth: number;
+  players: Record<string, ShelterPlayerView>;
+  adoptees: AdopteeView[];
+  animals: AnimalRow[]; // the ones loose in the building (a carried animal is in its carrier's entry instead)
+}
+
+export type GameView = AdoptionDayView | SnowflakeMatchView | MountainGoatView | TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
 
 /** A spectator's bet on one player to win a round. With no stake it is a free bet worth 1 victory point if it wins. With a stake, the spectator puts up victory points of their own and wins (or loses) exactly that many. */
 export interface Bet {

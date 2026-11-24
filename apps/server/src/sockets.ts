@@ -277,6 +277,8 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       // Never trust the payload shape: accept only the known actions with sane values.
       const valid = action?.type === 'tap' || (action?.type === 'steer' && Number.isFinite(action.x) && Number.isFinite(action.z)) || (action?.type === 'sprint' && typeof action.on === 'boolean')
         || (action?.type === 'pick' && Number.isInteger(action.flake) && Number.isFinite(action.at)) // (Snowflake Match; the engine checks everything again)
+        || (action?.type === 'aim' && Number.isFinite(action.yaw) && Number.isFinite(action.pitch)) // (Broadside Battle; the engine clamps it)
+        || action?.type === 'fire' // (Broadside Battle)
         || (action?.type === 'look' && Number.isFinite(action.yaw)) // (Zoo Adoption)
         || (action?.type === 'grab' && Number.isInteger(action.target)) // (Zoo Adoption; the engine checks the animal and the distance)
         || action?.type === 'give' // (Zoo Adoption)

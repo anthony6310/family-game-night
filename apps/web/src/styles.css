@@ -412,3 +412,16 @@ button.chip { cursor: pointer; }
 .fp-action.ready { background: #f2a93b; border-color: #fff; color: #fff; box-shadow: 0 0 18px rgba(242, 169, 59, 0.8); }
 .fp-action.ready.give { background: #3fb36b; box-shadow: 0 0 18px rgba(63, 179, 107, 0.8); }
 .fp-action:disabled { cursor: default; }
+
+/* Broadside Battle: a first-person view from behind your cannon; the stick aims, one big button fires (wick, boom, reload) */
+.snow-screen.pirate-screen { background: #bfe1ee; }
+.pirate-screen .snow-timer { color: #fff; text-shadow: 0 2px 6px rgba(10, 30, 60, 0.8); }
+.pirate-screen .snow-hint { bottom: 9rem; padding: 0 1rem; color: #fff; text-shadow: 0 1px 4px rgba(10, 30, 60, 0.9); }
+.pirate-fire { position: absolute; right: 1.1rem; bottom: 2.2rem; z-index: 4; width: 7rem; height: 7rem; border-radius: 50%; border: 4px solid rgba(255, 255, 255, 0.85); color: #fff; font-size: 1.05rem; font-weight: bold; letter-spacing: 0.04em;
+  background: conic-gradient(#e8742a var(--p, 100%), rgba(20, 33, 61, 0.55) 0); touch-action: none; pointer-events: auto; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
+.pirate-fire span { display: flex; align-items: center; justify-content: center; width: 5.1rem; height: 5.1rem; margin: auto; border-radius: 50%; background: rgba(20, 33, 61, 0.55); }
+.pirate-fire.ready { background: #e8742a; box-shadow: 0 0 22px rgba(232, 116, 42, 0.9); }
+.pirate-fire.ready span { background: #c9531a; }
+.pirate-fire.burning span { background: #7a1f10; color: #ffd27a; animation: pirate-burn 0.25s infinite alternate; }
+.pirate-fire:disabled { cursor: default; }
+@keyframes pirate-burn { from { box-shadow: 0 0 6px rgba(255, 170, 60, 0.4); } to { box-shadow: 0 0 20px rgba(255, 170, 60, 0.95); } }

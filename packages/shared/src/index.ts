@@ -9,3 +9,5 @@ export * from './santaThrow';
 export * from './goat';
 export * from './flakes';
 export * from './shelter';
+export * from './pirate';
+export * from './whale';

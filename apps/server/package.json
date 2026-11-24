@@ -24,6 +24,8 @@
     "test:starting": "tsx scripts/test-starting.ts",
     "test:intro": "tsx scripts/test-intro.ts",
     "test:flakes": "tsx scripts/test-flakes.ts",
+    "test:pirate": "tsx scripts/test-pirate.ts",
+    "test:pirate-net": "tsx --env-file=.env scripts/test-pirate-net.ts",
     "test:shelter": "tsx scripts/test-shelter.ts",
     "test:shelter-net": "tsx --env-file=.env scripts/test-shelter-net.ts",
     "test:goat": "tsx scripts/test-goat.ts",

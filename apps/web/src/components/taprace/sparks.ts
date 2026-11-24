@@ -268,6 +268,17 @@ export class SparkSystem {
     }
   }
 
+  /**
+   * One spark thrown by another game (Broadside Battle's wick and cannon): from (x, y, z) at this velocity, with this core `width`, `life` in seconds and color (r, g, b in 0..1).
+   * `falls` makes it droop under gravity after a moment (it never bounces: give the system a `floorAt` far below); `length` scales the streak (1 = the Tap Race length).
+   */
+  emit(x: number, y: number, z: number, vx: number, vy: number, vz: number, width: number, life: number, r: number, g: number, b: number, falls = true, length = 1) {
+    this.spawn(x, y, z, vx, vy, vz, width, life, r, g, b, falls);
+    const slot = (this.next - 1 + this.capacity) % this.capacity;
+    this.lengthScale[slot] = length;
+    if (falls) { this.bouncesLeft[slot] = 0; this.flightEnd[slot] = rand(0.04, 0.12); }
+  }
+
   private spawn(x: number, y: number, z: number, vx: number, vy: number, vz: number, width: number, life: number, r: number, g: number, b: number, bouncer: boolean) {
     // find a free slot, or recycle the oldest one if the pool is full
     let slot = -1;
@@ -289,6 +300,13 @@ export class SparkSystem {
     this.bouncesLeft[slot] = bouncer ? 1 + Math.floor(Math.random() * 3) : 0;
     this.bounciness[slot] = rand(0.3, 0.6);
     this.lengthScale[slot] = 1;
+  }
+
+  /** Remove every spark at once (a replay starting over). */
+  clear() {
+    this.life.fill(0);
+    for (let c = 0; c < this.capacity * 4; c++) this.cornerAlpha[c] = 0;
+    this.geometry.getAttribute('aAlpha').needsUpdate = true;
   }
 
   update(dt: number) {

@@ -58,6 +58,8 @@ export type GameAction =
   | { type: 'steer'; x: number; z: number }
   | { type: 'sprint'; on: boolean }
   | { type: 'pick'; flake: number; at: number } // Snowflake Match: tapped falling flake number `flake`, at `at` on the phone's idea of the server clock
+  | { type: 'aim'; yaw: number; pitch: number } // Broadside Battle: where this player's cannon points (the ship's own frame); it keeps working while the wick burns
+  | { type: 'fire' } // Broadside Battle: light the wick (the cannon fires 1 second later)
   | { type: 'look'; yaw: number } // Zoo Adoption: which way the volunteer faces (0 = south, +z), so others and spectators see it
   | { type: 'grab'; target: number } // Zoo Adoption: pick up animal number `target` (it must be within reach)
   | { type: 'give' } // Zoo Adoption: hand the animal you carry to the adoptee in front of you, or put it down if nobody is in reach
@@ -363,7 +365,47 @@ export interface AdoptionDayView {
   animals: AnimalRow[]; // the ones loose in the building (a carried animal is in its carrier's entry instead)
 }
 
-export type GameView = AdoptionDayView | SnowflakeMatchView | MountainGoatView | TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
+/** One cannonball in flight (or just landed): where it left and how fast, when it will end, and how. Phones fly it with `shotPoint`; nothing is streamed while it flies. */
+export interface PirateShotView {
+  id: number;
+  owner: string;
+  team: TeamId;
+  launchAt: number; // server clock (epoch ms)
+  endAt: number; // when it lands in the sea or hits the enemy ship
+  p0: [number, number, number];
+  v0: [number, number, number];
+  hit: boolean;
+  hitLocal: [number, number, number] | null; // in the enemy ship's own frame
+  splash: [number, number, number] | null;
+  blocked: [number, number, number] | null; // struck the leaping whale here (the ball is gone and scores nothing)
+}
+/** One cannon (one player) in Broadside Battle. */
+export interface PiratePlayerView {
+  team: TeamId;
+  slot: number; // their place along their ship's rail (0 = nearest the stern)
+  yaw: number;
+  pitch: number;
+  wickAt: number | null; // server time the wick was lit (it burns WICK_MS), or null
+  launchAt: number | null; // server time it will fire (wickAt + WICK_MS)
+  readyAt: number; // server time it can be fired again
+  hits: number;
+}
+/** Broadside Battle, as phones see it. */
+export interface PirateBroadsideView {
+  gameId: 'pirate-broadside';
+  startsAt: number;
+  endsAt: number;
+  t: number; // the server clock when this view was made
+  teams: Record<string, TeamId>;
+  handicap: Record<TeamId, number>;
+  totals: Record<TeamId, number>; // each team's hits plus its head start
+  crew: Record<TeamId, number>; // how many cannons each ship has
+  players: Record<string, PiratePlayerView>;
+  shots: PirateShotView[]; // the recent ones
+  whale: { peek: number; blow: number; breach: number } | null; // when the whale's three visits start, in seconds since startsAt (null: no whale this round)
+}
+
+export type GameView = PirateBroadsideView | AdoptionDayView | SnowflakeMatchView | MountainGoatView | TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
 
 /** A spectator's bet on one player to win a round. With no stake it is a free bet worth 1 victory point if it wins. With a stake, the spectator puts up victory points of their own and wins (or loses) exactly that many. */
 export interface Bet {

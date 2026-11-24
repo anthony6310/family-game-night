@@ -23,6 +23,16 @@ export interface GameInfo {
 // The games, in ALPHABETICAL order by name (this is the order the picker shows them in; keep it that way when adding one).
 export const GAMES = [
   {
+    id: 'pirate-broadside',
+    name: 'Broadside Battle',
+    description: 'Two pirate ships sail side by side on a stormy sea, and your crew is one team. Each pirate has their own cannon: use the stick to aim it (it keeps moving while the wick burns), then press fire. The wick burns for one second before the cannon booms, and the cannon needs two more seconds before it can fire again. The ships rock on the waves and the wind pulls every cannonball towards the bow, so aim ahead and time the roll of the sea. Every hit on the enemy ship is a point for your team, wherever it lands. The team with the most hits wins!',
+    minPlayers: 2,
+    maxPlayers: MAX_PLAYERS,
+    scoreLabel: 'hits',
+    finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winning team
+    teams: true,
+  },
+  {
     id: 'mountain-goat',
     name: 'Closing the Gap',
     description: 'You are a mountain goat crossing big gaps on a mountain. A marker stretches out and shrinks back from your goat: tap at the exact moment it reaches the next ledge and your goat leaps across and lands. Miss, and it tumbles into the gap and has to climb back. Every ledge you reach is a point, but the ledges keep getting smaller, and later on a bird flies back and forth over the gap: if your goat meets it in the air they both tumble, so time your leap to slip past it. Most points wins!',

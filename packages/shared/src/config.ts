@@ -71,6 +71,7 @@ export const PENGUIN_SECONDS = 60;
 
 /** How long a Santa's Sack round lasts. */
 export const SANTA_SECONDS = 60;
+export const GOAT_SECONDS = 45; // Mountain Goats
 /** The color of a bag in Santa's Sack that nobody is winning (a leather brown that is NOT one of PLAYER_COLORS, so it is never mistaken for a player). */
 export const SANTA_NEUTRAL_BAG_COLOR = '#8b6b45';
 

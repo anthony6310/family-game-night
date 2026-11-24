@@ -57,6 +57,7 @@ export type GameAction =
   | { type: 'tap' }
   | { type: 'steer'; x: number; z: number }
   | { type: 'sprint'; on: boolean }
+  | { type: 'jump'; at: number } // Mountain Goats: a tap, made at `at` on the phone's idea of the server clock
   | { type: 'throw'; x: number; z: number; power: number }; // Santa's Sack: throw a gift from your pile in the direction (x, z) on the floor, with `power` 0..1 (how far)
 
 /** Tap Race, as phones see it. */
@@ -298,7 +299,23 @@ export interface SantaSackView {
 }
 
 /** What phones are told about a running round: one shape per game, told apart by `gameId`. */
-export type GameView = TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
+/** What happened on a player's last tap in Closing the Gap: where the indicator was (`len`), whether that landed, and when (the phone's tap time, which the server accepted). */
+export interface GoatJumpView { ok: boolean; len: number; at: number; since: number; birdU: number | null } // `since` = ms since the marker started when the tap was made; `birdU` = how far along its leap the goat hit the bird (null: it did not)
+export interface GoatPlayerView {
+  jumps: number; // ledges reached so far (= the platform the goat stands on)
+  armedAt: number; // the indicator starts sweeping at this server time (after a leap, or after the fall)
+  last: GoatJumpView | null;
+}
+/** Mountain Goats, as phones see it. Every goat faces the same platforms (made from `seed`); what changes is each player's progress. */
+export interface MountainGoatView {
+  gameId: 'mountain-goat';
+  startsAt: number;
+  endsAt: number;
+  seed: number;
+  players: Record<string, GoatPlayerView>;
+}
+
+export type GameView = MountainGoatView | TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
 
 /** A spectator's bet on one player to win a round. With no stake it is a free bet worth 1 victory point if it wins. With a stake, the spectator puts up victory points of their own and wins (or loses) exactly that many. */
 export interface Bet {

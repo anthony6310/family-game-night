@@ -122,7 +122,6 @@ export function LobbyHub({ room, selfId, serverNow, error, images, run, onLeave,
               </button>
             ))}
           </div>
-          {game && <p className="muted">{game.description}</p>}
         </Sheet>
       )}
 

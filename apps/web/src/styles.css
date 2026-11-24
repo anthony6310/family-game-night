@@ -373,3 +373,9 @@ button.chip { cursor: pointer; }
 /* The "Players can choose their team" box and its words sit on ONE line. */
 .team-swap { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 0.5rem; width: auto; }
 .team-swap input { width: 1.2rem; height: 1.2rem; flex: none; margin: 0; }
+
+/* Closing the Gap: a cliff edge over a long dark fall */
+.snow-screen.goat-screen { background: #05070b; }
+.goat-screen .snow-hud { color: #fff; }
+.goat-screen .snow-timer { color: #fff; }
+.goat-screen .snow-standings { background: rgba(14, 20, 32, 0.75); }

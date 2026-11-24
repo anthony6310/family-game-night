@@ -1,5 +1,7 @@
 # Game rules (ongoing)
 
+**Making a new game? Read `NEW_GAME_GUIDE.md` first** (the go-to file for how games are built here), then use this list.
+
 Rules that apply to **every** game in Family Fun Game, now and in the future. When you add a game, check this list.
 This file is kept up to date as we go; the blueprint (`BLUEPRINT.md`) is the original milestone plan and is left as it is.
 
@@ -353,3 +355,53 @@ A few games are **team games** (`teams: true` in `packages/shared/src/games.ts`)
 - **Leaving:** a player who joins now is a spectator; if a team ends up with nobody, the round is called off back to the lobby, like any step before the round.
 - Nothing times out: the step waits for the host.
 
+
+---
+
+## 22. The Shooting Gallery (first draft)
+
+**The idea.** An individual game (2 to 8 players). A carnival shooting gallery seen in **first person**: every player looks through their own eyes (from their own place in a line, a little high so the near turntable shows without its fruit piling up) and the only bow on screen is **their own**, bottom right, an arrow nocked. There are **no player models**: others are seen only through their arrows and ropes, in their own colors. The picture to hold in your head is a **pin board**: an arrow that hits a fruit **pins it** to the surface behind it, and players must **pull hard on their ropes to work the pin loose** and take the fruit. Most points wins. The round is **90 seconds** (`GALLERY_SECONDS`) but does **not** end while anyone is hooked (overtime). Spectators get a fixed overview camera (no bow).
+
+**The set** (`packages/shared/src/gallery.ts`, shared by server and phones; a fruit's place is a pure function of its track, slot and the time). Fruit sit in fixed **slots** and **never spawn or despawn on the tracks**. The tracks:
+- **top carousel** and **center carousel**: belts of fruit. The front run is in front of the wall (top: left to right, fruit hanging off ropes from the roof beam; center: right to left); at each end the belt turns and **goes through a cutout in the wall**, runs back **hidden behind the wall**, and comes out of the cutout at the other end. The wall is **solid everywhere except those four cutouts** (`WALL_HOLES`), which have gold frames and a dark space behind them;
+- **left / right launchers**: striped boxes at the sides. A fruit shoots up out of the box's muzzle, hangs in the air, drops straight back in, waits hidden, and fires again (the two take turns). **A launcher box rejects any arrow that touches it**;
+- **turntable**: a spinning table close to the players with 8 places; its fruit ride round it for good (counter-clockwise from above).
+Fruit never overlap (belt slots are spaced, a launcher has one fruit, the table's places are fixed). Fruit behind the wall cannot be hit.
+
+**Fruit and points** (`FRUITS`): watermelon **1** (big), apple **2**, banana **2** (medium), grapes **5**, blueberries **5** (tiny).
+
+**Full gallery, refilled every 15 seconds.** Every slot is full at the start (`ALL_SLOTS`: the most fruit there can be, whatever the number of players). A caught fruit's slot stays **empty until the next refill**, which comes every 15 seconds (`REFILL_SECONDS`) and fills every empty slot with a new random fruit (it grows in). Nothing else spawns, and nothing refills after the clock has run out.
+
+**Aiming: point and click, but you hold.** **Hold the screen** to aim: a **crosshair in your own color** floats a little above your finger (so the finger does not hide it) and moves with it; **let go to fire** at the crosshair. A touch let go too soon (under 150 ms) cancels, so a stray tap never shoots. Only you see your crosshair. Your bow draws its string and turns towards the crosshair while you hold. While you are hooked on a fruit the screen is for reeling instead (every touch is a tap).
+
+**The arrow.** It starts at the player's **eye** and flies in a **straight line** through the crosshair (so it passes through exactly what you pointed at, whatever its depth), for **1.5 seconds** (`ARROW_MS`): aim ahead of moving fruit. (It is drawn leaving the bow and joins that line a moment later.) The **server follows it in small steps** against where every fruit is at that moment. **It pins the first fruit it actually touches and goes no further: it cannot pierce a second fruit.** An arrow that touches a launcher box, the ground, or reaches the wall without touching a fruit is a **miss**: it ends there and is **inert for good**, so it can never pin a fruit that passes by later. A miss is recovered automatically (reeled back along its rope) and the player can shoot again **0.5 seconds** after it stopped (`RELOAD_MS`). One arrow in the air per player; none while hooked. The aim can reach well below the wall (about -7) because the turntable is close and the eye is high.
+
+**Pinned fruit and the pull.** A pinned fruit **stays exactly where it was hit** on the gallery: nothing moves it towards anyone, and **it is not scored until a player has made the taps**. Each hooker's arrow is drawn **through the fruit and stuck in the surface behind it** (the wall, or the turntable top), with the rope tied to its tail; the fruit shudders harder and the arrow works loose from the surface as the taps pile up. When the taps are done the fruit is **pulled free of its pin** and flies off the board to the player who got it, and the score pops up where it hung. Taps: **15** (`REEL_TAPS`) alone (40 ms apart at most).
+
+**No lag at the pin.** The server's work is tiny (about 7 microseconds a tick with 8 players firing), so the delay players could feel at the moment of contact was only in getting the answer to the phone. Three things keep it short: the server sends the view **at once, and reliably**, whenever something discrete happens (a shot, a hook, a miss, a catch, a refill: the view's `rev` goes up) instead of waiting for its next 20-per-second snapshot; a tap arriving just after contact finds the hook already made (the server settles the arrows before it counts the tap); and each phone **predicts the contact itself** with the same shared flight and fruit sums, so the arrow stops and the pin shows at the moment it touches and your reeling can start at once; the server's answer then takes over without a jump (and corrects the picture if it ever disagrees).
+
+**Fights.** **Anyone can hit a fruit that is already pinned**: then everyone on it needs **30** taps (`FIGHT_TAPS`), and **every new hook resets everyone's count to zero** (so 12 taps and then someone else hooking means starting again at 0 of 30). The first to the needed taps pulls it free, worth **its points times the number of players fighting for it**; a fruit being fought over shows its multiplied worth. The others' arrows come out and they are free to shoot again. A player who leaves lets go.
+
+**Overtime.** If at the clock's end any fruit is pinned or an arrow is still in the air, the round carries on with a small **OVERTIME +x.x** counter counting up; other players may still shoot (only to join the fight); it ends when the last pinned fruit is scored (`holdOpen` in the engine, honoured by `rooms.finishRound`).
+
+**How it is done.** Engine `apps/server/src/games/shootingGallery.ts` (tick-driven and pure), view and types in `packages/shared/src/events.ts` (`ShootingGalleryView`, with each player's fixed `slot`), scene `apps/web/src/components/gallery/ShootingGalleryScene.ts` (the wall is a `ShapeGeometry` with the cutouts as holes), screen `ShootingGalleryScreen.tsx`. The server's action whitelist in `sockets.ts` accepts `fire`. Tests: `npm run test:gallery -w @fgn/server` (rules, including the carousels, the cutouts, an inert stuck arrow, and a fruit behind the wall) and `npm run test:gallery-net -w @fgn/server` (real sockets, a fight and an overtime).
+
+**Not done yet (first draft).** No tile picture (a plain tile), no spectator follow-camera, few sounds, and the numbers (belt speeds and slot counts, 90 seconds, the hold time, the crosshair's offset) are first guesses to tune.
+
+## 23. Closing the Gap (game id `mountain-goat`)
+
+**The idea.** An individual game (2 to 8 players, 45 seconds: `GOAT_SECONDS`). Everyone is a mountain goat crossing gaps between ledges. Every ledge reached is a point; most points wins; level on points is a draw (rule 4). There is no overtime: the round ends at the clock.
+
+**The jump.** Tap anywhere. A marker (an arc with an arrowhead, in the player's colour, in the style of Santa's Sack's aim arc) sweeps out from the goat and back at a **steady speed** (`SWEEP_SECONDS`, 2.2 s out and back; the speed never changes). Tapping when its end reaches the next ledge makes the goat leap and land (a point); the leap takes `JUMP_MS`. A tap off the ledge (or into the bird) makes the goat leap to where the marker was and tumble into the gap; it climbs back after `FALL_MS` and the marker starts again. Taps while in the air or climbing back do nothing.
+
+**The ledges.** Every goat faces the **same** ledges and gaps (made from one seed per round, `packages/shared/src/goat.ts`), so it is a race over identical jumps. Gaps are 4 to 9 units. The ledges **get smaller** over the first `RAMP_JUMPS` jumps (the ledge's radius is also how far off the marker may be and still land).
+
+**The bird.** From jump `BIRD_FROM` on, a bird may patrol back and forth across the gap (more likely the further you get: 40% rising 5 points a jump to 90%). It flies on the **round's clock**, so the next gap's bird is already flying (and shown) before the goat gets there. If the goat meets it in the air (box against box: `GOAT_BOX`, `BIRD_BOX`, along the goat's real leap, so leaping short or long into it counts) they collide: no point, the goat tumbles, and the bird is shoved away by physics (scene only) and flies back in. The bird's swing (`BIRD_AMP`) and period (`BIRD_PERIOD_MIN..MAX`) are tuned so a **correctly aimed leap at a random moment meets the bird about 1 time in 4** (measured 24.9%), and the periods are kept where the bird can never fall into **lockstep** with the 2.2 s sweep (the marker is on target at the same point of every sweep; the periods keep the bird's pattern from repeating sweep after sweep), so the player always has a clear moment to jump and chooses when. Re-measure the odds if the hitbox sizes, `BIRD_AMP` or the periods change.
+
+**Lag.** A phone sends **when** it tapped (`{type:'jump', at}`, on its idea of the server clock). The server believes it up to `LAG_MAX_MS` in the past and never in the future, so the marker the player saw is the marker the server measures; the same shared maths (`judgeJump`) runs on the phone, so the goat leaps (or tumbles) the instant of the tap and the server's view takes over without a jump. Taps closer than `JUMP_TAP_GAP_MS` are ignored.
+
+**The view and the look.** One goat at a time is shown: the player's own (a spectator follows any player with the shared spectator controls, follow only; at the end the camera follows the winner). Travel is left to right on a wide screen and bottom to top on a tall one, with a flatter, more overhead camera on tall screens. The setting is **scenery only** (nothing in the game reads it): a narrow crevice between two grey rock cliffs with a grassy rim and bushes, falling away to black; the ledges are brown, grass-topped pillars whose sides darken into the drop. A landing throws a plume of earth and a subtle camera shake; a fall shakes the screen harder.
+
+**How it is done.** Shared maths in `packages/shared/src/goat.ts`, view types in `events.ts` (`MountainGoatView`; `GoatJumpView` carries the last tap's result), engine `apps/server/src/games/mountainGoat.ts` (no `tick`: the view changes only on taps), scene `apps/web/src/components/goat/MountainGoatScene.ts`, screen `MountainGoatScreen.tsx`. The action whitelist in `sockets.ts` accepts `jump`. Tile picture: `public/games/mountain-goat.png`. Tests: `npm run test:goat -w @fgn/server` (engine and the bird: the odds, off-target collisions, lag and throttle).
+
+**Not done.** Sounds (only the shared round clock and the winner sounds), and a network test.

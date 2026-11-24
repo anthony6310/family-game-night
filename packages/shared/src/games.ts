@@ -23,6 +23,15 @@ export interface GameInfo {
 // The games, in ALPHABETICAL order by name (this is the order the picker shows them in; keep it that way when adding one).
 export const GAMES = [
   {
+    id: 'mountain-goat',
+    name: 'Closing the Gap',
+    description: 'You are a mountain goat crossing big gaps on a mountain. A marker stretches out and shrinks back from your goat: tap at the exact moment it reaches the next ledge and your goat leaps across and lands. Miss, and it tumbles into the gap and has to climb back. Every ledge you reach is a point, but the ledges keep getting smaller, and later on a bird flies back and forth over the gap: if your goat meets it in the air they both tumble, so time your leap to slip past it. Most points wins!',
+    minPlayers: 2,
+    maxPlayers: MAX_PLAYERS,
+    scoreLabel: 'ledges',
+    finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
+  },
+  {
     id: 'fishing',
     name: 'Fishing',
     description: 'Everyone casts a line off the pier and your hook sinks to the bottom of the ocean. Then all the hooks are reeled up at the same speed for one minute. Slide your hook left and right (inside your own lane), and up a little, to line it up with a fish\'s mouth and hook it. The fish swim across every lane, so you are all fishing the same ocean. When the hooks break the surface your catch is piled up on the dock, and the biggest pile wins! Fish in a school are worth 1 point each, regular fish 3, and a big fish 5. Watch out for the mines in your lane: if your hook touches one it shakes off 10% of your points in fish!',

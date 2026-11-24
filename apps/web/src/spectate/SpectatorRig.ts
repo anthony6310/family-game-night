@@ -1,5 +1,4 @@
 import { MathUtils, PerspectiveCamera, Vector3 } from 'three';
-import type { CameraMode } from './useSpectatorCamera';
 
 /** What a game tells the rig about the player being followed: where they are (x, z, and the ground height y) and how big they are. */
 export interface FollowTarget {
@@ -11,11 +10,9 @@ export interface FollowTarget {
 
 /**
  * The camera behind every 3D spectator view, with no knowledge of any specific game. A game owns a
- * PerspectiveCamera and each frame calls `update()` with what the spectator chose:
- *   follow: the same view the followed player has (by default a chase view that steps back as their `size` grows)
- *   free:   a steeper, higher camera the spectator pans around with `pan` (a direction, -1..1 on x east / z south)
- * Switching modes or players glides: position, height and distance are all smoothed. A new 3D game only has to
- * create a rig and pass `arenaRadius` (how far the free camera may roam); it gets the same spectating for free.
+ * PerspectiveCamera and each frame calls `update()` with the player being followed: the camera shows the same view that player has (by default a chase view that steps back
+ * as their `size` grows). There is no free camera. Switching players glides: position, height and distance are all smoothed. A new 3D game only has to
+ * create a rig and pass `arenaRadius` (the size of its arena: it sets the overview used before the round starts and when there is nobody to follow).
  */
 /** How a game wants its "follow" camera placed: how high above the followed thing, and how far back (south) of it, for a given size. */
 export type FollowView = (size: number) => { height: number; back: number };
@@ -25,11 +22,9 @@ const CHASE_VIEW: FollowView = (size) => ({ height: 6 + 3.2 * size, back: 8 + 4.
 
 export class SpectatorRig {
   private focus = new Vector3(); // the point on the ground the camera looks at (smoothed)
-  private free = new Vector3(); // where the free camera WANTS to look (moved by the pan input)
   private height = 20;
   private back = 20;
   private size = 1;
-  private mode: CameraMode = 'follow';
 
   /** `followView` lets a game choose how its follow camera sits (Tap Race looks almost straight down at the button); the default is the Snowball chase view. */
   constructor(private camera: PerspectiveCamera, private arenaRadius: number, private followView: FollowView = CHASE_VIEW) {}
@@ -40,27 +35,16 @@ export class SpectatorRig {
 
   /**
    * `intro` (0..1) is the start countdown's camera move: 0 = hanging over the whole arena (everyone in view), 1 = the normal view. Between, the camera glides from the
-   * overview into the player's view along an eased path (it is placed exactly, not smoothed, so it follows the countdown's clock). Only the follow view uses it.
+   * overview into the player's view along an eased path (it is placed exactly, not smoothed, so it follows the countdown's clock).
    */
-  update(dt: number, mode: CameraMode, target: FollowTarget | undefined, pan: { x: number; z: number }, zoom: number, intro = 1) {
+  update(dt: number, target: FollowTarget | undefined, zoom: number, intro = 1) {
     const k = 1 - Math.exp(-4 * dt); // frame-rate independent smoothing
     let wantFocus: Vector3;
     let wantHeight: number;
     let wantBack: number;
     let wantSize = 0;
 
-    if (mode === 'free') {
-      // Start from wherever the camera was looking, so entering free mode doesn't jump.
-      if (this.mode !== 'free') this.free.copy(this.focus);
-      const speed = this.arenaRadius * 0.7; // crossing the arena takes ~1.5 s at full stick
-      this.free.x += pan.x * speed * dt;
-      this.free.z += pan.z * speed * dt;
-      const reach = Math.hypot(this.free.x, this.free.z);
-      if (reach > this.arenaRadius) this.free.multiplyScalar(this.arenaRadius / reach); // stay over the arena
-      wantFocus = this.free;
-      wantHeight = this.arenaRadius * 0.95 * zoom; // high and steep (about 70 degrees down) to read the whole fight
-      wantBack = this.arenaRadius * 0.35 * zoom;
-    } else if (target) {
+    if (target) {
       wantFocus = new Vector3(target.x, target.y, target.z);
       wantSize = target.size;
       const view = this.followView(target.size); // the same view a player gets
@@ -71,9 +55,7 @@ export class SpectatorRig {
       wantHeight = this.arenaRadius * 1.25 * zoom;
       wantBack = this.arenaRadius * 0.75 * zoom;
     }
-    this.mode = mode;
-
-    if (intro < 1 && mode !== 'free') {
+    if (intro < 1) {
       // The start countdown: from the overview (the middle of the arena, high above) to where the player's view wants to be.
       const t = intro;
       this.focus.set(wantFocus.x * t, wantFocus.y * t, wantFocus.z * t);

@@ -15,7 +15,7 @@ export const HEARING = {
 };
 
 export interface Mixer {
-  /** Where the listener is standing (the ball you follow, or the free camera's centre). */
+  /** Where the listener is standing (the player you follow). */
   setListener(x: number, z: number): void;
   /** Play `sound` at a world position. `gain` is its overall loudness (1 = full). Silently skipped when out of earshot. */
   play(sound: SoundFn, x: number, z: number, gain: number, strength?: number, at?: number): void;

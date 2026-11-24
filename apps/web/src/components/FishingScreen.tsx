@@ -65,7 +65,7 @@ export default function FishingScreen({ game, players, colors, selfId, serverNow
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [Object.keys(game.hooks).join(',')],
   );
-  const camera = useSpectatorCamera(subjects, !isPlayer, false);
+  const camera = useSpectatorCamera(subjects, !isPlayer);
 
   // The winner moment: the camera goes to the winner's lane for EVERYONE (on a draw nobody wins, so it pulls back to show the whole ocean).
   const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow);
@@ -103,7 +103,7 @@ export default function FishingScreen({ game, players, colors, selfId, serverNow
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
       {isPlayer && !frozen && !casting && <Joystick onChange={setStick} />}
-      {!isPlayer && !frozen && <SpectatorControls camera={camera} allowFree={false} />}
+      {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );
 }

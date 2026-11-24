@@ -82,15 +82,14 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
     [Object.keys(game.balls).join(',')],
   );
   const camera = useSpectatorCamera(subjects, !isPlayer);
-  useEffect(() => { scene.current?.setPanSource(camera.pan); }, [camera.pan]);
   // The winner moment (shared with the other games): the camera goes to the winner for EVERYONE, with a banner and the drumroll + fanfare.
   const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow);
   const winnerId = result?.winnerId ?? null;
   useWinnerSounds(frozen, result, finishEndsAt, serverNow);
   useEffect(() => {
-    if (winnerMoment) scene.current?.setCameraView({ mode: 'follow', targetId: winnerId });
-    else if (!isPlayer) scene.current?.setCameraView({ mode: camera.mode, targetId: camera.targetId });
-  }, [winnerMoment, winnerId, isPlayer, camera.mode, camera.targetId]);
+    if (winnerMoment) scene.current?.setCameraView({ targetId: winnerId });
+    else if (!isPlayer) scene.current?.setCameraView({ targetId: camera.targetId });
+  }, [winnerMoment, winnerId, isPlayer, camera.targetId]);
 
   // The stamina bar shows the ball you are playing (or, for a spectator, the one they follow).
   const subjectBall = (isPlayer ? selfId : camera.targetId) ? game.balls[(isPlayer ? selfId : camera.targetId)!] : undefined;

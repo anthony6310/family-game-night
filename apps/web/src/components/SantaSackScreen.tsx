@@ -62,7 +62,7 @@ export default function SantaSackScreen({ game, players, colors, selfId, serverN
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [Object.keys(game.players).join(',')],
   );
-  const camera = useSpectatorCamera(subjects, !isPlayer, false);
+  const camera = useSpectatorCamera(subjects, !isPlayer);
 
   // The winner moment: the camera glides to the winner's elf for EVERYONE (on a draw nobody wins, so it pulls back high over the whole room).
   const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow);
@@ -109,7 +109,7 @@ export default function SantaSackScreen({ game, players, colors, selfId, serverN
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
       {isPlayer && started && !frozen && <ThrowPad onAim={aim} onThrow={throwIt} />}
-      {!isPlayer && !frozen && <SpectatorControls camera={camera} allowFree={false} />}
+      {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );
 }

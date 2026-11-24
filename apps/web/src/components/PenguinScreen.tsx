@@ -77,7 +77,6 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
     [Object.keys(game.skaters).join(',')],
   );
   const camera = useSpectatorCamera(subjects, !isPlayer);
-  useEffect(() => { scene.current?.setPanSource(camera.pan); }, [camera.pan]);
   // The winner moment: the camera goes to the winner for EVERYONE (on a draw nobody wins, so it pulls back to the middle).
   // The bag display shows the bag of the skater you are watching (yourself, or the one a spectator follows). When that skater closes a loop
   // round animals that do not fit, the circles flash red and shake.
@@ -97,9 +96,9 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
   useWinnerSounds(frozen, result, finishEndsAt, serverNow); // drumroll, then the fanfare as the camera reaches the winner
   const winnerId = result?.winnerId ?? null;
   useEffect(() => {
-    if (winnerMoment) scene.current?.setCameraView({ mode: 'follow', targetId: winnerId });
-    else if (!isPlayer) scene.current?.setCameraView({ mode: camera.mode, targetId: camera.targetId });
-  }, [winnerMoment, winnerId, isPlayer, camera.mode, camera.targetId]);
+    if (winnerMoment) scene.current?.setCameraView({ targetId: winnerId });
+    else if (!isPlayer) scene.current?.setCameraView({ targetId: camera.targetId });
+  }, [winnerMoment, winnerId, isPlayer, camera.targetId]);
 
   const standings = Object.entries(game.skaters)
     .map(([id, s]) => ({ id, banked: s.banked, carried: s.carried, bears: s.bag.filter((k) => k === 'bear').length, full: s.bagFull, style: styles[id] }))

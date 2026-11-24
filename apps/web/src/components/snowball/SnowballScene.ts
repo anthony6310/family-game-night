@@ -9,7 +9,6 @@ import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
 import { collisionCrunch, rollCrunch, type SoundFn } from '../../audio/snowSounds';
 import { SpectatorRig } from '../../spectate/SpectatorRig';
-import type { CameraMode } from '../../spectate/useSpectatorCamera';
 import { FleckSystem, StreakSystem } from './effects';
 import { FishKit } from './fish';
 import { createNameTag, disposeNameTag } from '../labelTexture';
@@ -167,8 +166,7 @@ export class SnowballScene {
   /** The start countdown's camera move, 0 (over everyone) .. 1 (on the player); set by the game screen from the server's clock. */
   introFactor: () => number = () => 1;
   private rig!: SpectatorRig;
-  private view: { mode: CameraMode; targetId: string | null };
-  private pan: { current: { x: number; z: number } } = { current: { x: 0, z: 0 } }; // the free camera's input (a React ref)
+  private view: { targetId: string | null };
   // Effects: snow flecks on collisions, wind streaks behind fast balls, and the crunch sounds that go with the movement.
   private flecks = new FleckSystem();
   private streaks = new StreakSystem();
@@ -198,7 +196,7 @@ export class SnowballScene {
     private styles: Record<string, BallStyle>,
     selfId: string | null,
   ) {
-    this.view = { mode: 'follow', targetId: selfId };
+    this.view = { targetId: selfId };
     this.terrain = createTerrain(terrainFeatures);
     this.renderer = new WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)); // 3x phones don't need 3x pixels
@@ -238,8 +236,8 @@ export class SnowballScene {
     this.itemList = items;
   }
 
-  /** Spectators: which ball to follow, or the free camera. (Players never call this: they follow themselves.) */
-  setCameraView(view: { mode: CameraMode; targetId: string | null }) {
+  /** Spectators: which ball to follow. (Players never call this: they follow themselves.) */
+  setCameraView(view: { targetId: string | null }) {
     this.view = view;
   }
 
@@ -250,11 +248,6 @@ export class SnowballScene {
 
   setMaxSpeedFactor(factor: number) {
     this.maxSpeedFactor = Math.max(WIND_START_FACTOR + 0.01, factor);
-  }
-
-  /** The free camera's movement input: an object whose `current` is read every frame (a React ref). */
-  setPanSource(pan: { current: { x: number; z: number } }) {
-    this.pan = pan;
   }
 
   dispose() {
@@ -679,11 +672,11 @@ export class SnowballScene {
     this.camera.position.z += Math.sin(t * 39 + 3) * amount * 0.5;
   }
 
-  /** Follow a ball from a fixed compass direction (stepping back as it grows), or fly the free camera. See SpectatorRig. */
+  /** Follow a ball from a fixed compass direction (stepping back as it grows), See SpectatorRig. */
   private updateCamera(dt: number, poses: Record<string, Pose> | null) {
     const followed = this.view.targetId && poses ? poses[this.view.targetId] : undefined;
     const target = followed && { x: followed.x, y: this.terrain.height(followed.x, followed.z), z: followed.z, size: followed.radius }; // follows the ground up and down the hills
-    this.rig.update(dt, this.view.mode, target, this.pan.current, this.zoom, this.introFactor());
+    this.rig.update(dt, target, this.zoom, this.introFactor());
   }
 }
 

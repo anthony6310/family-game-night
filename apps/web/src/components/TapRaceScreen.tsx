@@ -27,7 +27,7 @@ interface Props {
 /**
  * The Tap Race round: a full-screen three.js board with one button per player, a clock and a live scoreboard.
  * A player's camera sits above their own button and never moves; tapping anywhere presses it. A spectator gets the
- * shared spectator controls: follow any player's view, or fly a free camera over the whole board.
+ * shared spectator controls: follow any player's view.
  * The SERVER still does the real counting; the scene just shows its numbers. Loaded on demand (see LobbyPage), like Snowball.
  *
  * The ending is this screen's own (not the generic you-won / you-lost message): for the first part of the finish sequence
@@ -76,19 +76,18 @@ export default function TapRaceScreen({ game, players, colors, selfId, serverNow
     scene.current?.setCounts(counts);
   }, [counts]);
 
-  // Spectators choose whose view to follow, or fly a free camera over the whole board.
+  // Spectators choose whose view to follow.
   const subjects = useMemo(() => styles.map((s) => ({ id: s.id, name: s.name, color: s.color })), [styles]);
   const camera = useSpectatorCamera(subjects, !isPlayer);
-  useEffect(() => { scene.current?.setPanSource(camera.pan); }, [camera.pan]);
   // The winner's moment (shared with other games: see WinnerMoment). The camera goes to the winner's button for
   // EVERYONE (players and spectators alike); on a draw nobody wins, so it pulls back to show the whole board.
   const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow);
   useWinnerSounds(frozen, result, finishEndsAt, serverNow); // drumroll, then the fanfare as the camera reaches the winner
   const winnerId = result?.winnerId ?? null;
   useEffect(() => {
-    if (winnerMoment) scene.current?.setCameraView({ mode: 'follow', targetId: winnerId });
-    else if (!isPlayer) scene.current?.setCameraView({ mode: camera.mode, targetId: camera.targetId });
-  }, [winnerMoment, winnerId, isPlayer, camera.mode, camera.targetId]);
+    if (winnerMoment) scene.current?.setCameraView({ targetId: winnerId });
+    else if (!isPlayer) scene.current?.setCameraView({ targetId: camera.targetId });
+  }, [winnerMoment, winnerId, isPlayer, camera.targetId]);
 
   // pointerdown fires the instant a finger lands (a click waits for release), and anywhere on the screen counts as a tap.
   function onTap() {

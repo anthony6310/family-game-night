@@ -41,7 +41,7 @@ export default function MountainGoatScreen({ game, players, colors, selfId, serv
     [],
   );
   const subjects = useMemo(() => styles.map((s) => ({ id: s.id, name: s.name, color: s.color })), [styles]);
-  const camera = useSpectatorCamera(subjects, !isPlayer, false);
+  const camera = useSpectatorCamera(subjects, !isPlayer);
 
   useEffect(() => {
     const s = new MountainGoatScene(container.current!, serverNow, styles, isPlayer ? selfId : camera.targetId);
@@ -100,7 +100,7 @@ export default function MountainGoatScreen({ game, players, colors, selfId, serv
         {isPlayer && started && !frozen && !over && jumpsOf(selfId!) === 0 && <p className="snow-hint">Tap when the ring reaches the next ledge!</p>}
       </div>
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}
-      {!isPlayer && !frozen && <SpectatorControls camera={camera} allowFree={false} />}
+      {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );
 }

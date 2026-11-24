@@ -75,11 +75,11 @@ Games that have it so far: **Tap Race**, **Snowball**, **Penguin Lasso** and **F
 
 **Rule.** Anyone in the room can be a spectator (someone who chose **Watch**, joined mid-round or into a full room, or whose game has no slot for them), so **every game must work for people who are not playing**. They don't take a player slot, they keep their points, and they can still win the session. A game is not finished until a spectator can watch it properly.
 
-Games are almost always made with three.js, so spectating is the same everywhere:
+Spectating is the same everywhere and as simple as it can be: **a spectator follows a player.**
 
-- **Free camera.** A spectator can fly a camera over the whole board. It is **higher and zoomed out further** than any player's camera, so they can see everyone at once. They move it with the same controls as steering (joystick or WASD / arrow keys).
-- **Follow a player.** A spectator can pick any player and see **that player's view**: the same camera that player has. They can switch between players whenever they like.
-- **Local only.** Which camera a spectator uses is their own choice. The server is never told.
+- **Follow a player (the only view).** A spectator picks any player and sees **that player's view**: the same camera that player has. They can switch between players whenever they like (‹ › buttons, or left / right keys).
+- **There is NO free camera, and a new game does NOT need to build one.** (There used to be one that flew over the whole board; it was removed to keep spectating simple. Do not add one.) If a game is a flat or 2D view, "follow" is just showing that player's lane or goat; if everyone shares one view, spectators just watch it.
+- **Local only.** Which player a spectator follows is their own choice. The server is never told.
 - **No controls for the game itself.** A spectator never steers, taps or otherwise acts in the round. The server ignores actions from anyone who isn't playing.
 - **The shared finish still applies.** Spectators see the winner moment (rule 2) like everyone else, with the camera on the winner.
 
@@ -87,20 +87,19 @@ Games are almost always made with three.js, so spectating is the same everywhere
 
 **How it is done.** One game-agnostic piece, in `apps/web/src/spectate/`, so a new game gets all of this almost for free:
 
-- `useSpectatorCamera` keeps the spectator's choice (follow which player, or free) and the free camera's movement input.
-- `SpectatorControls` is the on-screen picker (previous / next player, free camera, and the joystick for moving it).
-- `SpectatorRig` is the camera itself. A game gives it a `PerspectiveCamera`, the arena size (how far the free camera may roam) and, if the game wants its own "follow" view, a `followView`. It then handles following, the free camera and the smooth glide between them.
+- `useSpectatorCamera(subjects, enabled)` keeps which player the spectator follows (`targetId`, with `next` / `prev` / `select`), and the left / right keys.
+- `SpectatorControls` is the on-screen picker (the ‹ › buttons and who is being watched).
+- `SpectatorRig` (optional, for 3D games with a chase-style camera) is the camera itself. A game gives it a `PerspectiveCamera`, the arena size (for the overview used before the round starts, and when there is nobody to follow) and, if the game wants its own "follow" view, a `followView`. It then follows the player smoothly. Games with their own camera (Santa's Sack, Fishing, Closing the Gap, any first-person game) skip the rig and just show the followed player's view themselves.
 
 **Adding it to a new game's screen:**
 
 1. Work out whether the viewer is a player (their id is in the game's view) or a spectator.
 2. `const camera = useSpectatorCamera(subjects, !isPlayer)`, where `subjects` is the list of players who can be followed.
-3. Give the scene `camera.pan` (`setPanSource`) and, for spectators, the chosen mode and player (`setCameraView`).
-4. In the scene, drive a `SpectatorRig` each frame. Players always follow themselves.
-5. Show `<SpectatorControls camera={camera} />` to spectators, and hide the game's own controls from them.
-6. Make sure the game's server code ignores actions from non-players.
+3. Give the scene the followed player for spectators (`camera.targetId`; players always see their own view), and for the winner moment, the winner.
+4. Show `<SpectatorControls camera={camera} />` to spectators, and hide the game's own controls from them.
+5. Make sure the game's server code ignores actions from non-players.
 
-Games that have it so far: **Tap Race**, **Snowball**, **Penguin Lasso** and **Fishing** (all of them). Fishing is a flat side view with no free camera: a spectator picks whose lane to follow with the ‹ › buttons (`allowFree={false}`).
+Games that follow a player: Tap Race, Snowball, Penguin Lasso, Fishing, Santa's Sack and Closing the Gap. **Tug of War** has one shared view for everyone, so a spectator simply watches that view (nothing to follow). None of them has a free camera.
 
 **Seats and betting (part of the room, not of any one game).** Spectating is the same in every game, so these room rules apply to all of them too:
 
@@ -400,7 +399,7 @@ Fruit never overlap (belt slots are spaced, a launcher has one fruit, the table'
 
 **Lag.** A phone sends **when** it tapped (`{type:'jump', at}`, on its idea of the server clock). The server believes it up to `LAG_MAX_MS` in the past and never in the future, so the marker the player saw is the marker the server measures; the same shared maths (`judgeJump`) runs on the phone, so the goat leaps (or tumbles) the instant of the tap and the server's view takes over without a jump. Taps closer than `JUMP_TAP_GAP_MS` are ignored.
 
-**The view and the look.** One goat at a time is shown: the player's own (a spectator follows any player with the shared spectator controls, follow only; at the end the camera follows the winner). Travel is left to right on a wide screen and bottom to top on a tall one, with a flatter, more overhead camera on tall screens. The setting is **scenery only** (nothing in the game reads it): a narrow crevice between two grey rock cliffs with a grassy rim and bushes, falling away to black; the ledges are brown, grass-topped pillars whose sides darken into the drop. A landing throws a plume of earth and a subtle camera shake; a fall shakes the screen harder.
+**The view and the look.** One goat at a time is shown: the player's own (a spectator follows any player with the shared spectator controls; at the end the camera follows the winner). Travel is left to right on a wide screen and bottom to top on a tall one, with a flatter, more overhead camera on tall screens. The setting is **scenery only** (nothing in the game reads it): a narrow crevice between two grey rock cliffs with a grassy rim and bushes, falling away to black; the ledges are brown, grass-topped pillars whose sides darken into the drop. A landing throws a plume of earth and a subtle camera shake; a fall shakes the screen harder.
 
 **How it is done.** Shared maths in `packages/shared/src/goat.ts`, view types in `events.ts` (`MountainGoatView`; `GoatJumpView` carries the last tap's result), engine `apps/server/src/games/mountainGoat.ts` (no `tick`: the view changes only on taps), scene `apps/web/src/components/goat/MountainGoatScene.ts`, screen `MountainGoatScreen.tsx`. The action whitelist in `sockets.ts` accepts `jump`. Tile picture: `public/games/mountain-goat.png`. Tests: `npm run test:goat -w @fgn/server` (engine and the bird: the odds, off-target collisions, lag and throttle).
 

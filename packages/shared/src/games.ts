@@ -69,6 +69,15 @@ export const GAMES = [
     finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
   },
   {
+    id: 'snowflake-match',
+    name: 'Snowflake Match',
+    description: 'Snowflakes drift down in front of you, and your gloved hand holds one snowflake. Tap a falling snowflake that matches the one in your hand to score a point, and your hand pops it and shows the next one. But tap a wrong one and you lose a point! Everyone sees the same falling snowflakes, and when one drifts off the bottom it comes back at the top somewhere new. Most points after 60 seconds wins!',
+    minPlayers: 2,
+    maxPlayers: MAX_PLAYERS,
+    scoreLabel: 'matches',
+    finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
+  },
+  {
     id: 'tap-race',
     name: 'Tap Race',
     description: 'Tap as fast as you can. Most taps wins!',

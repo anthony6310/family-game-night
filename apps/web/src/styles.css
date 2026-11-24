@@ -376,3 +376,17 @@ button.chip { cursor: pointer; }
 .goat-screen .snow-hud { color: #fff; }
 .goat-screen .snow-timer { color: #fff; }
 .goat-screen .snow-standings { background: rgba(14, 20, 32, 0.75); }
+
+/* Snowflake Match: a snowy dusk; a +1 / -1 pops up when you tap a flake */
+.snow-screen.flake-screen { background: #0d1830; }
+.flake-screen .snow-hud { color: #fff; }
+.flake-screen .snow-timer { color: #cfe8ff; }
+.flake-score { position: absolute; top: 0.4rem; left: 0.8rem; font-size: 10.8vh; line-height: 1; font-weight: bold; color: #fff; text-shadow: 0 3px 10px rgba(0, 0, 0, 0.6); transform-origin: left top; } /* (a digit about 7.8% of the screen's height: 60% of a falling snowflake's 13%) */
+.flake-score.up { animation: flake-score-up 0.8s ease-out; } /* a point: flashes blue and pops */
+.flake-score.down { animation: flake-score-down 0.8s ease-out; } /* a lost point: flashes red and shrinks */
+@keyframes flake-score-up { 0% { color: #4fc3ff; transform: scale(1.35); } 35% { color: #4fc3ff; transform: scale(1); } 100% { color: #fff; transform: scale(1); } }
+@keyframes flake-score-down { 0% { color: #ff4d4d; transform: scale(0.8); } 35% { color: #ff4d4d; transform: scale(1); } 100% { color: #fff; transform: scale(1); } }
+.flake-pop { position: absolute; top: 24%; left: 0; right: 0; text-align: center; font-size: 3rem; font-weight: bold; text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6); animation: flake-pop 0.8s ease-out forwards; }
+.flake-pop.good { color: #9be7ff; }
+.flake-pop.bad { color: #ff6b6b; }
+@keyframes flake-pop { from { opacity: 1; transform: translateY(0) scale(1.1); } to { opacity: 0; transform: translateY(-40px) scale(1); } }

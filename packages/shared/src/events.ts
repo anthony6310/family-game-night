@@ -57,6 +57,7 @@ export type GameAction =
   | { type: 'tap' }
   | { type: 'steer'; x: number; z: number }
   | { type: 'sprint'; on: boolean }
+  | { type: 'pick'; flake: number; at: number } // Snowflake Match: tapped falling flake number `flake`, at `at` on the phone's idea of the server clock
   | { type: 'jump'; at: number } // Mountain Goats: a tap, made at `at` on the phone's idea of the server clock
   | { type: 'throw'; x: number; z: number; power: number }; // Santa's Sack: throw a gift from your pile in the direction (x, z) on the floor, with `power` 0..1 (how far)
 
@@ -315,7 +316,19 @@ export interface MountainGoatView {
   players: Record<string, GoatPlayerView>;
 }
 
-export type GameView = MountainGoatView | TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
+/** One falling snowflake in Snowflake Match: its design, when its current fall began and the lane it began in (its place on the screen is worked out from these and the clock: see flakePose). */
+export interface FlakeView { design: number; born: number; lane: number }
+export interface FlakePlayerView { points: number; hand: number[]; flakes: FlakeView[] } // the designs in the player's hand, and the player's own falling field (everyone starts with the same one; a flake you match falls again in YOUR field only)
+/** Snowflake Match, as phones see it. Every player has their own falling field (the same at the start), their own hand and their own points. */
+export interface SnowflakeMatchView {
+  gameId: 'snowflake-match';
+  startsAt: number;
+  endsAt: number;
+  seed: number;
+  players: Record<string, FlakePlayerView>;
+}
+
+export type GameView = SnowflakeMatchView | MountainGoatView | TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
 
 /** A spectator's bet on one player to win a round. With no stake it is a free bet worth 1 victory point if it wins. With a stake, the spectator puts up victory points of their own and wins (or loses) exactly that many. */
 export interface Bet {

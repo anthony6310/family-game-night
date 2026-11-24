@@ -7,3 +7,4 @@ export * from './terrain';
 export * from './santaBag';
 export * from './santaThrow';
 export * from './goat';
+export * from './flakes';

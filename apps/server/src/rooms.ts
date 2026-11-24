@@ -3,7 +3,7 @@ import { hashPassword, verifyPassword } from './passwords';
 import {
   PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
   COUNTDOWN_SECONDS, FINISH_SECONDS, RANDOM_GAME, ROULETTE_SECONDS, GAME_INTRO_COUNT_SECONDS, GAME_INTRO_HOLD_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
-  GOAT_SECONDS, PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, TUG_SECONDS, getGame,
+  FLAKE_SECONDS, GOAT_SECONDS, PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, TUG_SECONDS, getGame,
   DEFAULT_ROOM_NAME, MAX_ROOMS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult, type Bet, type BetResult, type Underdog, TEAM_IDS, HANDICAP_MAX, isTeamId, type TeamId,
@@ -12,6 +12,7 @@ import { createMountainGoat } from './games/mountainGoat';
 import { createPenguinLasso } from './games/penguinLasso';
 import { createSantaSack } from './games/santaSack';
 import { createFishing } from './games/fishing';
+import { createSnowflakeMatch } from './games/snowflakeMatch';
 import { createSnowball } from './games/snowball';
 import { createTapRace } from './games/tapRace';
 import { createTugOfWar } from './games/tugOfWar';
@@ -105,6 +106,7 @@ export class RoomManager {
     this.finishMsOverride = options.finishMs;
     this.engines = {
       'mountain-goat': createMountainGoat({ durationMs: options.snowballMs ?? GOAT_SECONDS * 1000 }),
+      'snowflake-match': createSnowflakeMatch({ durationMs: options.snowballMs ?? FLAKE_SECONDS * 1000 }),
       'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000),
       'tug-of-war': createTugOfWar(options.roundMs ?? TUG_SECONDS * 1000),
       snowball: createSnowball({ durationMs: options.snowballMs ?? SNOWBALL_SECONDS * 1000 }),

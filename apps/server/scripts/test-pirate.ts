@@ -157,10 +157,10 @@ check('a player who leaves goes quiet but the ship keeps its crew slots', view(s
   const draws = new Set(Array.from({ length: 50 }, () => makeWhaleSchedule().peek));
   check('every game draws different times', draws.size > 30);
   const eng2 = createPirateBroadside({ durationMs: 90_000 });
-  const v2 = eng2.view(eng2.init(['a', 'b'], 0, { teams: { a: 'yellow', b: 'purple' }, handicap: { yellow: 0, purple: 0 } }));
+  const v2 = eng2.view(eng2.init(['a', 'b'], 0, { teams: { a: 'yellow', b: 'purple' }, handicap: { yellow: 0, purple: 0 } })) as PirateBroadsideView;
   check('the view tells the phones when the visits start', !!v2.whale && v2.whale.peek >= 15 && v2.whale.breach <= 75);
   const none = createPirateBroadside({ durationMs: 90_000, whale: null });
-  check('a round can have no whale', none.view(none.init(['a'], 0)).whale === null);
+  check('a round can have no whale', (none.view(none.init(['a'], 0)) as PirateBroadsideView).whale === null);
   check('the right visit is on at the right time', whaleVisitAt({ peek: 20, blow: 40, breach: 70 }, 22)?.kind === 'peek' && whaleVisitAt({ peek: 20, blow: 40, breach: 70 }, 45)?.kind === 'blow' && whaleVisitAt({ peek: 20, blow: 40, breach: 70 }, 75)?.kind === 'breach' && whaleVisitAt({ peek: 20, blow: 40, breach: 70 }, 33) === null);
 
   // a ball aimed through the middle of the whale at the top of its leap

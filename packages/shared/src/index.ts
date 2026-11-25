@@ -11,3 +11,4 @@ export * from './flakes';
 export * from './shelter';
 export * from './pirate';
 export * from './whale';
+export * from './roachHunt';

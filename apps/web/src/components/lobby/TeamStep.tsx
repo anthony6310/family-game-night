@@ -1,4 +1,4 @@
-import { TEAM_IDS, TEAM_NAMES, getGame, type Player, type RoomState } from '@fgn/shared';
+import { TEAM_IDS, getGame, teamNamesFor, type Player, type RoomState } from '@fgn/shared';
 import { BetPanel } from '../BetPanel';
 import { Countdown } from '../Countdown';
 import { TeamPanel } from '../TeamPanel';
@@ -19,7 +19,7 @@ export function TeamStep({ room, selfId, serverNow, error, run }: { room: RoomSt
   const isSpectator = selfId !== null && room.spectatorOnlyIds.includes(selfId); // (only people with no seat bet)
   const playing = room.players.filter((p) => !watchingIds.includes(p.id));
   const filled = TEAM_IDS.every((t) => playing.some((p) => room.teams[p.id] === t));
-  const teamOptions: Player[] = TEAM_IDS.filter((t) => playing.some((p) => room.teams[p.id] === t)).map((t) => ({ id: t, name: TEAM_NAMES[t], avatarUrl: null, isGuest: true }));
+  const teamOptions: Player[] = TEAM_IDS.filter((t) => playing.some((p) => room.teams[p.id] === t)).map((t) => ({ id: t, name: teamNamesFor(game?.teamNames)[t], avatarUrl: null, isGuest: true }));
   return (
     <main className="page team-step">
       <h1 className="step-title">Set the teams</h1>

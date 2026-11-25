@@ -6,12 +6,13 @@ import {
   FLAKE_SECONDS, GOAT_SECONDS, PIRATE_SECONDS, SHELTER_SECONDS, PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, TUG_SECONDS, getGame,
   DEFAULT_ROOM_NAME, MAX_ROOMS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
-  type RoundResult, type Bet, type BetResult, type Underdog, TEAM_IDS, isTeamId, type TeamId,
+  type RoundResult, type Bet, type BetResult, type Underdog, TEAM_IDS, TEAM_NAMES, isTeamId, type TeamId,
 } from '@fgn/shared';
 import { createAdoptionDay } from './games/adoptionDay';
 import { createMountainGoat } from './games/mountainGoat';
 import { createPenguinLasso } from './games/penguinLasso';
 import { createPirateBroadside } from './games/pirateBroadside';
+import { createRoachHunt } from './games/roachHunt';
 import { createSantaSack } from './games/santaSack';
 import { createFishing } from './games/fishing';
 import { createSnowflakeMatch } from './games/snowflakeMatch';
@@ -30,6 +31,8 @@ interface Room {
   spectators: Set<string>; // members with NO SEAT, in line order (a Set keeps insertion order): they only watch, and they are the only ones who bet. The seat count is players - spectators (at most MAX_PLAYERS)
   settings: RoomSettings;
   teams: Map<string, TeamId>; // every member's team (picked at random when they join; they may change it if the host allows)
+  loneRound: boolean; // the teams were drawn for a one-against-all round and must be shuffled again afterwards
+  loneTurns: Set<string>; // a one-against-all game: who has been the lone player since everyone last had a turn (so the turns go round fairly)
   bets: Record<string, Bet>; // spectators' bets on who wins the coming round (stakes are locked in when it starts)
   ready: Set<string>;
   phase: RoomPhase;
@@ -109,6 +112,7 @@ export class RoomManager {
     this.finishMsOverride = options.finishMs;
     this.engines = {
       'pirate-broadside': createPirateBroadside({ durationMs: options.snowballMs ?? PIRATE_SECONDS * 1000 }),
+      'roach-hunt': createRoachHunt({ durationMs: options.snowballMs }),
       'adoption-day': createAdoptionDay({ durationMs: options.snowballMs ?? SHELTER_SECONDS * 1000 }),
       'mountain-goat': createMountainGoat({ durationMs: options.snowballMs ?? GOAT_SECONDS * 1000 }),
       'snowflake-match': createSnowflakeMatch({ durationMs: options.snowballMs ?? FLAKE_SECONDS * 1000 }),
@@ -140,6 +144,8 @@ export class RoomManager {
       spectators: new Set(),
       settings: { gameId: null, random: true, teamSwap: false },
       teams: new Map(),
+      loneTurns: new Set(),
+      loneRound: false,
       bets: {},
       ready: new Set(),
       phase: 'lobby',
@@ -426,7 +432,7 @@ export class RoomManager {
     if (room.phase !== 'lobby' && room.phase !== 'countdown' && room.phase !== 'teams') return fail('WRONG_PHASE');
     if (!this.isTeamGame(room)) return fail('NOT_A_TEAM_GAME');
     if (!isTeamId(team)) return fail('INVALID_SETTING');
-    if (!room.settings.teamSwap) return fail('TEAMS_LOCKED');
+    if (!room.settings.teamSwap || this.isLoneGame(room)) return fail('TEAMS_LOCKED'); // (a one-against-all game draws its sides itself)
     if (room.teams.get(playerId) === team) return ok(room);
     room.teams.set(playerId, team);
     if (room.phase !== 'teams') { room.ready.clear(); this.reconcile(room); } // (a countdown is cancelled: nobody is ready any more; the team step has no Ready)
@@ -604,6 +610,7 @@ export class RoomManager {
     // The in-game start countdown: the scene is shown at once, but the round's clock (and everything in it) starts `introMs` later; until then nothing moves and actions are ignored.
     const introMs = this.introMsOverride ?? (GAME_INTRO_HOLD_SECONDS + (getGame(room.settings.gameId)?.introSeconds ?? GAME_INTRO_COUNT_SECONDS)) * 1000; // (every game gets the static buffer; then the usual 3, 2, 1, or none for a game with its own opening)
     const playStartsAt = Date.now() + introMs;
+    if (this.isLoneGame(room)) this.pickLone(room);
     room.game = { engine, state: engine.init(this.participants(room), playStartsAt, { teams: Object.fromEntries(room.teams) }), lastTickAt: playStartsAt, playStartsAt };
   }
 
@@ -769,7 +776,7 @@ export class RoomManager {
     const bets = this.settleBets(room, winnerTeam, true);
     room.underdog = null;
     room.result = {
-      winnerId: null, winner: null, scores, team: { winner: winnerTeam, totals, members }, bets,
+      winnerId: null, winner: null, scores, team: { winner: winnerTeam, totals, members, names: { ...(getGame(room.settings.gameId)?.teamNames ?? TEAM_NAMES) } }, bets,
       winningBettors: bets.filter((b) => b.delta > 0).map((b) => ({ bettorId: b.bettorId, delta: b.delta })), underdog: null,
     };
     room.phase = 'finish';
@@ -811,6 +818,11 @@ export class RoomManager {
 
   private toLobby(room: Room) {
     room.phase = 'lobby';
+    if (room.loneRound) { // the one-against-all sides were for that round only: shuffle everyone onto balanced random teams again for the next team game
+      room.loneRound = false;
+      room.teams.clear();
+      for (const id of room.players.keys()) this.assignTeam(room, id);
+    }
     for (const id of [...room.watching]) if (!room.spectators.has(id)) room.watching.delete(id); // (a seat holder who sat this round out, or got a seat during it, plays the next)
     room.game = null;
     room.result = null;
@@ -847,8 +859,33 @@ export class RoomManager {
     return members;
   }
 
+  /** A one-against-all game (Roach Rumble): each round one random player is the lone team (purple) and everyone else is the other (yellow). */
+  private isLoneGame(room: Room): boolean {
+    return getGame(room.settings.gameId)?.lone === true;
+  }
+
+  /** Has this round's lone player been picked yet? (From the start of the round; before that, any two players will do.) */
+  private loneDrawn(room: Room): boolean {
+    return room.phase === 'playing' || room.phase === 'finish' || room.phase === 'results';
+  }
+
+  /**
+   * Picks the lone player for the round at random, fairly: nobody is picked twice until everyone has had a turn. The lone one is purple, everyone else yellow
+   * (for this round only: the teams are drawn afresh when the round ends, see `toLobby`).
+   */
+  private pickLone(room: Room) {
+    const ids = this.participants(room);
+    let candidates = ids.filter((id) => !room.loneTurns.has(id));
+    if (candidates.length === 0) { room.loneTurns.clear(); candidates = ids; }
+    const lone = candidates[randomInt(candidates.length)];
+    room.loneTurns.add(lone);
+    for (const id of ids) room.teams.set(id, id === lone ? 'purple' : 'yellow');
+    room.loneRound = true;
+  }
+
   /** A team game needs at least one player on EACH team. */
   private teamsFilled(room: Room): boolean {
+    if (this.isLoneGame(room) && !this.loneDrawn(room)) return this.participants(room).length >= 2; // (the lone player is picked when the round starts)
     const m = this.teamMembers(room);
     return m.yellow.length > 0 && m.purple.length > 0;
   }
@@ -903,6 +940,7 @@ export class RoomManager {
   /** Drops bets that can no longer stand: the bettor is no longer a spectator, or their player stopped playing / left. Their Ready goes too (they must choose again). */
   /** Can this be bet on right now? A player who is playing, or, in a team game, a team that has a player in it. */
   private betTargetOk(room: Room, targetId: string): boolean {
+    if (this.isLoneGame(room) && !this.loneDrawn(room)) return isTeamId(targetId) && this.participants(room).length >= 2; // (the sides are drawn at the start)
     if (this.isTeamGame(room)) return isTeamId(targetId) && this.teamMembers(room)[targetId].length > 0;
     return this.participants(room).includes(targetId);
   }

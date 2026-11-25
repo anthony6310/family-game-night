@@ -30,7 +30,7 @@ export function ResultsScreen({ room, selfId, error, serverNow, onSkip }: Props)
         <>
           {team.winner ? (
             <>
-              <h1 style={{ color: TEAM_COLORS[team.winner] }}><Icon name="trophy" /> {TEAM_NAMES[team.winner]} wins!</h1>
+              <h1 style={{ color: TEAM_COLORS[team.winner] }}><Icon name="trophy" /> {team.names[team.winner]} wins!</h1>
               <p className="muted">{selfId && team.members[team.winner].includes(selfId) ? "That's your team! +1 point each" : '+1 point for each member'}</p>
             </>
           ) : (
@@ -41,7 +41,7 @@ export function ResultsScreen({ room, selfId, error, serverNow, onSkip }: Props)
           )}
           <p className="team-totals">
             {TEAM_IDS.map((t) => (
-              <span key={t} style={{ color: TEAM_COLORS[t] }}>{TEAM_NAMES[t]}: <strong>{team.totals[t]}</strong></span>
+              <span key={t} style={{ color: TEAM_COLORS[t] }}>{team.names[t]}: <strong>{team.totals[t]}</strong></span>
             ))}
           </p>
         </>
@@ -72,7 +72,7 @@ export function ResultsScreen({ room, selfId, error, serverNow, onSkip }: Props)
       {/* Your own bet's result, if you had one (bets are private: nobody sees anybody else's). */}
       {result.bets.filter((b) => b.bettorId === selfId).map((b) => (
         <p key={b.bettorId} className="my-bet-result">
-          Your bet on {TEAM_IDS.includes(b.targetId as never) ? TEAM_NAMES[b.targetId as keyof typeof TEAM_NAMES] : (byId.get(b.targetId)?.name ?? 'a player who left')}:{' '}
+          Your bet on {TEAM_IDS.includes(b.targetId as never) ? (room.result?.team?.names ?? TEAM_NAMES)[b.targetId as keyof typeof TEAM_NAMES] : (byId.get(b.targetId)?.name ?? 'a player who left')}:{' '}
           <strong>{b.delta > 0 ? <>+{b.delta} <Icon name="trophy" /> (won)</> : b.delta < 0 ? <>{b.delta} <Icon name="trophy" /> (lost)</> : 'no change (void)'}</strong>
         </p>
       ))}

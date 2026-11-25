@@ -48,7 +48,7 @@ export function WinnerBanner({ result, players }: { result: RoundResult; players
         <div className="winner-banner" role="status">
           <span>{bettors.length > 0 ? 'The winners are' : 'The winner is'}</span>
           <strong style={{ color: TEAM_COLORS[team] }}>
-            {TEAM_NAMES[team]}
+            {result.team.names?.[team] ?? TEAM_NAMES[team]}
             <em className="winner-vp" style={{ fontSize: `${0.5 * vpScale(1)}em`, color: '#fff' }}>+1 each</em>
           </strong>
           <p className="winner-underdog">{result.team.members[team].map((id) => teamNames.get(id) ?? 'a player').join(' · ')}</p>

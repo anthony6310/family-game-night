@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GAMES, TEAM_IDS, TEAM_NAMES, getGame, type GameId, type Player, type RoomState } from '@fgn/shared';
+import { GAMES, TEAM_IDS, getGame, teamNamesFor, type GameId, type Player, type RoomState } from '@fgn/shared';
 import { Avatar } from '../Avatar';
 import { BetPanel } from '../BetPanel';
 import { ColorPicker } from '../ColorPicker';
@@ -45,8 +45,10 @@ export function LobbyHub({ room, selfId, serverNow, error, images, run, onLeave,
   const [confirmGive, setConfirmGive] = useState(false);
   const playing = room.players.filter((p) => !watchingIds.includes(p.id));
   const teamGame = game?.teams === true;
-  const teamsFilled = TEAM_IDS.every((t) => playing.some((p) => room.teams[p.id] === t));
-  const teamOptions: Player[] = TEAM_IDS.filter((t) => playing.some((p) => room.teams[p.id] === t)).map((t) => ({ id: t, name: TEAM_NAMES[t], avatarUrl: null, isGuest: true }));
+  const lone = game?.lone === true; // one against all: the sides are drawn at the start of the round, so there is no team picker and both sides can always be bet on
+  const names = teamNamesFor(game?.teamNames);
+  const teamsFilled = lone ? playing.length >= 2 : TEAM_IDS.every((t) => playing.some((p) => room.teams[p.id] === t));
+  const teamOptions: Player[] = TEAM_IDS.filter((t) => lone || playing.some((p) => room.teams[p.id] === t)).map((t) => ({ id: t, name: names[t], avatarUrl: null, isGuest: true }));
   const amReady = selfId !== null && room.readyIds.includes(selfId);
   const waitingOn = room.players.filter((p) => !room.readyIds.includes(p.id)).length; // EVERYONE readies up, spectators too (they choose bets)
   const myPoints = selfId ? (room.scores[selfId] ?? 0) : 0;
@@ -61,7 +63,7 @@ export function LobbyHub({ room, selfId, serverNow, error, images, run, onLeave,
   else if (waitingOn > 0) status = `Waiting for ${waitingOn} ${waitingOn === 1 ? 'player' : 'players'} to ready up…`;
 
   // The checklist: only the steps that still need something from me. The team chip (a team game and I am playing) opens the Teams menu; the Ready chip is just the state of my Ready.
-  const showTeamChip = teamGame && !isWatcher;
+  const showTeamChip = teamGame && !lone && !isWatcher;
 
   return (
     <main className="page hub">
@@ -99,7 +101,7 @@ export function LobbyHub({ room, selfId, serverNow, error, images, run, onLeave,
 
       <nav className="hub-bar" aria-label="Lobby menus">
         {isHost && <button onClick={() => setOpen('game')}>Game</button>}
-        {teamGame && !isWatcher && <button onClick={() => setOpen('team')}>Team</button>}
+        {teamGame && !lone && !isWatcher && <button onClick={() => setOpen('team')}>Team</button>}
         <button onClick={() => setOpen('me')}>Me</button>
         <button onClick={() => setOpen('scores')}>Scores</button>
       </nav>
@@ -127,7 +129,7 @@ export function LobbyHub({ room, selfId, serverNow, error, images, run, onLeave,
         </Sheet>
       )}
 
-      {open === 'team' && game?.teams && (
+      {open === 'team' && game?.teams && !lone && (
         <Sheet title="Teams" onClose={close}>
           <TeamPanel hideTitle room={room} selfId={selfId} isHost={isHost} watchingIds={watchingIds}
             onPick={(team) => run(setTeam(team))} onSwap={(allowed) => run(updateSettings({ teamSwap: allowed }))} />

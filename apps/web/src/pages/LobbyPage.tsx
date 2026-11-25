@@ -16,6 +16,8 @@ const loadSnowballScreen = () => import('../components/SnowballScreen');
 const SnowballScreen = lazy(loadSnowballScreen);
 const loadTapRaceScreen = () => import('../components/TapRaceScreen'); // Tap Race is 3D now too
 const TapRaceScreen = lazy(loadTapRaceScreen);
+const loadRoachScreen = () => import('../components/RoachScreen');
+const RoachScreen = lazy(loadRoachScreen);
 const loadPirateScreen = () => import('../components/PirateScreen');
 const PirateScreen = lazy(loadPirateScreen);
 const loadAdoptionScreen = () => import('../components/AdoptionScreen');
@@ -60,6 +62,7 @@ export function LobbyPage() {
     if (pickedGame === 'tap-race') void loadTapRaceScreen();
     if (pickedGame === 'tug-of-war') void loadTugScreen();
     if (pickedGame === 'pirate-broadside') void loadPirateScreen();
+    if (pickedGame === 'roach-hunt') void loadRoachScreen();
     if (pickedGame === 'adoption-day') void loadAdoptionScreen();
     if (pickedGame === 'snowflake-match') void loadFlakeScreen();
     if (pickedGame === 'mountain-goat') void loadGoatScreen();
@@ -103,6 +106,11 @@ export function LobbyPage() {
       ) : room.game.gameId === 'santa-sack' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
           <SantaSackScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+            serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
+        </Suspense>
+      ) : room.game.gameId === 'roach-hunt' ? (
+        <Suspense fallback={<p className="center">Loading…</p>}>
+          <RoachScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'pirate-broadside' ? (

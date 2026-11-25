@@ -18,6 +18,10 @@ export interface GameInfo {
   introSeconds?: number;
   /** A TEAM game (GAME_RULES.md #17): played as two teams, with the team picker in the lobby, bets on a team, no underdog, and a win for every member of the winning team. The Random tile never picks one. */
   teams?: boolean;
+  /** A ONE-AGAINST-ALL team game: each round one random player is the lone team (Purple) and everyone else is the other team (Yellow). No team picker; the teams are drawn at the start of every round. Needs `teams: true`. */
+  lone?: boolean;
+  /** What the two teams are called in this game, if not Team Yellow / Team Purple. */
+  teamNames?: { yellow: string; purple: string };
 }
 
 // The games, in ALPHABETICAL order by name (this is the order the picker shows them in; keep it that way when adding one).
@@ -59,6 +63,18 @@ export const GAMES = [
     maxPlayers: MAX_PLAYERS,
     scoreLabel: 'points', // (animals of different values are cashed in: penguins, seals and bears)
     finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
+  },
+  {
+    id: 'roach-hunt',
+    name: 'Roach Rumble',
+    description: 'One player is a person with a sandal, and everyone else is a roach in a dark, messy kitchen. Each round the sandal is picked at random. Every roach starts with a full 30 second lifetime that runs down by a second every second, and when it hits zero the roach starves and dies. Food is life: stand still next to a piece of old food to eat it and add to your lifetime (each piece holds about 10 seconds of life, shared by everyone eating it, and you can never have more than 30). Food keeps turning up, a lot of it around the trash can, the mop bucket and the cooker, and a bottle of poison stands by one of them: if the sandal smashes it, that spot is covered in purple poison, food there goes off, and roaches standing in it lose life faster. The sandal hovers over everything, slower than a roach, and lands a very quick smack with a tap on the right of the screen, but after each smack it is stuck for a moment (a little longer if it squashed something). The round is longer the more roaches there are. If at least one roach is still alive when time runs out, the roaches win; if every roach is dead, squashed or starved, the sandal wins.',
+    minPlayers: 2,
+    maxPlayers: MAX_PLAYERS,
+    scoreLabel: '',
+    finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winning side
+    teams: true,
+    lone: true,
+    teamNames: { yellow: 'The Roaches', purple: 'The Sandal' },
   },
   {
     id: 'santa-sack',

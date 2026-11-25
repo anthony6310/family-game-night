@@ -278,6 +278,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
         || (action?.type === 'pick' && Number.isInteger(action.flake) && Number.isFinite(action.at)) // (Snowflake Match; the engine checks everything again)
         || (action?.type === 'aim' && Number.isFinite(action.yaw) && Number.isFinite(action.pitch)) // (Broadside Battle; the engine clamps it)
         || action?.type === 'fire' // (Broadside Battle)
+        || action?.type === 'smack' // (Roach Rumble)
         || (action?.type === 'look' && Number.isFinite(action.yaw)) // (Zoo Adoption)
         || (action?.type === 'grab' && Number.isInteger(action.target)) // (Zoo Adoption; the engine checks the animal and the distance)
         || action?.type === 'give' // (Zoo Adoption)

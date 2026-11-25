@@ -55,6 +55,7 @@ export type GameAction =
   | { type: 'tap' }
   | { type: 'steer'; x: number; z: number }
   | { type: 'sprint'; on: boolean }
+  | { type: 'smack' } // Roach Rumble: the sandal swings
   | { type: 'pick'; flake: number; at: number } // Snowflake Match: tapped falling flake number `flake`, at `at` on the phone's idea of the server clock
   | { type: 'aim'; yaw: number; pitch: number } // Broadside Battle: where this player's cannon points (the ship's own frame); it keeps working while the wick burns
   | { type: 'fire' } // Broadside Battle: light the wick (the cannon fires 1 second later)
@@ -401,7 +402,51 @@ export interface PirateBroadsideView {
   whale: { peek: number; blow: number; breach: number } | null; // when the whale's three visits start, in seconds since startsAt (null: no whale this round)
 }
 
-export type GameView = PirateBroadsideView | AdoptionDayView | SnowflakeMatchView | MountainGoatView | TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
+/** One character in Roach Rumble: a roach, or the sandal player. */
+export interface RoachPlayerView {
+  role: 'roach' | 'sandal';
+  x: number;
+  z: number;
+  facing: number; // the way it faces (0 = towards +z, turning towards +x)
+  alive: boolean;
+  diedAt: number | null; // server clock (epoch ms) a roach died
+  life: number; // a roach's lifetime left, in seconds (0 once it is dead)
+  cause: 'squashed' | 'starved' | 'left' | null; // how a dead roach died (a starved one curls up where it fell; a squashed one is a splat; one that left is just gone)
+  /** The sandal only: server time the swing started (it lands SMACK_WINDUP_MS later), and the spot it landed or will land. */
+  smackAt: number | null;
+  smackX: number;
+  smackZ: number;
+  readyAt: number; // the sandal only: when it is back in your hands (it is out of your control, floating back up, until then)
+  smackHit: boolean; // the sandal only: the last smack squashed a roach (so it is stuck in the guts for longer)
+}
+/** A piece of food on the floor. */
+export interface RoachFoodView {
+  id: number;
+  kind: number; // an index into FOOD_KINDS
+  x: number;
+  z: number;
+  left: number; // 0..1 how much of its pool of life is left (a piece that is finished is taken off the list)
+  poisonedAt: number | null; // server time the spilled poison reached it: it stinks purple and is gone a few seconds later (FOOD_ROT_MS)
+  eating: boolean; // a roach is eating it right now
+}
+/** The Roach Rumble round: who is where, who is alive (and how much lifetime each roach has left), and the food on the floor. */
+export interface RoachHuntView {
+  gameId: 'roach-hunt';
+  startsAt: number;
+  endsAt: number;
+  t: number; // the server clock when this view was made
+  sandalId: string;
+  players: Record<string, RoachPlayerView>;
+  alive: number; // roaches still alive
+  total: number; // roaches at the start
+  foods: RoachFoodView[];
+  /** The kitchen is different every game: the phones make the same layout (`makeLayout`) from this number. */
+  layoutSeed: number;
+  /** Server time the sandal smashed the bottle of poison and doused its landmark (null: the bottle is still standing). */
+  poisonAt: number | null;
+}
+
+export type GameView = RoachHuntView | PirateBroadsideView | AdoptionDayView | SnowflakeMatchView | MountainGoatView | TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
 
 /** A spectator's bet on one player to win a round. With no stake it is a free bet worth 1 victory point if it wins. With a stake, the spectator puts up victory points of their own and wins (or loses) exactly that many. */
 export interface Bet {
@@ -437,7 +482,7 @@ export interface RoundResult {
    */
   bets: BetResult[];
   /** Team games only (otherwise null): which team won (null = a draw), each team's total, and who was on each team. Every member of the winning team won (`winnerId` / `winner` stay null). */
-  team: { winner: TeamId | null; totals: Record<TeamId, number>; members: Record<TeamId, string[]> } | null;
+  team: { winner: TeamId | null; totals: Record<TeamId, number>; members: Record<TeamId, string[]>; names: Record<TeamId, string> } | null;
   /** PUBLIC: the spectators whose bets won, and how much each won. (It only says they backed the winner, never anything else.) */
   winningBettors: { bettorId: string; delta: number }[];
   /** Set when the underdog won this round: they collected `bonus` too. `byDraw` = they won because they were among the players tied for first. */

@@ -292,7 +292,6 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .team-name { margin: 0; font-size: 1.05rem; color: color-mix(in srgb, var(--team) 70%, #fff); text-shadow: 0 1px 0 #0006; }
 .team-members { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.3rem; width: 100%; min-height: 3rem; }
 .team-members li { display: flex; align-items: center; gap: 0.4rem; font-size: 0.95rem; }
-.team-handicap { min-height: 2rem; display: flex; align-items: center; }
 .team-col button.primary { width: 100%; }
 .team-swap { display: flex; align-items: center; gap: 0.5rem; }
 .team-totals { display: flex; flex-direction: column; gap: 0.2rem; text-align: center; font-size: 1.1rem; margin: 0; }
@@ -357,16 +356,9 @@ button.chip { cursor: pointer; }
 .team-step-game { margin: 0; text-align: center; max-width: 30rem; }
 .team-columns { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .team-panel { max-width: 30rem; }
-/* In a team column the handicap reads "head start N" on its own line with the - and + under it. */
 .team-col .stepper { flex-wrap: wrap; justify-content: center; border-radius: 1rem; }
 .team-col .stepper .stepper-value { order: -1; flex: 1 0 100%; }
 
-/* The handicap: a label, then - [number] + on one line (any whole number can be typed). */
-.handicap { display: flex; flex-direction: column; align-items: center; gap: 0.25rem; width: 100%; }
-.handicap-label { font-size: 0.85rem; opacity: 0.85; }
-.handicap-row { display: flex; align-items: center; justify-content: center; gap: 0.3rem; width: 100%; }
-.handicap-row button { width: 2.2rem; min-width: 2.2rem; height: 2.2rem; padding: 0; border-radius: 50%; font-size: 1.3rem; line-height: 1; background: #fff; color: #111; }
-.handicap-row input { width: 3.6rem; min-width: 0; text-align: center; font-size: 1.1rem; font-weight: bold; padding: 0.3rem; border-radius: 0.5rem; border: 2px solid #555; background: #1a1a2e; color: #fff; }
 /* The "Players can choose their team" box and its words sit on ONE line. */
 .team-swap { display: flex; flex-direction: row; align-items: center; justify-content: center; gap: 0.5rem; width: auto; }
 .team-swap input { width: 1.2rem; height: 1.2rem; flex: none; margin: 0; }

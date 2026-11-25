@@ -18,6 +18,7 @@ export function PlayPage() {
   const [busy, setBusy] = useState(false);
   const [asking, setAsking] = useState<string | null>(null); // the id of the locked room whose password is being typed
   const [typed, setTyped] = useState('');
+  const [askingWatch, setAskingWatch] = useState(false); // the locked room being joined is being joined as a spectator
   const [name, setName] = useState(DEFAULT_ROOM_NAME); // the new room's name (it starts as "Game Room")
   const [password, setPassword] = useState(''); // the new room's password (optional)
   const me = session ? profile?.display_name ?? '' : guestName ?? '';
@@ -45,13 +46,13 @@ export function PlayPage() {
     else navigate('/room');
   }
 
-  function onJoin(room: RoomListing) {
-    if (room.hasPassword) { setAsking(room.code); setTyped(''); setError(null); return; } // a locked room: ask for the password first
-    void enter(() => joinRoom(room.code));
+  function onJoin(room: RoomListing, asSpectator = false) {
+    if (room.hasPassword) { setAsking(room.code); setAskingWatch(asSpectator); setTyped(''); setError(null); return; } // a locked room: ask for the password first
+    void enter(() => joinRoom(room.code, undefined, asSpectator));
   }
   function onSubmitPassword(e: FormEvent, room: RoomListing) {
     e.preventDefault();
-    void enter(() => joinRoom(room.code, typed));
+    void enter(() => joinRoom(room.code, typed, askingWatch));
   }
   function onCreate(e: FormEvent) {
     e.preventDefault();
@@ -86,6 +87,7 @@ export function PlayPage() {
                 </span>
               </div>
               <button className="primary" disabled={busy || room.full} onClick={() => onJoin(room)}>{room.full ? 'Full' : 'Join'}</button>
+              {!room.full && <button className="link" disabled={busy} title="Watch and bet instead of playing. You can't switch to playing later: you only get a seat if one opens up." onClick={() => onJoin(room, true)}>Join as spectator</button>}
               {asking === room.code && (
                 <form className="room-password" onSubmit={(e) => onSubmitPassword(e, room)}>
                   <input type="password" autoFocus value={typed} maxLength={ROOM_PASSWORD_MAX} placeholder="Password"

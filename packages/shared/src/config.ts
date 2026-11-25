@@ -1,9 +1,9 @@
 // Game-wide settings shared by client and server. Change them here only.
 
 /**
- * How many "seats" a room has: only the FIRST this-many people to join (in join order) may play. Each of them can switch
- * between playing and watching whenever they like between rounds. Everyone who joins after that is spectator-only, until
- * one of the first people leaves and the earliest spectator-only member gets that seat.
+ * How many "seats" a room has: only this many people can play. Whoever joins when they are all taken is a spectator, in a line.
+ * A seat holder may give theirs up (becoming a spectator at the back of the line); nobody may take a seat on their own. A seat
+ * opens only when someone leaves or gives theirs up, and then the first spectator in line gets it automatically.
  */
 export const MAX_PLAYERS = 8;
 /** Extra spectator-only people a room can hold beyond the seats (this bounds the room's broadcasts). */

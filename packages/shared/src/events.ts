@@ -25,8 +25,6 @@ export interface RoomSettings {
   random: boolean;
   /** Team games: may players choose their team? (The host turns it on or off; off = the random teams are locked.) */
   teamSwap: boolean;
-  /** Team games: a head start for each team, in the game's own score (the host sets it; it can be negative). */
-  handicap: Record<TeamId, number>;
 }
 /** What the host sends to pick the game: a game's id, or 'random' to have the server pick one. */
 export const RANDOM_GAME = 'random';
@@ -81,8 +79,7 @@ export interface TugOfWarView {
   endsAt: number;
   taps: Record<string, number>; // playerId -> taps counted by the SERVER
   teams: Record<string, TeamId>; // who pulls for which team
-  handicap: Record<TeamId, number>; // a team's head start, in taps
-  totals: Record<TeamId, number>; // each team's taps plus its head start: this is what the rope shows
+  totals: Record<TeamId, number>; // each team's taps: this is what the rope shows
 }
 
 /** The kinds of pick-up that can lie in the arena. Only fish so far; more can be added here later. */
@@ -397,8 +394,7 @@ export interface PirateBroadsideView {
   endsAt: number;
   t: number; // the server clock when this view was made
   teams: Record<string, TeamId>;
-  handicap: Record<TeamId, number>;
-  totals: Record<TeamId, number>; // each team's hits plus its head start
+  totals: Record<TeamId, number>; // each team's hits
   crew: Record<TeamId, number>; // how many cannons each ship has
   players: Record<string, PiratePlayerView>;
   shots: PirateShotView[]; // the recent ones
@@ -440,8 +436,8 @@ export interface RoundResult {
    * PRIVATE: only your own bet's result is ever sent to you (nobody sees who bet on whom). Empty if you didn't bet.
    */
   bets: BetResult[];
-  /** Team games only (otherwise null): which team won (null = a draw), each team's total with its handicap, and who was on each team. Every member of the winning team won (`winnerId` / `winner` stay null). */
-  team: { winner: TeamId | null; totals: Record<TeamId, number>; handicap: Record<TeamId, number>; members: Record<TeamId, string[]> } | null;
+  /** Team games only (otherwise null): which team won (null = a draw), each team's total, and who was on each team. Every member of the winning team won (`winnerId` / `winner` stay null). */
+  team: { winner: TeamId | null; totals: Record<TeamId, number>; members: Record<TeamId, string[]> } | null;
   /** PUBLIC: the spectators whose bets won, and how much each won. (It only says they backed the winner, never anything else.) */
   winningBettors: { bettorId: string; delta: number }[];
   /** Set when the underdog won this round: they collected `bonus` too. `byDraw` = they won because they were among the players tied for first. */
@@ -457,16 +453,17 @@ export interface RoomState {
   /** Everyone in the room, in join order: those playing AND those watching (see `watchingIds`). */
   players: Player[];
   /**
-   * Members who are watching instead of playing. They keep their points and still count when the session winner is
-   * decided, but they don't ready up, don't take one of the MAX_PLAYERS playing slots and aren't in the round.
-   * Anyone who joins mid-round, or into a full room, starts out watching.
+   * Members who are not in this round. They keep their points and still count when the session winner is decided, but they
+   * don't ready up and aren't in the round. Every spectator is in here, and so is someone with a seat who joined mid-round
+   * (until that round is over: then they play). Nobody can switch from watching to playing on their own.
    */
   watchingIds: string[];
   /** Each member's color (from PLAYER_COLORS), by player id: their color in every game. Everyone has a different one. */
   colors: Record<string, string>;
   /**
-   * Members who can ONLY watch: only the first MAX_PLAYERS people to join a room (in join order) may play, so anyone beyond
-   * that is spectator-only and has no Play option. When one of those first people leaves, the earliest of these gets a seat.
+   * Members with NO SEAT, in line order: they only watch, and they are the only people who can bet. A room has MAX_PLAYERS seats; whoever
+   * joins with no seat free is added to the back of this line, and so is anyone who gives up their seat. A seat is never taken on your own:
+   * when one opens up (someone leaves or gives theirs up) the FIRST in this line gets it automatically.
    */
   spectatorOnlyIds: string[];
   /**
@@ -517,7 +514,7 @@ export type RoomError =
   | 'ROOM_FULL'
   | 'COLOR_TAKEN' // someone else already has that color
   | 'INVALID_COLOR' // not one of PLAYER_COLORS
-  | 'NO_SEAT' // a spectator-only member tried to switch to playing
+  | 'NO_SEAT' // a spectator tried to switch to playing (seats are only filled from the line when one opens up)
   | 'NOT_A_SPECTATOR' // only spectators can bet
   | 'INVALID_BET' // not a playing player, or more victory points than the bettor has
   | 'ALREADY_IN_ROOM'
@@ -556,10 +553,12 @@ export interface CreateRoomOptions {
   password?: string; // default: none
 }
 
-/** What someone sends to join a room: its id, and the password if it has one. */
+/** What someone sends to join a room: its id, the password if it has one, and whether they only want to watch. */
 export interface JoinRequest {
   code: string;
   password?: string;
+  /** Join as a spectator even if a seat is free (only possible when joining: seats never change by choice afterwards, except by giving yours up). */
+  asSpectator?: boolean;
 }
 
 export interface JoinResult {
@@ -591,8 +590,6 @@ export interface ClientToServerEvents {
   'room:cancel-start': (ack?: (res: Ack<null>) => void) => void;
   /** Team games: pick my team (only while the host allows swapping). It resets everyone's Ready. */
   'player:team': (team: TeamId, ack?: (res: Ack<null>) => void) => void;
-  /** Team games, host only: set a team's handicap (a whole number, may be negative). */
-  'room:handicap': (team: TeamId, value: number, ack?: (res: Ack<null>) => void) => void;
   /** After a refresh or a dropped connection: put me back in the room I was in (the server kept my seat for a short grace period). Fails with NOT_IN_ROOM if there is none. */
   'room:rejoin': (ack: (res: Ack<JoinResult>) => void) => void;
   /** Host only, in the lobby: end the session. The player with the most wins is crowned and saved. */

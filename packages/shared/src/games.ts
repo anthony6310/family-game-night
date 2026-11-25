@@ -16,7 +16,7 @@ export interface GameInfo {
   finishSeconds?: number;
   /** How long the in-game 3, 2, 1 lasts after the static buffer (GAME_INTRO_HOLD_SECONDS, which every game gets), if not the usual GAME_INTRO_COUNT_SECONDS (0 = the game has its own opening and times its own countdown inside it). */
   introSeconds?: number;
-  /** A TEAM game (GAME_RULES.md #17): played as two teams, with the team picker and handicaps in the lobby, bets on a team, no underdog, and a win for every member of the winning team. The Random tile never picks one. */
+  /** A TEAM game (GAME_RULES.md #17): played as two teams, with the team picker in the lobby, bets on a team, no underdog, and a win for every member of the winning team. The Random tile never picks one. */
   teams?: boolean;
 }
 

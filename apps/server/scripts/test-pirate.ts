@@ -12,7 +12,7 @@ const T0 = 1_000_000;
 const eng = createPirateBroadside({ durationMs: 60_000, whale: null }); // (the rules below are tested without the whale; the whale has its own checks at the end)
 type S = ReturnType<typeof eng.init>;
 const teams = { a: 'yellow', b: 'purple', c: 'yellow', d: 'purple', e: 'yellow' } as Record<string, TeamId>;
-const ctx = { teams, handicap: { yellow: 0, purple: 0 } };
+const ctx = { teams };
 const fresh = (ids = ['a', 'b'], c = ctx): S => eng.init(ids, T0, c);
 function run(s: S, from: number, ms: number, step = 25): number {
   let t = from;
@@ -111,7 +111,7 @@ check('some aims hit the enemy ship', aimHit !== null);
 let tries = 0, hits = 0;
 for (let yaw = -0.5; yaw <= 0.5; yaw += 0.05) for (let pitch = 0.1; pitch <= 0.7; pitch += 0.04) { tries++; const sec = 5; if (simulateShot(launchOf('yellow', 0, 1, shipPose('yellow', sec), yaw, pitch), sec, 'purple').hit) hits++; }
 check('...but not all of them (the rocking, the pull and the range matter): between 5% and 60% of a spread of aims hit', hits / tries > 0.05 && hits / tries < 0.6);
-s = fresh(['a', 'b'], { teams: { a: 'yellow', b: 'purple' }, handicap: { yellow: 0, purple: 3 } });
+s = fresh(['a', 'b'], { teams: { a: 'yellow', b: 'purple' } });
 eng.reduce(s, 'a', { type: 'aim', yaw: aimHit!.yaw, pitch: aimHit!.pitch }, T0 + 100);
 eng.reduce(s, 'a', { type: 'fire' }, T0 + 2000);
 t = run(s, T0 + 2000, WICK_MS + 50);
@@ -120,7 +120,7 @@ check('the ball is in the air and has not scored yet', !!flying && flying.hit &&
 t = run(s, t, Math.floor((flying.endAt - t - 30) / 25) * 25);
 check('...it has still not scored just before it lands', view(s).players.a.hits === 0);
 t = run(s, t, 100);
-check('...it scores the moment it lands: one point for the team (and the handicap is added to the totals)', view(s).players.a.hits === 1 && view(s).totals.yellow === 1 && view(s).totals.purple === 3 && eng.scores(s).a === 1);
+check('...it scores the moment it lands: one point for the team ', view(s).players.a.hits === 1 && view(s).totals.yellow === 1 && view(s).totals.purple === 0 && eng.scores(s).a === 1);
 check('a hit on a ship is a hit wherever it lands (the view says where, in the ship\'s own frame)', !!flying.hitLocal && Math.abs(flying.hitLocal[0]) < 19);
 // a miss scores nothing
 s = fresh();
@@ -157,7 +157,7 @@ check('a player who leaves goes quiet but the ship keeps its crew slots', view(s
   const draws = new Set(Array.from({ length: 50 }, () => makeWhaleSchedule().peek));
   check('every game draws different times', draws.size > 30);
   const eng2 = createPirateBroadside({ durationMs: 90_000 });
-  const v2 = eng2.view(eng2.init(['a', 'b'], 0, { teams: { a: 'yellow', b: 'purple' }, handicap: { yellow: 0, purple: 0 } })) as PirateBroadsideView;
+  const v2 = eng2.view(eng2.init(['a', 'b'], 0, { teams: { a: 'yellow', b: 'purple' } })) as PirateBroadsideView;
   check('the view tells the phones when the visits start', !!v2.whale && v2.whale.peek >= 15 && v2.whale.breach <= 75);
   const none = createPirateBroadside({ durationMs: 90_000, whale: null });
   check('a round can have no whale', (none.view(none.init(['a'], 0)) as PirateBroadsideView).whale === null);

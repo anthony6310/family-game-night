@@ -66,7 +66,7 @@ Patterns that proved useful:
 - **Decide outcomes at the moment they become true, using the time they became true** (not the time the tick happened to run). Resolve scheduled events in time order inside `tick`.
 - **Randomness** (spawns, picks) may use `Math.random` inside the engine; keep it out of anything phones must reproduce (those come from the view or from shared pure functions).
 - Keep `endsAt` in the view (the room's timer and the phones' clock both use it). A game with an overtime keeps `endsAt` as the clock's end and adds its own fields for the extra time.
-- Team games get `teams` and handicaps in `init`; the **room** decides the winning team (the engine just reports per-player scores). See section 4.
+- Team games get `teams` in `init`; the **room** decides the winning team (the engine just reports per-player scores). See section 4.
 
 ---
 
@@ -83,7 +83,7 @@ Each of these is standardized. **Plug into them; do not reinvent them per game.*
 - **The finish sequence.** Every round ends with **your own view, then the winner moment** (camera to the winner, banner naming them and any winning bettors; a draw pulls back and says so), then the results screen. Screens use `isWinnerMoment`, `useWinnerSounds` and `WinnerBanner` from `WinnerMoment.tsx`, and the scene exposes a way to move its camera to a winner. A game with a longer closing sequence sets `finishSeconds` in `games.ts` (the server uses it for the phase length). (Rules 2, 11.)
 - **Draws.** `getWinner` returning null is a draw: nobody scores, it still counts as a round, no forced replay. (Rule 4.)
 - **Spectators.** Every game must be watchable by people who are not playing, never acting. A spectator just **follows a player** and sees what that player sees, using the shared spectator tools (`apps/web/src/spectate`: `useSpectatorCamera` + `SpectatorControls`). **There is no free camera and a new game does not need one** (do not build one). A game is not finished until a spectator can follow a player. (Rule 3.)
-- **Team games.** `teams: true` in `games.ts` gives you two fixed teams, a team panel and host-only swap/handicap controls in the lobby, team bets, no underdog, a point for every member of the winning team, and a team step when Random lands on one. The engine reports per-player scores; the room adds them up with the handicap. Draw everyone in their team's color in the scene. (Rules 17, 21.)
+- **Team games.** `teams: true` in `games.ts` gives you two fixed teams, a team panel and a host-only swap switch in the lobby, team bets, no underdog, a point for every member of the winning team, and a team step when Random lands on one. The engine reports per-player scores; the room adds them up. Draw everyone in their team's color in the scene. (Rules 17, 21.)
 - **Overtime.** A game whose end can be held open implements `holdOpen` and shows an indicator; see section 3. The room's timer respects it.
 - **Reconnect.** A dropped player keeps their seat for a grace period; engines never need to handle it except through `removePlayer` when they truly leave. (Rule 15.)
 - **Player colors and names.** Each player has one color in every game (a team game draws team colors instead). Floating names use the shared name-tag helper (`labelTexture.ts`, which draws on a top layer) and must be readable. (Rules 6, 7.)

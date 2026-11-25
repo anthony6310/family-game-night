@@ -3,7 +3,6 @@ import type { GameAction, GameId, GameView, TeamId } from '@fgn/shared';
 /** What a team game's engine is given when the round starts. */
 export interface TeamContext {
   teams: Record<string, TeamId>;
-  handicap: Record<TeamId, number>;
 }
 
 /**

@@ -7,15 +7,16 @@ import { oneLine } from './GameHero';
 
 /**
  * THE TEAM STEP (GAME_RULES.md #21): when the Random tile lands on a TEAM game, the round pauses here (no game is running and there is NO Ready step) so the players can manage the teams
- * (pick a side while swapping is allowed; the host also sets the handicaps and the swap switch). Spectators bet on a team. The HOST starts the round when the teams are right.
+ * (pick a side while swapping is allowed; the host also has the swap switch). Spectators bet on a team. The HOST starts the round when the teams are right.
  */
 export function TeamStep({ room, selfId, serverNow, error, run }: { room: RoomState; selfId: string | null; serverNow: () => number; error: string | null; run: (action: Promise<string | null>) => Promise<void> }) {
-  const { setTeam, setHandicap, updateSettings, placeBet, startFromTeams, cancelTeamStart, returnToLobby } = useRoom();
+  const { setTeam, updateSettings, placeBet, startFromTeams, cancelTeamStart, returnToLobby } = useRoom();
   const counting = room.teamCountdownEndsAt !== null;
   const game = getGame(room.settings.gameId);
   const isHost = room.hostId === selfId;
   const watchingIds = room.watchingIds;
   const isWatcher = selfId !== null && watchingIds.includes(selfId);
+  const isSpectator = selfId !== null && room.spectatorOnlyIds.includes(selfId); // (only people with no seat bet)
   const playing = room.players.filter((p) => !watchingIds.includes(p.id));
   const filled = TEAM_IDS.every((t) => playing.some((p) => room.teams[p.id] === t));
   const teamOptions: Player[] = TEAM_IDS.filter((t) => playing.some((p) => room.teams[p.id] === t)).map((t) => ({ id: t, name: TEAM_NAMES[t], avatarUrl: null, isGuest: true }));
@@ -24,9 +25,9 @@ export function TeamStep({ room, selfId, serverNow, error, run }: { room: RoomSt
       <h1 className="step-title">Set the teams</h1>
       {game && <p className="muted team-step-game"><strong>{game.name}</strong>: {oneLine(game.description)}</p>}
       <TeamPanel hideTitle room={room} selfId={selfId} isHost={isHost} watchingIds={watchingIds}
-        onPick={(team) => run(setTeam(team))} onSwap={(allowed) => run(updateSettings({ teamSwap: allowed }))} onHandicap={(team, value) => run(setHandicap(team, value))} />
+        onPick={(team) => run(setTeam(team))} onSwap={(allowed) => run(updateSettings({ teamSwap: allowed }))} />
       {/* A spectator's bet is on a team, right above the start. */}
-      {isWatcher && (
+      {isSpectator && (
         <BetPanel players={teamOptions} teams bet={selfId ? room.bets[selfId] : undefined} points={selfId ? (room.scores[selfId] ?? 0) : 0} onBet={(target, stake) => run(placeBet(target, stake))} />
       )}
       {error && <p className="error">{error}</p>}

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GAMES, MAX_PLAYERS, TEAM_IDS, TEAM_NAMES, getGame, type GameId, type Player, type RoomState } from '@fgn/shared';
+import { GAMES, TEAM_IDS, TEAM_NAMES, getGame, type GameId, type Player, type RoomState } from '@fgn/shared';
 import { Avatar } from '../Avatar';
 import { BetPanel } from '../BetPanel';
 import { ColorPicker } from '../ColorPicker';
@@ -32,7 +32,7 @@ interface Props {
  * Team (team games), Me (color, play or watch, and a spectator's bet), Scores (the full list and the wins) and Room (the host's settings; Leave).
  */
 export function LobbyHub({ room, selfId, serverNow, error, images, run, onLeave, initialSheet = null }: Props & { initialSheet?: SheetName | null }) {
-  const { updateSettings, setReady, setWatching, setColor, setTeam, setHandicap, placeBet, endSession, closeRoom } = useRoom();
+  const { updateSettings, setReady, setWatching, setColor, setTeam, placeBet, endSession, closeRoom } = useRoom();
   const [open, setOpen] = useState<SheetName | null>(initialSheet);
   const close = () => setOpen(null);
 
@@ -40,7 +40,9 @@ export function LobbyHub({ room, selfId, serverNow, error, images, run, onLeave,
   const game = getGame(room.settings.gameId);
   const watchingIds = room.watchingIds;
   const isWatcher = selfId !== null && watchingIds.includes(selfId);
-  const spectatorOnly = selfId !== null && room.spectatorOnlyIds.includes(selfId); // beyond the first MAX_PLAYERS to join: no Play option
+  const isSpectator = selfId !== null && room.spectatorOnlyIds.includes(selfId); // no seat: you only watch (and bet), until a seat opens up and you are first in line
+  const placeInLine = selfId !== null ? room.spectatorOnlyIds.indexOf(selfId) + 1 : 0;
+  const [confirmGive, setConfirmGive] = useState(false);
   const playing = room.players.filter((p) => !watchingIds.includes(p.id));
   const teamGame = game?.teams === true;
   const teamsFilled = TEAM_IDS.every((t) => playing.some((p) => room.teams[p.id] === t));
@@ -86,8 +88,8 @@ export function LobbyHub({ room, selfId, serverNow, error, images, run, onLeave,
       {status && <p className="muted hub-status">{status}</p>}
       {error && <p className="error">{error}</p>}
 
-      {/* A spectator's bet sits right above the Ready button (it is only here while you are watching). */}
-      {isWatcher && (
+      {/* A spectator's bet sits right above the Ready button (only people with no seat bet). */}
+      {isSpectator && (
         <BetPanel players={game?.teams ? teamOptions : playing} teams={teamGame} bet={myBet} points={myPoints} onBet={(target, stake) => run(placeBet(target, stake))} />
       )}
 
@@ -128,24 +130,31 @@ export function LobbyHub({ room, selfId, serverNow, error, images, run, onLeave,
       {open === 'team' && game?.teams && (
         <Sheet title="Teams" onClose={close}>
           <TeamPanel hideTitle room={room} selfId={selfId} isHost={isHost} watchingIds={watchingIds}
-            onPick={(team) => run(setTeam(team))} onSwap={(allowed) => run(updateSettings({ teamSwap: allowed }))} onHandicap={(team, value) => run(setHandicap(team, value))} />
+            onPick={(team) => run(setTeam(team))} onSwap={(allowed) => run(updateSettings({ teamSwap: allowed }))} />
         </Sheet>
       )}
 
       {open === 'me' && (
         <Sheet title="Me" onClose={close}>
           {/* Players pick their own color, from the ones nobody else has (it is their color in every game). Spectators don't need it. */}
-          {!isWatcher && <ColorPicker colors={room.colors} selfId={selfId} onPick={(color) => run(setColor(color))} />}
-          {/* Play / Watch: switch whenever you like between rounds. Your points stay, and a watcher can still win the session. */}
-          {spectatorOnly ? (
-            <p className="muted">The room has {MAX_PLAYERS} players already, so you're a spectator. If a player leaves, you can take their seat.</p>
+          {!isSpectator && <ColorPicker colors={room.colors} selfId={selfId} onPick={(color) => run(setColor(color))} />}
+          {/* Seats: nobody can move from spectator to player on their own. A seat holder can give theirs up (it goes to whoever has waited longest); a spectator gets a seat only when one opens. */}
+          {isSpectator ? (
+            <p className="muted">You're a spectator: you can watch and bet on the winner (the bet is on the main screen, above Ready), you keep your points and you can still win the session. You get a seat automatically when one opens up (you are number {placeInLine} in line).</p>
           ) : (
-            <div className="mode-toggle" role="radiogroup" aria-label="Play or watch">
-              <button role="radio" aria-checked={!isWatcher} className={!isWatcher ? 'on' : ''} onClick={() => isWatcher && run(setWatching(false))}>Play</button>
-              <button role="radio" aria-checked={isWatcher} className={isWatcher ? 'on' : ''} onClick={() => !isWatcher && run(setWatching(true))}>Watch</button>
-            </div>
+            <>
+              {isWatcher && <p className="muted">You joined while a round was running, so you're watching the rest of it. You play from the next round.</p>}
+              {confirmGive ? (
+                <div className="confirm-give">
+                  <p>Give up your seat? You will become a spectator at the back of the line and can't take it back: you only get a seat again when one opens up and it's your turn.</p>
+                  <button className="primary" onClick={() => { setConfirmGive(false); void run(setWatching(true)); close(); }}>Give up my seat</button>
+                  <button className="link" onClick={() => setConfirmGive(false)}>Keep my seat</button>
+                </div>
+              ) : (
+                <button onClick={() => setConfirmGive(true)}>Give up my seat</button>
+              )}
+            </>
           )}
-          {isWatcher && <p className="muted">Watching: you keep your points, you can bet on the winner (the bet is on the main screen, above Ready), and you can still win the session.</p>}
         </Sheet>
       )}
 

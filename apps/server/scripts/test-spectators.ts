@@ -71,9 +71,8 @@ try {
 
   // ---- switching back, and the points survive ----
   check('Alice leads with 1 point after round 1', a.latest!.scores[a.id] === 1);
-  check('a watcher can come back to playing', (await watching(c, false)).ok && await until(a, (s) => !isWatching(s, c.id)));
-  check('...and the new player is not ready, so the countdown waits for them', a.latest!.phase === 'lobby' && !a.latest!.readyIds.includes(c.id));
-  check('going to watch drops your ready; the watcher readies again and the countdown starts', (await ready(a)).ok && (await ready(b)).ok && (await watching(c, true)).ok && (await ready(c)).ok && await until(a, (s) => s.phase === 'countdown' || s.phase === 'playing'));
+  check('a spectator cannot choose to play again: there is no way back to a seat on your own', err(await watching(c, false)) === 'NO_SEAT' && isWatching(a.latest, c.id));
+  check('the spectator readies again with the others and the countdown starts', (await ready(a)).ok && (await ready(b)).ok && (await ready(c)).ok && await until(a, (s) => s.phase === 'countdown' || s.phase === 'playing'));
   await until(a, (s) => s.phase === 'playing');
   await tap(a, 5);
   await until(a, (s) => s.phase === 'lobby');
@@ -102,21 +101,23 @@ try {
   await cmd((r) => x.socket.emit('session:end', r));
   check('a watcher who leads at the end is crowned', await until(x, (s) => s.phase === 'session-over' && s.sessionWinner?.id === y.id && isWatching(s, y.id)));
 
-  // ---- seats: only the first 8 to join may play; later joiners are spectator-only ----
+  // ---- seats: 8 seats; later joiners wait in a line; seats change hands only when someone leaves or gives theirs up ----
   const host = await guest('Host');
   const m3 = await create(host); const code3 = m3.ok ? m3.data.room.code : '';
   const crowd: P[] = [host];
   for (let i = 1; i < MAX_PLAYERS; i++) { const g = await guest(`P${i}`); await join(g, code3); crowd.push(g); }
   const ninth = await guest('Ninth');
   check('the 9th person joins as a watcher', (await join(ninth, code3)).ok && isWatching(ninth.latest, ninth.id));
-  check('...and is listed as spectator-only', await until(host, (s) => s.spectatorOnlyIds.length === 1 && s.spectatorOnlyIds[0] === ninth.id));
+  check('...and is listed as a spectator (in the line)', await until(host, (s) => s.spectatorOnlyIds.length === 1 && s.spectatorOnlyIds[0] === ninth.id));
   check('...with no option to play', err(await watching(ninth, false)) === 'NO_SEAT');
-  await watching(crowd[3], true);
-  check('...even when a seat holder switches to watching (the seat is theirs to come back to)', err(await watching(ninth, false)) === 'NO_SEAT');
-  await watching(crowd[3], false);
+  check('only a spectator can bet: a seat holder cannot', err(await cmd((r) => crowd[1].socket.emit('player:bet', crowd[2].id, 0, r))) === 'NOT_A_SPECTATOR');
+  check('...and a spectator can', (await cmd((r) => ninth.socket.emit('player:bet', crowd[2].id, 0, r))).ok);
+  check('a seat holder gives up their seat: the first in line takes it automatically, and the one who gave it up joins the back of the line', (await watching(crowd[3], true)).ok
+    && await until(host, (s) => s.spectatorOnlyIds.length === 1 && s.spectatorOnlyIds[0] === crowd[3].id && !isWatching(s, ninth.id)));
+  check('...who has no way back to the seat they gave up', err(await watching(crowd[3], false)) === 'NO_SEAT');
+  check('...and the new seat holder starts without their bet', host.latest!.bets[ninth.id] === undefined);
   crowd[5].socket.emit('room:leave'); // a seat holder drops out
-  check('when a seat holder leaves, the next spectator gets play privileges', await until(host, (s) => s.spectatorOnlyIds.length === 0));
-  check('...and can now switch to playing', (await watching(ninth, false)).ok && await until(host, (s) => !isWatching(s, ninth.id)));
+  check('when a seat holder leaves, the spectator at the front of the line gets the seat', await until(host, (s) => s.spectatorOnlyIds.length === 0 && !isWatching(s, crowd[3].id)));
 } finally {
   all.forEach((s) => s.close());
   httpServer.close();

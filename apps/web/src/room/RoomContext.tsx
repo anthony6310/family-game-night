@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
 import { io, type Socket } from 'socket.io-client';
 import {
-  MAX_PLAYERS,
   type Ack, type ClientToServerEvents, type CreateRoomOptions, type GameAction, type GameId, type JoinResult, type RoomError, type RoomListing, type RoomState,
   type ServerToClientEvents, type TeamId,
 } from '@fgn/shared';
@@ -20,8 +19,8 @@ const ERROR_TEXT: Record<RoomError, string> = {
   TOO_MANY_ATTEMPTS: 'Too many tries in a short time. Wait a minute and try again.',
   TOO_MANY_ROOMS: 'Too many rooms right now, or you made rooms too fast. Try again in a bit.',
   ROOM_FULL: 'That room is full.',
-  NO_SEAT: `The first ${MAX_PLAYERS} people in a room can play. You're a spectator until a seat opens up.`,
-  NOT_A_SPECTATOR: 'Only spectators can bet. Players are playing for the win!',
+  NO_SEAT: "You're a spectator, and you can't take a seat on your own: you get one automatically when a seat opens up and it's your turn.",
+  NOT_A_SPECTATOR: 'Only spectators (people without a seat) can bet. Seat holders are playing for the win!',
   COLOR_TAKEN: 'Someone else already has that color.',
   INVALID_COLOR: "That isn't one of the colors.",
   INVALID_BET: "That bet isn't allowed (pick a player who is playing; a stake is 0 or at least 2 points, and no more than you have).",
@@ -45,16 +44,15 @@ interface RoomContextValue {
   /** Each returns an error message to display, or null on success. */
   createRoom: (options?: CreateRoomOptions) => Promise<string | null>;
   /** Join a room from the list (its id), with its password if it has one. */
-  joinRoom: (code: string, password?: string) => Promise<string | null>;
+  joinRoom: (code: string, password?: string, asSpectator?: boolean) => Promise<string | null>;
   /** The rooms that can be joined right now. */
   listRooms: () => Promise<{ rooms: RoomListing[] } | { error: string }>;
   /** Switch between playing and watching (between rounds). Points are kept either way. */
   setWatching: (watching: boolean) => Promise<string | null>;
   /** Pick my color (one nobody else has). It is my color in every game. */
   setColor: (color: string) => Promise<string | null>;
-  /** Team games: pick my team (while the host allows it); the host sets each team's handicap. */
+  /** Team games: pick my team (while the host allows it). */
   setTeam: (team: TeamId) => Promise<string | null>;
-  setHandicap: (team: TeamId, value: number) => Promise<string | null>;
   /** The team step (the Random tile landed on a team game), host only: start the round. */
   startFromTeams: () => Promise<string | null>;
   /** The team step, host only: cancel the start countdown. */
@@ -223,7 +221,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     room,
     selfId,
     createRoom: (options) => request((s, ack) => (options ? s.emit('room:create', options, ack) : s.emit('room:create', ack))),
-    joinRoom: (code, password) => request((s, ack) => s.emit('room:join', password ? { code, password } : code, ack)),
+    joinRoom: (code, password, asSpectator) => request((s, ack) => s.emit('room:join', password || asSpectator ? { code, ...(password ? { password } : {}), ...(asSpectator ? { asSpectator: true } : {}) } : code, ack)),
     listRooms: () => new Promise((resolve) => {
       const socket = getSocket(); // (the connection is made if there isn't one yet: being logged in is all it takes to see the list)
       const onConnectError = (err: Error) => { disconnect(); resolve({ error: err.message }); };
@@ -237,7 +235,6 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     setWatching: (watching) => command((s, ack) => s.emit('player:watching', watching, ack)),
     setColor: (color) => command((s, ack) => s.emit('player:color', color, ack)),
     setTeam: (team) => command((s, ack) => s.emit('player:team', team, ack)),
-    setHandicap: (team, value) => command((s, ack) => s.emit('room:handicap', team, value, ack)),
     startFromTeams: () => command((s, ack) => s.emit('room:start-teams', ack)),
     cancelTeamStart: () => command((s, ack) => s.emit('room:cancel-start', ack)),
     placeBet: (targetId, stake) => command((s, ack) => s.emit('player:bet', targetId, stake, ack)),

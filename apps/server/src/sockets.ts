@@ -234,7 +234,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       if (typeof ack !== 'function') return;
       const request: Partial<JoinRequest> = typeof target === 'string' ? { code: target } : target && typeof target === 'object' ? target : {};
       if (wrongPasswords.blocked(address)) return ack({ ok: false, error: 'TOO_MANY_ATTEMPTS' }); // (checked before the password is even looked at)
-      const result = rooms.join(String(request.code ?? ''), player, request.password);
+      const result = rooms.join(String(request.code ?? ''), player, request.password, request.asSpectator === true);
       if (!result.ok && result.error === 'WRONG_PASSWORD') wrongPasswords.record(address);
       enter(result, ack);
     });
@@ -254,7 +254,6 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     socket.on('room:cancel-start', (ack) => command(rooms.cancelTeamStart(player.id), ack));
     socket.on('room:start-teams', (ack) => command(rooms.startFromTeams(player.id), ack));
     socket.on('player:team', (team, ack) => command(rooms.setTeam(player.id, team), ack));
-    socket.on('room:handicap', (team, value, ack) => command(rooms.setHandicap(player.id, team, value), ack));
     socket.on('player:color', (color, ack) => command(rooms.setColor(player.id, String(color)), ack));
     socket.on('player:bet', (target, stake, ack) => command(rooms.setBet(player.id, typeof target === 'string' ? target : null, Number(stake)), ack));
     socket.on('player:ready', (ready, ack) => command(rooms.setReady(player.id, ready === true), ack));

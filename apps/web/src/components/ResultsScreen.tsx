@@ -41,7 +41,7 @@ export function ResultsScreen({ room, selfId, error, serverNow, onSkip }: Props)
           )}
           <p className="team-totals">
             {TEAM_IDS.map((t) => (
-              <span key={t} style={{ color: TEAM_COLORS[t] }}>{TEAM_NAMES[t]}: <strong>{team.totals[t]}</strong>{team.handicap[t] !== 0 && ` (with a head start of ${team.handicap[t] > 0 ? '+' : ''}${team.handicap[t]})`}</span>
+              <span key={t} style={{ color: TEAM_COLORS[t] }}>{TEAM_NAMES[t]}: <strong>{team.totals[t]}</strong></span>
             ))}
           </p>
         </>

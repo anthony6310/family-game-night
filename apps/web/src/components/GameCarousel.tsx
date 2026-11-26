@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { GAMES, ROULETTE_HOLD_SECONDS, getGame, type GameId } from '@fgn/shared';
+import { ACTIVE_GAMES, ROULETTE_HOLD_SECONDS, getGame, type GameId } from '@fgn/shared';
 import { audio } from '../audio/spatialAudio';
 import { typewriterClick } from '../audio/clickSounds';
 
@@ -60,8 +60,8 @@ const gameItem = (g: { id: string; name: string }, images: Partial<Record<GameId
  * host picks, the loop slides, quickly and with a snap (a little overshoot), the short way round to that game's tile. It is only a display: the host decides.
  */
 export function GameCarousel({ selectedId, random, images }: { selectedId: GameId | null; random: boolean; images: Partial<Record<GameId, string>> }) {
-  const items: Item[] = useRef([{ key: 'random', name: 'Random', random: true } as Item, ...GAMES.map((g) => gameItem(g, images))]).current;
-  const target = selectedId && !random ? 1 + GAMES.findIndex((g) => g.id === selectedId) : 0; // (0 is the Random tile)
+  const items: Item[] = useRef([{ key: 'random', name: 'Random', random: true } as Item, ...ACTIVE_GAMES.map((g) => gameItem(g, images))]).current;
+  const target = selectedId && !random ? 1 + ACTIVE_GAMES.findIndex((g) => g.id === selectedId) : 0; // (0 is the Random tile)
   const anim = useRef({ pos: target, from: target, to: target, t0: 0 });
   const targetRef = useRef(target);
   targetRef.current = target;
@@ -86,8 +86,8 @@ export function GameCarousel({ selectedId, random, images }: { selectedId: GameI
  * It ticks each time a tile goes by.
  */
 export function RouletteWheel({ gameId, startsAt, endsAt, serverNow, images }: { gameId: GameId; startsAt: number; endsAt: number; serverNow: () => number; images: Partial<Record<GameId, string>> }) {
-  const items = useRef(GAMES.map((g) => gameItem(g, images))).current;
-  const target = Math.max(0, GAMES.findIndex((g) => g.id === gameId));
+  const items = useRef(ACTIVE_GAMES.map((g) => gameItem(g, images))).current;
+  const target = Math.max(0, ACTIVE_GAMES.findIndex((g) => g.id === gameId));
   const LAPS = 4; // whole laps before it settles
   const total = LAPS * items.length + target;
   const lastTick = useRef(-1);

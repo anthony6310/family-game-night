@@ -3,7 +3,7 @@
  * The host picks Random: no game yet. Everyone readies up, the countdown ends, the server picks a game and the room goes to the 'roulette' phase (everyone watches
  * the carousel spin onto it); when that ends the round starts as usual. After the round the Random tile is still chosen and the next round rolls again.
  */
-import { GAMES, RANDOM_GAME, type Player } from '@fgn/shared';
+import { ACTIVE_GAMES, GAMES, RANDOM_GAME, type Player } from '@fgn/shared';
 import { RoomManager } from '../src/rooms';
 
 let failures = 0;
@@ -54,8 +54,9 @@ for (let i = 0; i < 80; i++) {
   seen.add(many.stateOf(m.room.code)!.settings.gameId!);
   many.returnToLobby('X');
 }
-const normal = GAMES.filter((g) => !(g as { teams?: boolean }).teams);
+const normal = ACTIVE_GAMES.filter((g) => !(g as { teams?: boolean }).teams);
 check('over many rolls every ordinary game comes up, and a team game never does (teams need their own lobby step: GAME_RULES.md #17)', seen.size === normal.length && !seen.has('tug-of-war'));
+check('an archived game (Snowball) never comes up either', !seen.has('snowball') && !ACTIVE_GAMES.some((g) => g.id === 'snowball') && normal.length > 0);
 many.setSettings('X', { gameId: 'tap-race' });
 check('picking a game by hand clears the random mark', many.stateOf(m.room.code)!.settings.gameId === 'tap-race' && many.stateOf(m.room.code)!.settings.random === false);
 check('an unknown game is still refused', !many.setSettings('X', { gameId: 'nope' as never }).ok);

@@ -431,7 +431,7 @@ export interface RoachPlayerView {
   smackX: number;
   smackZ: number;
   readyAt: number; // the sandal only: when it is back in your hands (it is out of your control, floating back up, until then)
-  eating: boolean; // a roach only: it is sitting still next to a piece of food and eating it right now
+  eating: boolean; // a roach only: it is next to a piece of food, facing it, and eating it right now
   smackHit: boolean; // the sandal only: the last smack squashed a roach (so it is stuck in the guts for longer)
 }
 /** A piece of food on the floor. */

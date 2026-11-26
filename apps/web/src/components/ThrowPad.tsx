@@ -3,6 +3,9 @@ import { useRef, useState, type PointerEvent } from 'react';
 /** A pull, in screen directions: `dx` is towards the right of the screen and `dz` towards the bottom, both the OPPOSITE way to the drag (the toy flies the other way, like a slingshot), and `power` (0..1) is how long the pull is. The scene turns it into a direction on the floor for the player's camera. */
 export interface Pull { dx: number; dz: number; power: number }
 
+/** How much longer a pull is needed for a full-power throw than it first was: 250% more (3.5 times), so the pull has a much bigger range to feel along. */
+const PULL_RANGE_SCALE = 3.5;
+
 interface Props {
   /** The pull as it changes (null when it ends), so the scene can draw where the toy would land. */
   onAim: (pull: Pull | null) => void;
@@ -20,7 +23,7 @@ export function ThrowPad({ onAim, onThrow }: Props) {
   const active = useRef<number | null>(null);
 
   const pull = (e: PointerEvent<HTMLDivElement>, ox: number, oy: number): Pull => {
-    const full = Math.max(110, 0.28 * Math.min(window.innerWidth, window.innerHeight)); // (the pull for a full-power throw, in pixels)
+    const full = Math.max(110, 0.28 * Math.min(window.innerWidth, window.innerHeight)) * PULL_RANGE_SCALE; // (the pull for a full-power throw, in pixels)
     const dx = ox - e.clientX, dz = oy - e.clientY; // (pulling back: the toy goes the opposite way)
     return { dx, dz, power: Math.min(1, Math.hypot(dx, dz) / full) };
   };

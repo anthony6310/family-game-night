@@ -19,7 +19,7 @@ const fresh = (ids = ['s', 'a', 'b', 'c']) => { const g = eng.init(ids, T0, { te
 type S = ReturnType<typeof fresh>;
 const view = (s: S) => eng.view(s) as RoachHuntView;
 const run = (s: S, from: number, ms: number, stepMs = 25) => { let t = from; for (let i = 0; i < ms / stepMs; i++) { t += stepMs; eng.tick!(s, stepMs / 1000, t); } return t; };
-type Raw = { players: Record<string, { x: number; z: number; alive: boolean; life: number }>; foods: { x: number; z: number; pool: number }[] };
+type Raw = { players: Record<string, { x: number; z: number; facing: number; alive: boolean; life: number }>; foods: { x: number; z: number; pool: number }[] };
 const raw = (s: S) => s as unknown as Raw;
 const farFoods = (s: S) => raw(s).foods.forEach((f, i) => { f.x = -38 + i * 0.01; f.z = 38; }); // (out of the way: a corner)
 const atOpen = (s: S) => { raw(s).players.s.x = 20; raw(s).players.s.z = 0; }; // (the sandal in a stretch of open floor: the smack spot is then clear of the island)
@@ -133,10 +133,10 @@ check('a bad steer is ignored', Number.isFinite(view(s).players.a.x));
 }
 
 // life and eating
-const adjacentTo = (p: { x: number; z: number }, f: { x: number; z: number }) => { p.x = f.x + (FOOD_RADIUS + ROACH_RADIUS + 0.2); p.z = f.z; };
+const adjacentTo = (p: { x: number; z: number; facing: number }, f: { x: number; z: number }) => { p.x = f.x + (FOOD_RADIUS + ROACH_RADIUS + 0.2); p.z = f.z; p.facing = Math.atan2(f.x - p.x, f.z - p.z); }; // (next to the piece, facing it)
 const START15 = 15; // (what `fresh` starts the roaches on)
 const park = (m: S, keep: number) => raw(m).foods.forEach((f, i) => { if (i !== keep) { f.x = 38 - i * 3; f.z = -38; } }); // (every piece but one out of the way)
-const adjacent = (p: { x: number; z: number }, f: { x: number; z: number }, side = 1) => { p.x = f.x + side * (FOOD_RADIUS + ROACH_RADIUS + 0.2); p.z = f.z; };
+const adjacent = (p: { x: number; z: number; facing: number }, f: { x: number; z: number }, side = 1) => { p.x = f.x + side * (FOOD_RADIUS + ROACH_RADIUS + 0.2); p.z = f.z; p.facing = Math.atan2(f.x - p.x, f.z - p.z); }; // (next to the piece, facing it)
 s = fresh();
 {
   const m = fresh(); farFoods(m);
@@ -165,6 +165,7 @@ check('one eater empties a piece in 4 seconds and has gained its 10 seconds (15 
   const n = fresh();
   const h = raw(n).foods[0]; h.x = 5; h.z = 13; // (open floor, so nobody is pushed off)
   raw(n).players.a.x = h.x + 2.5; raw(n).players.a.z = h.z; raw(n).players.b.x = h.x - 2.5; raw(n).players.b.z = h.z; raw(n).players.c.x = h.x; raw(n).players.c.z = h.z + 2.5;
+  for (const id of ['a', 'b', 'c']) raw(n).players[id].facing = Math.atan2(h.x - raw(n).players[id].x, h.z - raw(n).players[id].z); // (all three face the piece)
   run(n, T0 + 10, 2000);
   const gained = ['a', 'b', 'c'].map((id) => view(n).players[id].life + 2); // (they all ate for ~1.4 s and lost 2 s)
   check('three eaters share the pool evenly and the total taken is exactly the pool (10 seconds)', view(n).foods.length === 3 && Math.abs(gained.reduce((x, y) => x + y, 0) - (3 * START15 + FOOD_POOL)) < 0.35 && Math.max(...gained) - Math.min(...gained) < 0.1);
@@ -180,25 +181,44 @@ check('one eater empties a piece in 4 seconds and has gained its 10 seconds (15 
   check('...and the piece is still used up in the same 4 seconds', !view(m).foods.some((f) => f.id === 1) && view(m).players.a.life > ROACH_LIFE_MAX - 0.5 && view(m).players.a.life <= ROACH_LIFE_MAX);
 }
 {
-  // standing still, then moving: eating stops, and the pool keeps what is left
+  // moving does not stop eating, but turning away does; the pool keeps what is left
   const m = fresh(); park(m, 1);
   const g = raw(m).foods[1];
   adjacent(raw(m).players.a, g);
   let u = run(m, T0 + 10, 1000);
   const left = view(m).foods.find((f) => f.id === 1)!.left;
-  check('(a roach settled next to a piece is eating it)', view(m).foods.find((f) => f.id === 1)!.eating && left < 0.8);
-  eng.reduce(m, 'a', { type: 'steer', x: 0.2, z: 0 }, u + 1);
+  check('(a roach settled next to a piece, facing it, is eating it)', view(m).foods.find((f) => f.id === 1)!.eating && left < 0.8);
+  eng.reduce(m, 'a', { type: 'steer', x: -0.2, z: 0 }, u + 1); // (pushing towards the piece: still moving, still facing it)
+  u = run(m, u + 1, 300);
+  check('pushing the stick towards the food (still facing it) keeps the roach eating', view(m).foods.find((f) => f.id === 1)!.eating && view(m).foods.find((f) => f.id === 1)!.left < left - 0.05);
+  eng.reduce(m, 'a', { type: 'steer', x: 0.2, z: 0 }, u + 1); // (turning away from the piece)
   u = run(m, u + 1, 100);
-  check('the slightest movement stops the eating at once, and what is left in the pool stays', !view(m).foods.find((f) => f.id === 1)!.eating && Math.abs(view(m).foods.find((f) => f.id === 1)!.left - left) < 0.06);
-  eng.reduce(m, 'a', { type: 'steer', x: 0, z: 0 }, u + 1);
+  const away = view(m).foods.find((f) => f.id === 1)!.left;
+  check('turning away from the food stops the eating at once, and what is left in the pool stays', !view(m).foods.find((f) => f.id === 1)!.eating && !view(m).players.a.eating);
+  u = run(m, u, 300);
+  check('...and stays stopped while it faces away', Math.abs(view(m).foods.find((f) => f.id === 1)!.left - away) < 0.001);
+  eng.reduce(m, 'a', { type: 'steer', x: -0.2, z: 0 }, u + 1);
   u = run(m, u + 1, 100);
-  check('...and as soon as it stops moving it eats again', view(m).foods.find((f) => f.id === 1)!.eating);
+  check('...and as soon as it faces the piece again (still in reach) it eats again', view(m).foods.find((f) => f.id === 1)!.eating);
   const w = fresh(); farFoods(w);
-  const h = raw(w).foods[0];
-  raw(w).players.a.x = h.x + 6; raw(w).players.a.z = h.z + 0.01;
+  const h = raw(w).foods[0]; h.x = 10; h.z = 0; // (a piece on a stretch of open floor)
+  raw(w).players.a.x = h.x + 12; raw(w).players.a.z = h.z + 0.01;
   eng.reduce(w, 'a', { type: 'steer', x: -1, z: 0 }, T0 + 10);
-  run(w, T0 + 10, 1100);
-  check('a roach that is walking up to food (moving) eats nothing', view(w).foods[0].left === 1);
+  run(w, T0 + 10, 300);
+  check('a roach still walking towards food, out of reach, eats nothing yet', view(w).foods[0].left === 1);
+  run(w, T0 + 310, 1000);
+  check('...but eats as soon as it is in reach, still pushing the stick at the food (no need to stop)', view(w).foods[0].left < 1 && view(w).players.a.eating);
+  const side = fresh(); farFoods(side);
+  const k = raw(side).foods[0];
+  adjacent(raw(side).players.a, k);
+  eng.reduce(side, 'a', { type: 'steer', x: 0, z: -1 }, T0 + 10); // (walking along the food, not at it)
+  run(side, T0 + 10, 60);
+  check('a roach beside a piece but facing sideways (across it) eats nothing', view(side).foods[0].left === 1 && !view(side).players.a.eating);
+  const back = fresh(); farFoods(back);
+  const kb = raw(back).foods[0];
+  adjacent(raw(back).players.a, kb); raw(back).players.a.facing += Math.PI; // (standing next to it with its back to it)
+  run(back, T0 + 10, 500);
+  check('a roach standing next to food with its back to it eats nothing', view(back).foods[0].left === 1);
 }
 check('a roach far from any food eats nothing', view(s).foods.every((f) => f.left === 1));
 s = fresh();

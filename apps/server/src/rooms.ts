@@ -3,7 +3,7 @@ import { randomInt } from 'node:crypto';
 import { hashPassword, verifyPassword } from './passwords';
 import {
   PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
-  COUNTDOWN_SECONDS, FINISH_SECONDS, RANDOM_GAME, ROULETTE_SECONDS, GAME_INTRO_COUNT_SECONDS, GAME_INTRO_HOLD_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
+  COUNTDOWN_SECONDS, FINISH_SECONDS, RANDOM_GAME, ROULETTE_SECONDS, GAME_INTRO_COUNT_SECONDS, GAME_INTRO_HOLD_SECONDS, ACTIVE_GAMES, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
   FLAKE_SECONDS, FROG_SECONDS, GOAT_SECONDS, PIRATE_SECONDS, SHELTER_SECONDS, PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, REVEAL_LEAD_MS, STARTING_MAX_MS, STARTING_MS, TAP_RACE_SECONDS, TUG_SECONDS, getGame,
   DEFAULT_ROOM_NAME, MAX_ROOMS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
@@ -566,8 +566,8 @@ export class RoomManager {
   private randomPool(room: Room) {
     const n = this.participants(room).length;
     if (this.forceRandom) { const forced = GAMES.filter((g) => g.id === this.forceRandom); if (forced.length) return forced; } // (tests only)
-    const pool = GAMES.filter((g) => !getGame(g.id)?.teams && n >= g.minPlayers && n <= g.maxPlayers); // (the Random tile never picks a team game)
-    return pool.length > 0 ? pool : GAMES;
+    const pool = ACTIVE_GAMES.filter((g) => !getGame(g.id)?.teams && n >= g.minPlayers && n <= g.maxPlayers); // (the Random tile never picks a team game, or an archived one)
+    return pool.length > 0 ? pool : ACTIVE_GAMES;
   }
 
   /** The roulette is over: carry on as a normal start. Same stale-timer guard as the countdown. */
@@ -1044,7 +1044,7 @@ export class RoomManager {
     if (room.phase === 'lobby' || room.phase === 'countdown') this.cleanBets(room);
     const game = getGame(room.settings.gameId);
     const ids = this.participants(room);
-    const randomOk = room.settings.random && ids.length >= Math.min(...GAMES.filter((g) => !getGame(g.id)?.teams).map((g) => g.minPlayers)); // (the Random tile: any game that fits will do)
+    const randomOk = room.settings.random && ids.length >= Math.min(...ACTIVE_GAMES.filter((g) => !getGame(g.id)?.teams).map((g) => g.minPlayers)); // (the Random tile: any game that fits will do)
     // EVERYONE has to be ready: the players, and the spectators too (they are choosing their bets).
     const everyoneReady = [...room.players.keys()].every((id) => room.ready.has(id));
     const canStart = (randomOk || (Boolean(game) && ids.length >= game!.minPlayers && (!game!.teams || this.teamsFilled(room)))) && everyoneReady; // (a team game also needs a player on each team)

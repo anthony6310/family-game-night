@@ -1,5 +1,5 @@
 import {
-  BOTTLE_RADIUS, FOOD_EAT_RATE, FOOD_ROT_MS, FOOD_EAT_REACH, FOOD_KINDS, FOOD_POOL, FOOD_RADIUS, FOOD_RESPAWN_MS, POISON_DRAIN, POISON_RADIUS, ROACH_LIFE_DRAIN, ROACH_LIFE_MAX, ROACH_LIFE_POISONED_MAX, ROACH_LIFE_START, ROACH_RADIUS, SANDAL_RADIUS, SANDAL_SPEED, SMACK_HIT_ARREST_MS, SMACK_MISS_ARREST_MS, SMACK_RADIUS, SMACK_WINDUP_MS,
+  BOTTLE_RADIUS, FOOD_EAT_RATE, FOOD_ROT_MS, FOOD_EAT_FACING, FOOD_EAT_REACH, FOOD_KINDS, FOOD_POOL, FOOD_RADIUS, FOOD_RESPAWN_MS, POISON_DRAIN, POISON_RADIUS, ROACH_LIFE_DRAIN, ROACH_LIFE_MAX, ROACH_LIFE_POISONED_MAX, ROACH_LIFE_START, ROACH_RADIUS, SANDAL_RADIUS, SANDAL_SPEED, SMACK_HIT_ARREST_MS, SMACK_MISS_ARREST_MS, SMACK_RADIUS, SMACK_WINDUP_MS,
   canStandAt, foodCap, inPoison, makeLayout, moveRoach, placeFood, roachRoundSeconds, roachStart, smackSpot, stepMover,
   type Disc, type Layout, type RoachFoodView, type RoachHuntView, type RoachPlayerView,
 } from '@fgn/shared';
@@ -149,13 +149,18 @@ export function createRoachHunt(options: Partial<RoachConfig> = {}): GameEngine<
           const rotten = state.foods.filter((f) => f.poisonedAt !== null && now - f.poisonedAt >= FOOD_ROT_MS);
           for (const f of rotten) { state.foods.splice(state.foods.indexOf(f), 1); state.respawns.push(now + FOOD_RESPAWN_MS); }
         }
-        // Eating: a roach sitting still next to a piece (the nearest one, if two are in reach) is eating it. Every eater takes FOOD_EAT_RATE seconds of life a second from the piece's pool (if the pool runs short it is split evenly); life over the maximum is lost.
+        // Eating: a roach next to a piece AND facing it (the nearest such piece, if two qualify) is eating it, moving or not. Every eater takes FOOD_EAT_RATE seconds of life a second from the piece's pool (if the pool runs short it is split evenly); life over the maximum is lost.
         for (const p of Object.values(state.players)) p.eating = false;
         const eaters = new Map<Food, Body[]>();
         for (const p of roaches) {
-          if (Math.hypot(p.sx, p.sz) > 0.05) continue;
           let best: Food | null = null, bestD = Infinity;
-          for (const f of state.foods) { const d = Math.hypot(p.x - f.x, p.z - f.z); if (d <= FOOD_RADIUS + ROACH_RADIUS + FOOD_EAT_REACH && d < bestD) { best = f; bestD = d; } }
+          for (const f of state.foods) {
+            const d = Math.hypot(p.x - f.x, p.z - f.z);
+            if (d > FOOD_RADIUS + ROACH_RADIUS + FOOD_EAT_REACH || d >= bestD) continue;
+            let off = Math.abs(Math.atan2(f.x - p.x, f.z - p.z) - p.facing) % (2 * Math.PI); // (how far the piece is from straight ahead: facing is atan2(x, z) too)
+            if (off > Math.PI) off = 2 * Math.PI - off;
+            if (off <= FOOD_EAT_FACING) { best = f; bestD = d; }
+          }
           if (best) eaters.set(best, [...(eaters.get(best) ?? []), p]);
         }
         const finished: Food[] = [];

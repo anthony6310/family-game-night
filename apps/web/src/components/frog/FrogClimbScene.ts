@@ -3,7 +3,7 @@ import {
   MeshStandardMaterial, OrthographicCamera, PerspectiveCamera, PlaneGeometry, Quaternion, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Sprite, SpriteMaterial, TorusGeometry, Vector2, Vector3, WebGLRenderer, WebGLRenderTarget,
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { POLE_WORLD_HEIGHT, bendStress, SWAP_COOLDOWN_MS, frogDeflection, obstaclesFor, poleCurve, worldY, type FrogClimbView, type FrogPlayerView, type Obstacle } from '@fgn/shared';
+import { LEAN_LIMIT, POLE_WORLD_HEIGHT, bendStress, SWAP_COOLDOWN_MS, frogDeflection, obstaclesFor, poleCurve, worldY, type FrogClimbView, type FrogPlayerView, type Obstacle } from '@fgn/shared';
 import { createRoundClock } from '../../audio/roundClock';
 import { audio } from '../../audio/spatialAudio';
 import { boingHop, leafDash, rubberStretch, rubberySlip, sproingDrop, triumphJingle } from '../../audio/frogSounds';
@@ -266,7 +266,7 @@ export class FrogClimbScene {
       if (pv.climbAt !== p.seenClimbAt) { p.seenClimbAt = pv.climbAt; if (nowPerf - p.localHopAt > 300) { p.hopStart = nowPerf; if (id === this.followId) audio.playFlat(boingHop, 0.5); } } // (your own hop already started, and sounded, when you tapped)
       if (pv.slipAt !== p.seenSlipAt) { // the frog fell: a bent-over pole drops it (a long slip), a thorn makes it spring back (a sproing)
         p.seenSlipAt = pv.slipAt;
-        if (id === this.followId) audio.playFlat(Math.abs(p.dispLean) > 0.8 ? rubberySlip : sproingDrop, 0.5);
+        if (id === this.followId) audio.playFlat(Math.abs(p.dispLean) > 0.8 * LEAN_LIMIT ? rubberySlip : sproingDrop, 0.5);
       }
       if (pv.finishedAt !== null && !this.topHeard.has(id)) { this.topHeard.add(id); audio.playFlat(triumphJingle, 0.5); } // a frog reached the top
       if (p.pendingSide !== null) {
@@ -395,7 +395,7 @@ export class FrogClimbScene {
 
   private update(v: FrogClimbView, dt: number, tPerf: number) {
     const follow = this.followId ? this.poles.get(this.followId) : undefined;
-    if (follow && Math.abs(follow.dispLean) > 0.65 && tPerf - this.bendSoundAt > 1400) { this.bendSoundAt = tPerf; audio.playFlat(rubberStretch, 0.3); } // the pole is bent a long way: it creaks
+    if (follow && Math.abs(follow.dispLean) > 0.65 * LEAN_LIMIT && tPerf - this.bendSoundAt > 1400) { this.bendSoundAt = tPerf; audio.playFlat(rubberStretch, 0.3); } // the pole is bent a long way: it creaks
     for (const p of this.poles.values()) {
       const pv: FrogPlayerView | undefined = v.players[p.id];
       if (!pv) { p.group.visible = false; p.tag.visible = false; continue; }

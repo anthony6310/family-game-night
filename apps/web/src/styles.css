@@ -57,7 +57,7 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .snow-hud { position: absolute; inset: 0; pointer-events: none; color: #14213d; }
 .snow-timer { position: absolute; top: 0.6rem; left: 50%; transform: translateX(-50%); font-size: 2.6rem; font-weight: bold;
   color: #fff; text-shadow: 0 2px 6px rgba(20, 33, 61, 0.7); }
-.snow-standings { position: absolute; top: 0.6rem; left: 0.6rem; margin: 0; padding: 0.4rem 0.55rem; list-style: none;
+.snow-standings { position: absolute; top: 3.6rem; left: 0.6rem; margin: 0; padding: 0.4rem 0.55rem; list-style: none;
   background: rgba(20, 33, 61, 0.55); border-radius: 0.6rem; color: #fff; font-size: 0.8rem; display: flex; flex-direction: column; gap: 0.2rem; }
 .snow-standings li { display: flex; align-items: center; gap: 0.4rem; }
 .snow-standings li.me { font-weight: bold; }
@@ -141,7 +141,7 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 @keyframes winner-pop { from { opacity: 0; transform: scale(0.6) translateY(0.6rem); } to { opacity: 1; transform: scale(1) translateY(0); } }
 
 /* Sound on/off: a small round icon pinned to the top-right of every screen (above the game's touch layers). */
-.sound-btn { position: fixed; top: 0.6rem; right: 0.6rem; z-index: 50; width: 2.4rem; height: 2.4rem; padding: 0; border-radius: 50%;
+.sound-btn { position: fixed; top: 0.6rem; left: 0.6rem; z-index: 50; width: 2.4rem; height: 2.4rem; padding: 0; border-radius: 50%;
   font-size: 1.15rem; line-height: 1; display: grid; place-items: center; background: rgba(38, 38, 74, 0.85); color: #fff; }
 
 /* Spectator betting: pick a player, then a plus/minus for extra points of your own. */

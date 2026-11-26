@@ -1,10 +1,10 @@
 import { StartCountdown } from './StartCountdown';
-import { useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { FishingView, GameAction, Player, RoundResult } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './Joystick';
 import { FishingScene, type AnglerStyle } from './fishing/FishingScene';
-import { useSteering } from './snowball/useSteering';
+import { useSteering, type Steer } from './snowball/useSteering';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
 import { FALLBACK_COLOR } from './playerColors';
 import { SpectatorControls } from '../spectate/SpectatorControls';
@@ -27,7 +27,7 @@ interface Props {
 
 /**
  * The Fishing round: a full-screen three.js ocean (see FishingScene), a small HUD (the clock and each player's fish count) and a
- * left / right control (the same joystick / A D keys as the other games; sideways slides the hook, up lifts it a little; the ascent itself is automatic).
+ * left / right control (the same joystick / A D keys as the other games; sideways slides the hook, up and down move it anywhere on your screen; the ascent itself is automatic).
  * Players follow their own lane; spectators pick whose lane to watch. The ending is the shared winner moment (GAME_RULES.md #2).
  * Loaded on demand (see LobbyPage) so the landing page doesn't download three.js.
  */
@@ -56,7 +56,16 @@ export default function FishingScreen({ game, players, colors, selfId, serverNow
   const ascentMs = game.endsAt - game.ascentStartsAt;
   const casting = serverNow() < game.ascentStartsAt;
   // Steering only counts once the hooks are rising (the server ignores it before that, so the control is simply hidden until then).
-  const setStick = useSteering(sendAction, !frozen && !casting); // (no control until the hooks start rising: GO)
+  // The server lets a hook go anywhere in the water; the stick stops at the edges of THIS screen, so the hook is never lost off the top or bottom.
+  const keepOnScreen = useCallback((want: Steer): Steer => {
+    const s = scene.current;
+    if (!s || !selfId) return want;
+    const { up, down } = s.liftRange(), lift = s.liftOf(selfId);
+    if (want.z < 0 && lift >= up) return { x: want.x, z: 0 };
+    if (want.z > 0 && lift <= -down) return { x: want.x, z: 0 };
+    return want;
+  }, [selfId]);
+  const setStick = useSteering(sendAction, !frozen && !casting, keepOnScreen); // (no control until the hooks start rising: GO)
   useEffect(() => { scene.current?.setSecondsLeft(remainingMs / 1000); }, [remainingMs]); // the shared countdown: ticks for the last 5 seconds, then the whistle
 
   // Spectators choose whose lane to follow (there is no free camera: the ocean is a flat picture).

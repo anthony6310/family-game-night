@@ -438,7 +438,8 @@ export class MountainGoatScene {
   private updateBird(v: MountainGoatView, n: number, pv: GoatPlayerView, now: number, tSec: number, birdFall: BirdBump | null, jumpFrom: number) {
     const last = pv.last, since = last ? now - last.at : Infinity;
     const base = last && last.ok && since < JUMP_MS && n > 0 ? jumpFrom : n; // (during a leap the bird it is flying past is still shown, and the next one too)
-    const want = new Set<number>([base, base + 1]);
+    // The birds shown: the one over the gap the goat is at, the next one (so it is already flying before the goat gets there) and the one over the gap it has just crossed: a bird stays until the goat is two platforms past it.
+    const want = new Set<number>([...(base > 0 ? [base - 1] : []), base, base + 1]);
     for (const [idx, e] of [...this.birds]) if (!want.has(idx)) { e.bird.group.removeFromParent(); this.disposeBird(e.bird.group); this.birds.delete(idx); }
     const elapsed = now - v.startsAt;
     for (const idx of want) {

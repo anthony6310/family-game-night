@@ -41,11 +41,6 @@ export const heartbeat: SoundFn = (ctx, out, t) => {
   [0, 0.22, 0.9, 1.12].forEach((d) => tone(ctx, out, t + d, { f: 70, f2: 45, dur: 0.18, g: 0.5, att: 0.01 }));
 };
 
-/** ROACH SCUTTLING: "Fast skitter": eight quick little scratches (0.4 s: repeat while it runs). */
-export const fastSkitter: SoundFn = (ctx, out, t) => {
-  for (let i = 0; i < 8; i++) noise(ctx, out, t + i * 0.05, { type: 'bandpass', f: R(1500, 3000), q: 2, g: 0.12, dur: 0.025, att: 0.001 });
-};
-
 /** SANDAL SMACK: "Whip-crack smack": a sharp crack on top of a hard slap and a heavy thump. */
 export const sandalWhipSmack: SoundFn = (ctx, out, t, strength) => {
   const k = 0.5 + 0.5 * strength;

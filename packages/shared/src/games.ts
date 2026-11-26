@@ -22,6 +22,8 @@ export interface GameInfo {
   lone?: boolean;
   /** What the two teams are called in this game, if not Team Yellow / Team Purple. */
   teamNames?: { yellow: string; purple: string };
+  /** ARCHIVED: the game stays in the code (its engine, screen, sounds and tests all still work) but is hidden: it is not in the picker or the carousel and the Random tile never lands on it. Remove the flag to bring it back. */
+  archived?: boolean;
 }
 
 // The games, in ALPHABETICAL order by name (this is the order the picker shows them in; keep it that way when adding one).
@@ -76,7 +78,7 @@ export const GAMES = [
   {
     id: 'roach-hunt',
     name: 'Roach Rumble',
-    description: 'One player is a person with a sandal, and everyone else is a roach in a dark, messy kitchen. Each round the sandal is picked at random. Every roach starts with a full 25 second lifetime that runs down by a second every second, and when it hits zero the roach starves and dies. Food is life: stand still next to a piece of old food to eat it and add to your lifetime (each piece holds about 10 seconds of life, shared by everyone eating it, and you can never have more than 25). Food keeps turning up, a lot of it around the trash can, the mop bucket and the cooker, and a bottle of poison stands by one of them: if the sandal smashes it, that spot is covered in purple poison, food there goes off, and roaches standing in it lose life faster, and a roach that has stood in it can never have more than 20 seconds again. The sandal hovers over everything, slower than a roach, and lands a very quick smack with a tap on the right of the screen, but after each smack it is stuck for a moment (a little longer if it squashed something). The round is longer the more roaches there are. If at least one roach is still alive when time runs out, the roaches win; if every roach is dead, squashed or starved, the sandal wins.',
+    description: 'One player is a person with a sandal, and everyone else is a roach in a dark, messy kitchen. Each round the sandal is picked at random. Every roach starts with a full 25 second lifetime that runs down by a second every second, and when it hits zero the roach starves and dies. Food is life: face a piece of old food while you are next to it to eat it and add to your lifetime (each piece holds about 10 seconds of life, shared by everyone eating it, and you can never have more than 25). Food keeps turning up, a lot of it around the trash can, the mop bucket and the cooker, and a bottle of poison stands by one of them: if the sandal smashes it, that spot is covered in purple poison, food there goes off, and roaches standing in it lose life faster, and a roach that has stood in it can never have more than 20 seconds again. The sandal hovers over everything, as fast as a roach, and lands a very quick smack with a tap on the right of the screen, but after each smack it is stuck for a moment (a little longer if it squashed something). The round is longer the more roaches there are. If at least one roach is still alive when time runs out, the roaches win; if every roach is dead, squashed or starved, the sandal wins.',
     minPlayers: 2,
     maxPlayers: MAX_PLAYERS,
     scoreLabel: '',
@@ -102,6 +104,7 @@ export const GAMES = [
     maxPlayers: MAX_PLAYERS,
     scoreLabel: '',
     finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
+    archived: true, // hidden for now: see `archived` above
   },
   {
     id: 'snowflake-match',
@@ -145,6 +148,9 @@ export const GAMES = [
 
 /** Union of valid game ids, derived from the list above so the two can never drift. */
 export type GameId = (typeof GAMES)[number]['id'];
+
+/** The games players can choose and Random can land on: every game except the archived ones. (`GAMES` and `GameId` still include the archived games: their code is all still there.) */
+export const ACTIVE_GAMES = GAMES.filter((g) => !(g as GameInfo).archived);
 
 export function getGame(id: string | null): GameInfo | undefined {
   return GAMES.find((g) => g.id === id);

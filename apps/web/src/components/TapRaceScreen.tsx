@@ -4,7 +4,7 @@ import { useStarted } from './useStarted';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { audio } from '../audio/spatialAudio';
 import { labBuzz } from '../audio/tapSounds';
-import { type GameAction, type Player, type RoundResult, type TapRaceView } from '@fgn/shared';
+import { spendTap, type GameAction, type Player, type RoundResult, type TapBucket, type TapRaceView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { TapRaceScene, type ButtonStyle } from './taprace/TapRaceScene';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
@@ -44,8 +44,11 @@ export default function TapRaceScreen({ game, players, colors, selfId, serverNow
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   const over = remainingMs <= 0;
   const started = useStarted(game.startsAt, serverNow); // (no control before GO)
-  // Optimistic local counter so your own button reacts the instant you tap; everyone else's count is the server's.
+  // Optimistic local counter so your own button reacts the instant you tap; everyone else's count is the server's. It only counts a tap the server WILL count (the same rate rule: shared/tapLimit.ts),
+  // and whenever you pause it snaps to the server's number for you, so what you see is never more than a moment ahead of the score everyone else sees.
   const [myTaps, setMyTaps] = useState(0);
+  const bucket = useRef<TapBucket | undefined>(undefined);
+  const lastTapAt = useRef(0); // (performance.now of your last counted tap)
   // In a tie-breaker, players outside the tie are spectators: they aren't in the game's tap table.
   const isPlayer = selfId !== null && selfId in game.taps;
 
@@ -99,9 +102,24 @@ export default function TapRaceScreen({ game, players, colors, selfId, serverNow
   // pointerdown fires the instant a finger lands (a click waits for release), and anywhere on the screen counts as a tap.
   function onTap() {
     if (!isPlayer || !started || over || frozen) return;
+    const next = spendTap(bucket.current, serverNow()); // (the server's own rule, on the synced clock)
+    if (!next) return; // tapping faster than the server counts: it would not count this one, so neither do we, and it is not sent
+    bucket.current = next;
+    lastTapAt.current = performance.now();
     setMyTaps((n) => n + 1);
     sendAction({ type: 'tap' });
   }
+  // When you stop tapping for a moment, your own number becomes the server's (the truth), however far a stream of taps had drifted ahead of it.
+  useEffect(() => {
+    if (!isPlayer || !selfId) return;
+    const id = setInterval(() => {
+      if (performance.now() - lastTapAt.current < 700) return;
+      const server = latestGame.current.taps[selfId] ?? 0;
+      setMyTaps((n) => (n === server ? n : server));
+    }, 250);
+    return () => clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isPlayer, selfId]);
 
   const best = Math.max(1, ...Object.values(counts));
   const standings = styles

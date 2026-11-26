@@ -21,7 +21,7 @@ import { PUDDLE_DEEP, PUDDLE_TINT, buildMopBucket, buildTrashHeap, makePuddle, s
 import { buildSandal } from './RoachSandal';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
-import { bubblingPoison, crunchySquelch, fastSkitter, glassCrash, heartbeat, nibbleCrunch, sandalWhipSmack, sandalWhoosh, tinyTwitches } from '../../audio/roachRumbleSounds';
+import { bubblingPoison, crunchySquelch, glassCrash, heartbeat, nibbleCrunch, sandalWhipSmack, sandalWhoosh, tinyTwitches } from '../../audio/roachRumbleSounds';
 import { createNameTag, disposeNameTag } from '../labelTexture';
 import { AnimalKit, Model } from '../shelter/AnimalKit';
 
@@ -31,6 +31,7 @@ export interface RoachStyle {
   color: string;
 }
 
+const SANDAL_LIGHT_DARK = 85 * 0.8; // how bright the sandal's own light is in the dark (20% dimmer than it was: 85)
 const FOV_ROACH = 72; // the horizontal field of view we want on any screen shape (the vertical one follows the aspect ratio, within limits)
 const FOV_SANDAL = 53;
 const SANDAL_VIEW = 1.5; // the sandal's camera is this much further out than before (zoomed out 50%): the high view is a benefit of the sandal alone
@@ -526,7 +527,7 @@ export class RoachScene {
     const sandal = view.players[view.sandalId] && this.actors.get(view.sandalId);
     if (sandal) {
       this.sandalLight.position.set(sandal.x, sandal.body.position.y + 2.4, sandal.z); // (a little ABOVE the sandal, so it lights the sandal's top instead of leaving it dark)
-      this.sandalLight.intensity = MathUtils.lerp(85, 8, lit);
+      this.sandalLight.intensity = MathUtils.lerp(SANDAL_LIGHT_DARK, 8, lit);
     }
     // In the dark a sandal cannot see what its light does not reach: the rings, names, life bars, splats and the glowing poison (which are not lit) of faraway roaches are hidden.
     const sandalEyes = subject?.role === 'sandal' && this.vis.dark;
@@ -589,18 +590,17 @@ export class RoachScene {
     if (this.bucketWater) setDim(this.bucketWater, t, dim);
   }
 
-  /** The followed roach's own sounds: nibbling while it eats, skittering while it runs, bubbling while it stands in poison, and a heartbeat when its life is nearly out. */
+  /** The followed roach's own sounds: nibbling while it eats, bubbling while it stands in poison, and a heartbeat when its life is nearly out. (No sound for walking: that was taken out on purpose.) */
   private updateRoachSounds(a: Actor, p: RoachPlayerView, dt: number) {
     const c = this.sfxClock;
-    if (a.id !== this.eyeId || a.role !== 'roach' || !p.alive) { c.eat = c.skitter = c.poison = c.low = 0; return; }
-    c.eat -= dt; c.skitter -= dt; c.poison -= dt; c.low -= dt;
+    if (a.id !== this.eyeId || a.role !== 'roach' || !p.alive) { c.eat = c.poison = c.low = 0; return; }
+    c.eat -= dt; c.poison -= dt; c.low -= dt;
     if (p.eating && c.eat <= 0) { audio.playFlat(nibbleCrunch, 0.5); c.eat = 0.9; }
-    if (a.walk > 0.25 && c.skitter <= 0) { audio.playFlat(fastSkitter, 0.35); c.skitter = 0.4 - 0.15 * a.walk; }
     const v = this.latest;
     if (v && v.poisonAt !== null && this.layout && inPoison(this.layout, a.x, a.z) && c.poison <= 0) { audio.playFlat(bubblingPoison, 0.4); c.poison = 1.4; }
     if (p.life <= ROACH_LOW_LIFE && c.low <= 0) { audio.playFlat(heartbeat, 0.5); c.low = 1.4; }
   }
-  private sfxClock = { eat: 0, skitter: 0, poison: 0, low: 0 }; // seconds until each of those sounds may play again
+  private sfxClock = { eat: 0, poison: 0, low: 0 }; // seconds until each of those sounds may play again
 
   /** A roach's lifetime bar: how much it has left of 30 seconds (green, then yellow, then red and flashing under 5). */
   private updateBar(a: Actor, p: RoachPlayerView, now: number) {

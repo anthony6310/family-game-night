@@ -460,6 +460,14 @@ export class FishingScene {
     this.renderer.domElement.remove();
   }
 
+  /** How far (world units) the followed player's hook may go up and down from the steady ascent and still be on their own screen (the camera keeps the steady hook a fixed fraction of the way up the screen). */
+  liftRange(): { up: number; down: number } {
+    const height = this.vw / this.aspect; // (the height of the water the screen shows)
+    const margin = 0.9; // (keep the whole hook in view)
+    return { up: Math.max(0, height * (0.5 + HOOK_SCREEN_HEIGHT) - margin), down: Math.max(0, height * (0.5 - HOOK_SCREEN_HEIGHT) - margin) };
+  }
+  /** How far above (+) or below (-) the steady ascent this player's hook is (as the server last said). */
+  liftOf(id: string): number { return this.anglers.get(id)?.targetLift ?? 0; }
   private reelSoundAt = 0; // when the last burst of reel clicks started (server time)
   private playHere(sound: SoundFn, gain: number) {
     audio.play(sound, this.cx, this.cy, gain, 1);

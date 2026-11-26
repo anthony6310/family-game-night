@@ -201,19 +201,33 @@ const passDepth = cfg.depth - (cfg.depth - cfg.endDepth) * (20 / 60); // where t
   st = e.tick!(st, 0.2, t0 + 300);
   check('stick up lifts the hook, at the lift speed', Math.abs(st.hooks.a.lift - (DT + 0.2) * cfg.hookLiftSpeed) < 1e-6 || st.hooks.a.lift > 0.5);
   for (let i = 0; i < 40; i++) st = e.tick!(st, 0.1, t0 + 400 + i * 100);
-  check('the lift stops at the maximum', st.hooks.a.lift === cfg.hookLiftMax && st.hooks.b.lift === 0);
+  check('there is no fixed limit: the lift keeps growing past the old limit of 4 (about 24 after 4 seconds at the lift speed)', st.hooks.a.lift > 20 && st.hooks.b.lift === 0);
   const v = e.view({ ...st, clock: t0 + 4400 }) as FishingView;
-  check('the view carries each hook\'s lift, and the ascent depth is unchanged by it', v.hooks.a.lift === cfg.hookLiftMax && Math.abs(v.hookDepth - (cfg.depth - ((4400) / cfg.ascentMs) * (cfg.depth - cfg.endDepth))) < 0.05);
+  check('the view carries each hook\'s lift, and the ascent depth is unchanged by it', v.hooks.a.lift > 20 && Math.abs(v.hookDepth - (cfg.depth - ((4400) / cfg.ascentMs) * (cfg.depth - cfg.endDepth))) < 0.05);
   st = e.reduce(st, 'a', { type: 'steer', x: 0, z: 1 }, t0 + 4500);
-  for (let i = 0; i < 40; i++) st = e.tick!(st, 0.1, t0 + 4500 + i * 100);
-  check('stick down lowers it again, never below the steady ascent', st.hooks.a.lift === 0);
+  for (let i = 0; i < 60; i++) st = e.tick!(st, 0.1, t0 + 4500 + i * 100);
+  check('stick down lowers it again, and past the steady ascent: the hook can be held below it too', st.hooks.a.lift < -5);
+  {
+    const atTop = createFishing({ fishPerLane: 0, schoolsPerLane: 0, bigFishCount: 0 });
+    let top = atTop.init(['a'], 0);
+    top = atTop.reduce(top, 'a', { type: 'steer', x: 0, z: 1 }, top.ascentStartsAt + 1);
+    for (let i = 0; i < 20; i++) top = atTop.tick!(top, 0.1, top.ascentStartsAt + 100 + i * 100);
+    const vt = atTop.view({ ...top, clock: top.ascentStartsAt + 2100 }) as FishingView;
+    check('at the start the hook can not be pushed below the ocean floor', vt.hookDepth - vt.hooks.a.lift <= cfg.depth + 1e-6);
+    let up = atTop.init(['a'], 0);
+    up = atTop.reduce(up, 'a', { type: 'steer', x: 0, z: -1 }, up.ascentStartsAt + 1);
+    const lateAt = up.ascentStartsAt + cfg.ascentMs - 2000;
+    for (let t = up.ascentStartsAt + 100; t <= lateAt; t += 100) up = atTop.tick!(up, 0.1, t); // (the stick held up for the whole ascent)
+    const vu = atTop.view({ ...up, clock: lateAt }) as FishingView;
+    check('the lift is capped by the water: held up all round, the hook ends exactly at the finish depth, never above it', Math.abs((vu.hookDepth - vu.hooks.a.lift) - cfg.endDepth) < 0.3 && vu.hookDepth - vu.hooks.a.lift >= cfg.endDepth - 1e-6);
+  }
   // a lifted hook catches a fish above the steady ascent depth
   const e2 = createFishing({ fishPerLane: 0, schoolsPerLane: 0, bigFishCount: 0 });
   let s2 = e2.init(['a'], 0);
   const at = s2.ascentStartsAt + 20000;
   const hookDepth = cfg.depth - (cfg.depth - cfg.endDepth) * (20000 / cfg.ascentMs);
-  s2.fish = [{ id: 1, x: 4.5 - 1, baseY: hookDepth - cfg.hookLiftMax, phase: 0, dir: 1, speed: 0, size: 2, variant: 0 }];
-  s2 = { ...s2, hooks: { a: { ...s2.hooks.a, lift: cfg.hookLiftMax } } };
+  s2.fish = [{ id: 1, x: 4.5 - 1, baseY: hookDepth - 4, phase: 0, dir: 1, speed: 0, size: 2, variant: 0 }];
+  s2 = { ...s2, hooks: { a: { ...s2.hooks.a, lift: 4 } } };
   s2 = e2.tick!(s2, DT, at);
   check('a lifted hook catches a fish that is above the steady ascent depth', s2.hooks.a.fish === 1);
 }

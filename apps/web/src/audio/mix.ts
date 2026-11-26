@@ -9,7 +9,7 @@ import { blizzardWind, paddedThump, powderSwish, risingZip } from './snowballSou
 import { boingHop, leafDash, rubberStretch, rubberySlip, sproingDrop, triumphJingle } from './frogSounds';
 import { crystalDing, descendingBlips, gloveSqueak } from './flakeSounds';
 import { giftGrab, giftIn, giftMiss, giftToss } from './santaSounds';
-import { bubblingPoison, crunchySquelch, fastSkitter, glassCrash, heartbeat, kitchenHum, nibbleCrunch, sandalWhipSmack, sandalWhoosh, tinyTwitches } from './roachRumbleSounds';
+import { bubblingPoison, crunchySquelch, glassCrash, heartbeat, kitchenHum, nibbleCrunch, sandalWhipSmack, sandalWhoosh, tinyTwitches } from './roachRumbleSounds';
 import { cannonBoom, hitReceived, readyClang, reloadChain, seaAmbience, seaSplash, shipHit, whaleBlocked, whaleRumble, whaleSplash, whaleSpout, wickBurn, wickLight } from './pirateSounds';
 import { comicSplat, heave, massiveHeave, ropeStretch } from './tugSounds';
 import { labBuzz, relayClick } from './tapSounds';
@@ -33,7 +33,7 @@ export const MIX_LEVELS: Record<string, Record<string, number>> = {
   fishing: { whipSwish: 1.3, bigSplash: 1.2, reelZing: 1.15, bigExplosion: 1.8, reelRatchet: 1.55, fishPile: 1.55, theme: 1.1 },
   'santa-sack': { giftToss: 1.4, giftIn: 0.85, giftMiss: 0.75, giftGrab: 1.8, theme: 0.65 },
   'snowflake-match': { crystalDing: 1.25, descendingBlips: 1.65, gloveSqueak: 1.2, theme: 0.75 },
-  'roach-hunt': { sandalWhoosh: 1.9, sandalWhipSmack: 2, crunchySquelch: 2, tinyTwitches: 1.35, glassCrash: 1.75, nibbleCrunch: 1.2, bubblingPoison: 1.45, heartbeat: 1.7, fastSkitter: 1.5, kitchenHum: 0.85, theme: 0.7 },
+  'roach-hunt': { sandalWhoosh: 1.9, sandalWhipSmack: 2, crunchySquelch: 2, tinyTwitches: 1.35, glassCrash: 1.75, nibbleCrunch: 1.2, bubblingPoison: 1.45, heartbeat: 1.7, kitchenHum: 0.85, theme: 0.7 },
   'frog-climb': { boingHop: 0.9, leafDash: 1, rubberStretch: 2, sproingDrop: 1.45, rubberySlip: 1.85, triumphJingle: 1.5, theme: 0.55 },
   shared: { clockTick: 1.5, clockTock: 1, whistle: 0.05, victoryFanfare: 0.2, drawChime: 0.75, siren: 0.2 },
 };
@@ -58,7 +58,7 @@ const ENTRIES: [string, string, Sound][] = [
   ['snowflake-match', 'crystalDing', crystalDing], ['snowflake-match', 'descendingBlips', descendingBlips], ['snowflake-match', 'gloveSqueak', gloveSqueak],
   ['roach-hunt', 'sandalWhoosh', sandalWhoosh], ['roach-hunt', 'sandalWhipSmack', sandalWhipSmack], ['roach-hunt', 'crunchySquelch', crunchySquelch], ['roach-hunt', 'tinyTwitches', tinyTwitches],
   ['roach-hunt', 'glassCrash', glassCrash], ['roach-hunt', 'nibbleCrunch', nibbleCrunch], ['roach-hunt', 'bubblingPoison', bubblingPoison], ['roach-hunt', 'heartbeat', heartbeat],
-  ['roach-hunt', 'fastSkitter', fastSkitter], ['roach-hunt', 'kitchenHum', kitchenHum],
+  ['roach-hunt', 'kitchenHum', kitchenHum],
   ['frog-climb', 'boingHop', boingHop], ['frog-climb', 'leafDash', leafDash], ['frog-climb', 'rubberStretch', rubberStretch], ['frog-climb', 'sproingDrop', sproingDrop],
   ['frog-climb', 'rubberySlip', rubberySlip], ['frog-climb', 'triumphJingle', triumphJingle],
   ['shared', 'clockTick', clockTick], ['shared', 'clockTock', clockTock], ['shared', 'whistle', whistle], ['shared', 'victoryFanfare', victoryFanfare], ['shared', 'drawChime', drawChime], ['shared', 'siren', siren],

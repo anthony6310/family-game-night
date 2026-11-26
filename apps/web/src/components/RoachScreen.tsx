@@ -138,7 +138,7 @@ export default function RoachScreen({ game, players, colors, selfId, serverNow, 
           <p className="snow-hint" style={{ color: isSandal ? TEAM_COLORS.purple : TEAM_COLORS.yellow }}>
             {isSandal
               ? (ready ? 'You are the sandal! Squash every roach, or wait for them to starve. Smash the poison bottle to douse a landmark' : stuck ? 'Stuck in the guts! Wait for it to come free' : 'The sandal is coming back up…')
-              : 'You are a roach! Your life runs out: stand still next to food to eat and live longer. Keep away from the sandal'}
+              : 'You are a roach! Your life runs out: face food while you are next to it to eat and live longer. Keep away from the sandal'}
           </p>
         )}
         {squashed && !frozen && <p className="snow-hint">{starved ? 'You starved! Watching the rest of the round' : 'You were squashed! Watching the rest of the round'}</p>}

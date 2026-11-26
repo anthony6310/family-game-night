@@ -12,8 +12,10 @@ export const SWAP_COOLDOWN_MS = 220;
 /**
  * THE LEAN. Each frog's pole has a lean from -1 (fully bent left) to +1 (fully bent right). While the frog clings to a side, the lean grows toward that side at a steady rate, faster the
  * higher the frog is (a long whippy pole near its tip is far easier to over-bend). Swapping sides turns the lean round: it eases back through the middle and builds up on the other side.
- * Reaching the frog's own side's limit (lean 1 toward the frog) over-bends the pole: the frog slips down SLIP_DROP and the lean springs back to SLIP_RESET.
+ * Reaching the frog's own side's limit (`LEAN_LIMIT` toward the frog) over-bends the pole: the frog slips down SLIP_DROP and the lean springs back to SLIP_RESET.
  */
+/** The most a pole can lean either way (and so how far it bends before the frog slides down): 10% more than the 1 it first was, so the pole bends further, in either direction, before it over-bends. */
+export const LEAN_LIMIT = 1.1;
 export const LEAN_RATE_BOTTOM = 0.22; // lean per second at height 0 (about 4.5 s from straight to the limit)
 export const LEAN_RATE_TOP = 0.62; // lean per second at the top of the pole (about 1.6 s)
 export const SLIP_DROP = 5;
@@ -51,8 +53,8 @@ export const OBSTACLE_DROP = 6;
 /** After a fall from an obstacle the frog cannot act for this long. */
 export const OBSTACLE_STUN_MS = 350;
 
-/** How hard a pole is straining, 0 (fine) .. 1 (at the limit), from its lean: nothing until the lean passes 0.4. Wavy tremble lines fly off the pole and the screen edges redden by this much. */
+/** How hard a pole is straining, 0 (fine) .. 1 (at the limit, `LEAN_LIMIT`), from its lean: nothing until the lean passes 0.4. Wavy tremble lines fly off the pole and the screen edges redden by this much. */
 export function bendStress(lean: number): number {
-  const u = Math.min(1, Math.max(0, (Math.abs(lean) - 0.4) / 0.6));
+  const u = Math.min(1, Math.max(0, (Math.abs(lean) - 0.4) / (LEAN_LIMIT - 0.4)));
   return u * u * (3 - 2 * u);
 }

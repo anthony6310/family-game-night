@@ -11,7 +11,7 @@ import { createGameServer } from '../src/server';
 import type { RoundRecord } from '../src/rooms';
 
 const COUNTDOWN_MS = 150;
-const ROUND_MS = 600;
+const ROUND_MS = 1100; // (long enough for the burst test, a 250 ms wait for the batched broadcast, and the winner's 8 taps)
 type Client = Socket<ServerToClientEvents, ClientToServerEvents>;
 let failures = 0;
 const check = (name: string, ok: boolean) => {
@@ -82,21 +82,22 @@ try {
   check('round window matches the configured duration', view.endsAt - view.startsAt === ROUND_MS);
   check('every player starts at 0 taps', Object.values(view.taps).every((n) => n === 0) && Object.keys(view.taps).length === 3);
 
-  // A burst of 20 taps with no pause: the server's rate limit should let only ~1 through.
+  // A burst of 20 taps with no pause: the server lets a small bunch through (taps clump together on a slow network) but caps the rest (about 6, the burst allowance).
   for (let i = 0; i < 20; i++) tap(host);
   await sleep(250);
-  check('rapid-fire taps are rate limited by the server', (tapView(host.latest)?.taps[host.id] ?? 99) <= 2);
+  const burst = tapView(host.latest)?.taps[host.id] ?? 99;
+  check('rapid-fire taps are rate limited by the server (a small bunch counts, the rest do not)', burst >= 1 && burst <= 7);
 
   // Record the highest tap count p2 SEES for p1 while the round is still running.
   let seenMid = 0;
   p2.socket.on('room:state', (s) => { if (s.phase === 'playing') seenMid = Math.max(seenMid, tapView(s)?.taps[p1.id] ?? 0); });
-  await Promise.all([tapMany(p1, 6), tapMany(p2, 3)]);
+  await Promise.all([tapMany(p1, 8), tapMany(p2, 3)]);
   check('live tap counts reach other players mid-round (batched broadcast)', seenMid >= 3);
 
   check('round ends on the server clock and everyone sees results', await until(host, (s) => s.phase === 'results', ROUND_MS + 1000) && await until(p2, (s) => s.phase === 'results'));
   const r1 = host.latest!;
   check('the player with most taps wins', r1.result?.winnerId === p1.id);
-  check('results include each player\'s taps, counted by the server', r1.result?.scores[p1.id] === 6 && r1.result.scores[p2.id] === 3);
+  check('results include each player\'s taps, counted by the server', r1.result?.scores[p1.id] === 8 && r1.result.scores[p2.id] === 3);
   check('winner gets +1 on the session scoreboard', r1.scores[p1.id] === 1 && !(p2.id in r1.scores));
   check('the decided round is handed off for saving', saved.length === 1 && saved[0].winner.id === p1.id && saved[0].winner.isGuest && saved[0].gameType === 'tap-race');
 

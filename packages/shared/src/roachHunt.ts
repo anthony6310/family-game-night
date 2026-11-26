@@ -4,7 +4,7 @@
  */
 export const ROACH_ARENA_HALF = 40; // the kitchen floor is 80 by 80
 export const ROACH_SPEED = 9; // units a second: roaches are fast
-export const SANDAL_SPEED = 5; // ...the sandal is slower
+export const SANDAL_SPEED = ROACH_SPEED; // ...and so is the sandal (it used to be slower)
 export const ROACH_RADIUS = 0.6;
 export const SANDAL_RADIUS = 1.3;
 export const SMACK_WINDUP_MS = 140; // from tapping to the sandal landing: a very quick swing
@@ -14,7 +14,8 @@ export const SMACK_REACH = 2.3; // how far in front of the sandal's middle the s
 export const SMACK_RADIUS = 2.0; // everything within this of the landing spot is squashed
 export const FOOD_SCALE = 1.56; // all the food is drawn 56% bigger than first modelled (30%, then another 20%); its solid disc and its pick-up reach are scaled the same
 export const FOOD_RADIUS = 1.2 * FOOD_SCALE; // a piece of food is a solid disc this big: roaches cannot walk through it
-export const FOOD_EAT_REACH = 0.7 * FOOD_SCALE; // a roach is eating a piece of food when it is within this of touching it AND is not moving (any pull on the stick at all stops the eating)
+export const FOOD_EAT_REACH = 0.7 * FOOD_SCALE; // a roach is eating a piece of food while it is within this of touching it AND is facing it (moving does not matter)
+export const FOOD_EAT_FACING = 1.2; // ...facing it means the piece is within this many radians (about 70 degrees) of straight ahead, either side
 
 /**
  * LIFETIME (the roaches' economy). Every roach has a lifetime in seconds that runs down by ROACH_LIFE_DRAIN a second; at 0 it starves and dies on the spot. Food is life: a piece holds a pool of FOOD_POOL seconds of it, and

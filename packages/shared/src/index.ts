@@ -14,3 +14,4 @@ export * from './whale';
 export * from './roachHunt';
 export * from './pole';
 export * from './obstacles';
+export * from './tapLimit';

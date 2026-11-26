@@ -59,8 +59,7 @@ export interface FishingConfig {
   mineLossFraction: number; // a hit shakes off this fraction of the player's points, rounded up (10%)
 
   // ----- lifting the hook -----
-  hookLiftMax: number; // while rising, a player can lift their hook this far above the steady ascent (world units; about halfway up a landscape screen)...
-  hookLiftSpeed: number; // ...moving it up or down at this speed (the ascent itself is not affected)
+  hookLiftSpeed: number; // while rising, a player moves their hook up or down at this speed, relative to the steady ascent (the ascent itself is not affected). There is NO fixed limit: a hook goes anywhere in the water (the surface is the top, the ocean floor the bottom), and the phone stops the stick at the edges of its own screen (see FishingScreen).
 }
 
 export const DEFAULT_FISHING: FishingConfig = {
@@ -111,7 +110,6 @@ export const DEFAULT_FISHING: FishingConfig = {
   mineSpacing: 2.4,
   mineLossFraction: 0.1,
 
-  hookLiftMax: 4,
   hookLiftSpeed: 6,
 };
 
@@ -288,12 +286,13 @@ export function createFishing(overrides: Partial<FishingConfig> = {}): GameEngin
 
     tick(state, dt, now) {
       const total = state.lanes.length * cfg.laneWidth;
+      const depthNow = hookDepthAt(state, now); // (the steady ascent's depth: a hook's own depth is this minus its lift)
       const hooks: Record<string, Hook> = {};
       for (const [id, h] of Object.entries(state.hooks)) {
         const { lo, hi } = laneBounds(state, id);
         // Hooks can only be steered once the ascent has started (during the cast they hang at the lane's middle).
         const rising = now >= state.ascentStartsAt;
-        hooks[id] = { ...h, x: rising ? clamp(h.x + h.steer * cfg.hookSpeed * dt, lo, hi) : h.x, lift: rising ? clamp(h.lift + h.vsteer * cfg.hookLiftSpeed * dt, 0, cfg.hookLiftMax) : 0 }; // (lift: the hook is held a little above the steady ascent)
+        hooks[id] = { ...h, x: rising ? clamp(h.x + h.steer * cfg.hookSpeed * dt, lo, hi) : h.x, lift: rising ? clamp(h.lift + h.vsteer * cfg.hookLiftSpeed * dt, depthNow - cfg.depth, depthNow - cfg.endDepth) : 0 }; // (lift: how far above (+) or below (-) the steady ascent the player holds the hook; it can go anywhere in the water: never under the ocean floor or above the finish depth)
       }
       const depth = hookDepthAt(state, now);
       // Fish swim on; off one end, they come back in from the other (the margin keeps that out of sight).

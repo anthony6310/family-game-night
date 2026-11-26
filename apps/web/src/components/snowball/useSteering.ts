@@ -17,8 +17,9 @@ const MIN_CHANGE = 0.02; // ignore wiggles smaller than this
  * The server only ever receives a DIRECTION; it does all the moving. We send when the direction
  * changes, at most every 50 ms, and always send "stop" when you let go or the screen closes.
  * Returns `setStick` for the joystick to report its vector (or null when released).
+ * `adjust` (optional) may change the direction just before it is sent (Fishing uses it to stop the stick at the edges of the player's own screen); it runs every 50 ms.
  */
-export function useSteering(sendAction: (action: GameAction) => void, enabled = true) {
+export function useSteering(sendAction: (action: GameAction) => void, enabled = true, adjust?: (want: Steer) => Steer) {
   const keys = useRef({ ...DIRECTIONS });
   const stick = useRef<Steer | null>(null);
   const sent = useRef<Steer>({ x: 0, z: 0 }); // what the server currently believes
@@ -26,6 +27,8 @@ export function useSteering(sendAction: (action: GameAction) => void, enabled = 
   sendRef.current = sendAction;
   const enabledRef = useRef(enabled); // false while the round-end sequence has stopped player input
   enabledRef.current = enabled;
+  const adjustRef = useRef(adjust);
+  adjustRef.current = adjust;
 
   /** The joystick wins while touched; otherwise the keyboard decides. */
   const desired = useCallback((): Steer => {
@@ -39,7 +42,7 @@ export function useSteering(sendAction: (action: GameAction) => void, enabled = 
 
   const flush = useCallback(() => {
     if (!enabledRef.current) return;
-    const want = desired();
+    const want = adjustRef.current ? adjustRef.current(desired()) : desired();
     if (Math.abs(want.x - sent.current.x) < MIN_CHANGE && Math.abs(want.z - sent.current.z) < MIN_CHANGE) return;
     sent.current = want;
     sendRef.current({ type: 'steer', x: want.x, z: want.z });

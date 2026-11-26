@@ -1,5 +1,5 @@
 // Frog Climb engine rules (no sockets). Run: npx tsx scripts/test-frog.ts
-import { CLIMB_COOLDOWN_MS, CLIMB_STEP, OBSTACLE_DROP, POLE_TOP, POLE_WORLD_HEIGHT, SLIP_DROP, SLIP_RESET, SWAP_COOLDOWN_MS, bendStress, frogDeflection, leanRate, obstaclesFor, poleCurve, worldY } from '@fgn/shared';
+import { CLIMB_COOLDOWN_MS, CLIMB_STEP, LEAN_LIMIT, OBSTACLE_DROP, POLE_TOP, POLE_WORLD_HEIGHT, SLIP_DROP, SLIP_RESET, SWAP_COOLDOWN_MS, bendStress, frogDeflection, leanRate, obstaclesFor, poleCurve, worldY } from '@fgn/shared';
 import { createFrogClimb } from '../src/games/frogClimb';
 
 let failed = 0;
@@ -38,24 +38,32 @@ act(s, 'a', 'swap', T0 + 10); tickTo(s, T0 + 10, T0 + 1010);
 check('swapping turns the lean round', (s.players.a.side as number) === -1 && s.players.a.lean < 0.5 - 0.1);
 
 // over-bending slips the frog down and springs the pole back
-s = eng.init(['a'], T0); s.players.a.side = -1; s.players.a.h = 40; s.players.a.lean = -0.99;
+s = eng.init(['a'], T0); s.players.a.side = -1; s.players.a.h = 40; s.players.a.lean = -(LEAN_LIMIT - 0.01);
 tickTo(s, T0, T0 + 200);
 check('over-bending drops the frog and resets the lean', s.players.a.h === 40 - SLIP_DROP && Math.abs(s.players.a.lean - -SLIP_RESET) < 0.1 && s.players.a.slipAt > 0);
-s = eng.init(['a'], T0); s.players.a.h = 2; s.players.a.side = 1; s.players.a.lean = 0.99; tickTo(s, T0, T0 + 200);
+s = eng.init(['a'], T0); s.players.a.h = 2; s.players.a.side = 1; s.players.a.lean = LEAN_LIMIT - 0.01; tickTo(s, T0, T0 + 200);
 check('a slip never goes below the ground', s.players.a.h === 0);
-s = eng.init(['a'], T0); s.players.a.side = 1; s.players.a.lean = -0.99; s.players.a.h = 10;
+s = eng.init(['a'], T0); s.players.a.side = 1; s.players.a.lean = -(LEAN_LIMIT - 0.01); s.players.a.h = 10;
 tickTo(s, T0, T0 + 100);
 check('lean at the far side is no danger yet', s.players.a.h === 10);
+// the pole may bend 10% further than it first could (the limit is 1.1, not 1) before the frog slips
+check('the lean limit is 10% more than 1', Math.abs(LEAN_LIMIT - 1.1) < 1e-9);
+s = eng.init(['a'], T0); s.players.a.side = 1; s.players.a.h = 40; s.players.a.lean = 1.05; tickTo(s, T0, T0 + 50);
+check('a lean past the old limit of 1 no longer drops the frog', s.players.a.h === 40 && s.players.a.lean > 1.05 && s.players.a.lean <= LEAN_LIMIT);
+s = eng.init(['a'], T0); s.players.a.side = -1; s.players.a.h = 40; s.players.a.lean = -1.05; tickTo(s, T0, T0 + 50);
+check('...in either direction', s.players.a.h === 40 && s.players.a.lean < -1.05 && s.players.a.lean >= -LEAN_LIMIT);
+s = eng.init(['a'], T0); s.players.a.side = 1; s.players.a.h = 40; s.players.a.lean = LEAN_LIMIT - 0.005; tickTo(s, T0, T0 + 100);
+check('...but reaching the new limit does', s.players.a.h === 40 - SLIP_DROP);
 
 
 // THE FIRST-HOP BUG: the pole must never swing far sideways because a low frog is pushed a little
-for (const lean of [0.3, 0.6, 1, -1]) for (const h of [2, 4, 10, 30, 70, POLE_TOP]) {
+for (const lean of [0.3, 0.6, 1, -1, LEAN_LIMIT, -LEAN_LIMIT]) for (const h of [2, 4, 10, 30, 70, POLE_TOP]) {
   const a = worldY(h), d = frogDeflection(h, lean), tip = poleCurve(POLE_WORLD_HEIGHT + 5, a, d).x;
   if (Math.abs(tip) > 28) check(`the pole tip stays near the middle (lean ${lean}, height ${h}: tip ${tip.toFixed(1)})`, false);
 }
-check('a low frog barely bends the pole, a high one bends it a lot', Math.abs(poleCurve(POLE_WORLD_HEIGHT, worldY(2), frogDeflection(2, 0.9)).x) < 3 && Math.abs(frogDeflection(POLE_TOP, 1)) > 10);
+check('a low frog barely bends the pole, a high one bends it a lot', Math.abs(poleCurve(POLE_WORLD_HEIGHT, worldY(2), frogDeflection(2, 0.9)).x) < 3 && Math.abs(frogDeflection(POLE_TOP, LEAN_LIMIT)) > 10);
 
-check('stress is nothing at a gentle lean, rises with the bend, and is 1 at the limit', bendStress(0.3) === 0 && bendStress(0.7) > 0 && bendStress(0.9) > bendStress(0.7) && bendStress(-1) === 1);
+check('stress is nothing at a gentle lean, rises with the bend, and is 1 at the limit', bendStress(0.3) === 0 && bendStress(0.7) > 0 && bendStress(0.9) > bendStress(0.7) && bendStress(-LEAN_LIMIT) === 1 && bendStress(1) < 1);
 
 // OBSTACLES
 const obs = obstaclesFor(4242);
@@ -80,7 +88,7 @@ check('on the other side you climb straight past it', s.players.a.h === o0.y0 - 
 s = eng.init(['a'], T0); s.players.a.side = (o0.side === 1 ? -1 : 1); s.players.a.h = o0.y0 + 1;
 act(s, 'a', 'swap', T0 + 100);
 check('swapping onto a vine you are level with is a hit', s.players.a.side === o0.side && s.players.a.h < o0.y0);
-s = eng.init(['a'], T0); s.players.a.side = o0.side; s.players.a.h = o0.y0 + 3; s.players.a.lean = o0.side * 0.999;
+s = eng.init(['a'], T0); s.players.a.side = o0.side; s.players.a.h = o0.y0 + 3; s.players.a.lean = o0.side * (LEAN_LIMIT - 0.001);
 tickTo(s, T0, T0 + 100);
 check('a slip that lands inside a vine is moved just below it', s.players.a.h < o0.y0);
 

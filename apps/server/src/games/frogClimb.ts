@@ -1,6 +1,6 @@
 import {
   CLIMB_COOLDOWN_MS, CLIMB_STEP, FROG_SECONDS, OBSTACLE_DROP, OBSTACLE_STUN_MS, POLE_TOP, SLIP_DROP, SLIP_RESET, SWAP_COOLDOWN_MS,
-  leanRate, obstacleAt, obstaclesFor, type FrogClimbView, type Obstacle,
+  LEAN_LIMIT, leanRate, obstacleAt, obstaclesFor, type FrogClimbView, type Obstacle,
 } from '@fgn/shared';
 import type { GameEngine } from './types';
 
@@ -57,12 +57,12 @@ export function createFrogClimb(options: { durationMs?: number; seed?: number } 
       if (now < state.startsAt || state.finisher) return state;
       for (const f of Object.values(state.players)) {
         f.lean += f.side * leanRate(f.h) * dt;
-        if (f.side * f.lean >= 1) { // over-bent: the frog slips down and the pole springs back a little
+        if (f.side * f.lean >= LEAN_LIMIT) { // over-bent: the frog slips down and the pole springs back a little
           f.h = Math.max(0, f.h - SLIP_DROP);
           f.lean = f.side * SLIP_RESET;
           f.slipAt = now;
           settle(state, f);
-        } else f.lean = Math.max(-1, Math.min(1, f.lean));
+        } else f.lean = Math.max(-LEAN_LIMIT, Math.min(LEAN_LIMIT, f.lean));
       }
       return state;
     },

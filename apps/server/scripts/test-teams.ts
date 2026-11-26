@@ -3,7 +3,7 @@
  * Everyone starts on a random team (shared out evenly); the host can allow swapping; a team game needs a player on each team; bets are on a team; there is no
  * underdog; the team with the higher total (taps) wins and EVERY member of it gets a victory point; the Random tile never picks a team game.
  */
-import { GAMES, RANDOM_GAME, type Player, type TeamId } from '@fgn/shared';
+import { ACTIVE_GAMES, RANDOM_GAME, type Player, type TeamId } from '@fgn/shared';
 import { RoomManager } from '../src/rooms';
 
 let failures = 0;
@@ -185,7 +185,7 @@ const wins = (r: ReturnType<typeof setup>) => (r.rooms as unknown as { rooms: Ma
     seen.add(r.state().settings.gameId!);
     r.rooms.returnToLobby('A');
   }
-  check('over many rolls the Random tile never lands on a team game, and still reaches every other game', !seen.has('tug-of-war') && seen.size === GAMES.filter((g) => !(g as { teams?: boolean }).teams).length);
+  check('over many rolls the Random tile never lands on a team game, and still reaches every other game', !seen.has('tug-of-war') && seen.size === ACTIVE_GAMES.filter((g) => !(g as { teams?: boolean }).teams).length);
 }
 
 console.log(failures === 0 ? '\nAll team checks passed.' : `\n${failures} check(s) FAILED.`);

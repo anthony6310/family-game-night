@@ -1,13 +1,11 @@
 import type { GameEngine } from './types';
-
-/** Humans can't tap faster than this; ignoring quicker taps blunts auto-clickers and double-fires. */
-const MIN_TAP_INTERVAL_MS = 40;
+import { spendTap, type TapBucket } from '@fgn/shared';
 
 interface TapRaceState {
   startsAt: number;
   endsAt: number;
   taps: Record<string, number>;
-  lastTapAt: Record<string, number>;
+  buckets: Record<string, TapBucket>; // each player's tap-rate bucket (tapLimit.ts)
 }
 
 /** Tap Race: most taps before time runs out wins. A tie for the most taps is a draw. */
@@ -19,18 +17,19 @@ export function createTapRace(durationMs: number): GameEngine<TapRaceState> {
       startsAt: now,
       endsAt: now + durationMs,
       taps: Object.fromEntries(playerIds.map((id) => [id, 0])),
-      lastTapAt: {},
+      buckets: {},
     }),
 
     reduce(state, playerId, action, now) {
       if (action.type !== 'tap') return state;
       if (!(playerId in state.taps)) return state; // not playing this round
       if (now < state.startsAt || now >= state.endsAt) return state; // outside the window: server clock decides
-      if (now - (state.lastTapAt[playerId] ?? -Infinity) < MIN_TAP_INTERVAL_MS) return state; // too fast
+      const bucket = spendTap(state.buckets[playerId], now);
+      if (!bucket) return state; // tapping faster than a human can keep up (see tapLimit.ts)
       return {
         ...state,
         taps: { ...state.taps, [playerId]: state.taps[playerId] + 1 },
-        lastTapAt: { ...state.lastTapAt, [playerId]: now },
+        buckets: { ...state.buckets, [playerId]: bucket },
       };
     },
 

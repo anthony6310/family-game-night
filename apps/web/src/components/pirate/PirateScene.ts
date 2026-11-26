@@ -29,9 +29,8 @@ const CAM_FOLLOW_YAW = 0.7; // the view turns this much of the way with the cann
 const CAM_FOLLOW_PITCH = 0.45;
 const BALL_POOL = 24;
 const BREACH = breachEvents(WHALE_TUNING); // (the moments of the big breach: the splash sound lands on `enter`)
-const MUZZLE_SMOKE_SHARE = 0.2; // the grey smoke of a cannon firing: 80% less than before
 const MUZZLE_SPARK_SHARE = 0.85; // the sparks of a cannon firing: 15% fewer than before
-const BLAST_SCALE = 1.8; // (the smoke of it is then 20% less, and the sparks 40% more and 50% bigger) // the flash, flame and smoke of a cannon firing: 80% more than at first
+const BLAST_SCALE = 1.8; // (the sparks are 40% more and 50% bigger) // the flash, flame and sparks of a cannon firing: 80% more than at first. There is no muzzle smoke any more (the ball's own trail of smoke stays)
 const WICK_AT_Z = 1.4; // the wick grows out of the top of the barrel about half way up what the player can see of it (the back of the cannon is cropped off the screen)
 // The recoil: the whole cannon (the barrel on its wheeled carriage) rolls straight back along the deck by this share of the barrel's length, very fast, and then rolls forward to its firing place over the reload; the wheels turn as it goes.
 const BARREL_FULL_LENGTH = 3.12;
@@ -401,7 +400,7 @@ export class PirateScene {
     void dirSpeed;
   }
 
-  /** The cannon fires: fire and smoke pour out of the end of the barrel (80% bigger and more of it than at first): a flash, a jet of flame, a spray of fiery sparks and a heavy plume of smoke. */
+  /** The cannon fires: fire pours out of the end of the barrel (80% bigger and more of it than at first, and with no smoke): a flash, a jet of flame, a spray of fiery sparks and a heavy plume of smoke. */
   private muzzleBlast(at: Vector3, dir: Vector3) {
     const K = BLAST_SCALE;
     this.puff(at, dir.clone().multiplyScalar(2), { life: 0.14, s0: 2 * K, s1: 4.2 * K, color: '#ffe9a8', additive: true, alpha: 0.8 });
@@ -411,7 +410,6 @@ export class PirateScene {
       const v = dir.clone().multiplyScalar(this.rand(7, 20)).add(new Vector3(this.rand(-5, 5), this.rand(-1, 5), this.rand(-5, 5)));
       this.sparks.emit(at.x, at.y, at.z, v.x, v.y, v.z, this.rand(0.05, 0.1) * 1.5, this.rand(0.4, 0.9), r, g, b, true, 0.8 * 1.5); // (50% bigger)
     }
-    for (let i = 0; i < Math.round(9 * K * 0.8 * MUZZLE_SMOKE_SHARE); i++) this.puff(at.clone().addScaledVector(dir, this.rand(0, 1.2 * K)), dir.clone().multiplyScalar(this.rand(2, 7) * 1.2).add(new Vector3(this.rand(-1, 1), this.rand(0.5, 2), this.rand(-1, 1))), { life: this.rand(1.2, 2.2) * 1.4, s0: 1.2 * K, s1: 4.5 * K, color: '#9a9ea6', alpha: 0.75, drag: 1.1 });
   }
 
   // ---------- per frame ----------

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { GAMES, TEAM_IDS, getGame, teamNamesFor, type GameId, type Player, type RoomState } from '@fgn/shared';
+import { ACTIVE_GAMES, TEAM_IDS, getGame, teamNamesFor, type GameId, type Player, type RoomState } from '@fgn/shared';
 import { Avatar } from '../Avatar';
 import { BetPanel } from '../BetPanel';
 import { ColorPicker } from '../ColorPicker';
@@ -117,7 +117,7 @@ export function LobbyHub({ room, selfId, serverNow, error, images, run, onLeave,
               <RandomArt />
               <span className="game-name">Random</span>
             </button>
-            {GAMES.map((g) => (
+            {ACTIVE_GAMES.map((g) => (
               <button key={g.id} role="radio" aria-checked={g.id === room.settings.gameId && !room.settings.random}
                 className={g.id === room.settings.gameId && !room.settings.random ? 'game-tile selected' : 'game-tile'}
                 onClick={() => { void run(updateSettings({ gameId: g.id })); close(); }}>

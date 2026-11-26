@@ -1,8 +1,11 @@
+import { Icon } from './Icon';
 import { MIN_STAKE, type Bet, type Player } from '@fgn/shared';
 
 interface Props {
-  /** The players this round: the names a spectator can bet on. */
+  /** The players this round: the names a spectator can bet on (in a team game: the two teams, with the team ids as ids). */
   players: Player[];
+  /** A team game: the bet is on a team, not a player. */
+  teams?: boolean;
   /** My bet right now (the server's copy), or undefined if I have none. */
   bet: Bet | undefined;
   /** My victory points: the most I can put up on top of the free bet. */
@@ -18,12 +21,12 @@ interface Props {
  * optional: ready up with nothing picked to just watch. The server owns the bet: every tap here sends it, and the screen shows
  * what comes back. (Changing a bet drops your Ready, so you ready up again with the bet you want.)
  */
-export function BetPanel({ players, bet, points, onBet }: Props) {
+export function BetPanel({ players, bet, points, onBet, teams = false }: Props) {
   const stake = bet?.stake ?? 0;
   return (
     <section className="bet-panel" aria-label="Bet on the winner">
       <h2 className="step-title">Bet on the winner?</h2>
-      <p className="muted">Pick a player. If they win you get 1 point. Or put up some of your own points (at least {MIN_STAKE}): win or lose exactly that many.</p>
+      <p className="muted">Pick a {teams ? 'team' : 'player'}. If {teams ? 'it wins' : 'they win'} you get 1 point. Or put up some of your own points (at least {MIN_STAKE}): win or lose exactly that many.</p>
       <div className="bet-options" role="radiogroup" aria-label="Player to bet on">
         {players.map((p) => (
           <button key={p.id} role="radio" aria-checked={bet?.targetId === p.id}
@@ -42,7 +45,7 @@ export function BetPanel({ players, bet, points, onBet }: Props) {
         <button aria-label="One more point" disabled={!bet || (stake === 0 ? points < MIN_STAKE : stake >= points)} onClick={() => bet && onBet(bet.targetId, stake === 0 ? MIN_STAKE : stake + 1)}>+</button>
       </div>
       <p className="muted">
-        You have 🏆 {points}.{' '}
+        You have <Icon name="trophy" /> {points}.{' '}
         {bet ? `Win: +${Math.max(1, stake)} · Lose: ${stake > 0 ? `−${stake}` : 'nothing'}` : 'No bet: just watching.'}
       </p>
     </section>

@@ -1,9 +1,9 @@
 // Game-wide settings shared by client and server. Change them here only.
 
 /**
- * How many "seats" a room has: only the FIRST this-many people to join (in join order) may play. Each of them can switch
- * between playing and watching whenever they like between rounds. Everyone who joins after that is spectator-only, until
- * one of the first people leaves and the earliest spectator-only member gets that seat.
+ * How many "seats" a room has: only this many people can play. Whoever joins when they are all taken is a spectator, in a line.
+ * A seat holder may give theirs up (becoming a spectator at the back of the line); nobody may take a seat on their own. A seat
+ * opens only when someone leaves or gives theirs up, and then the first spectator in line gets it automatically.
  */
 export const MAX_PLAYERS = 8;
 /** Extra spectator-only people a room can hold beyond the seats (this bounds the room's broadcasts). */
@@ -29,6 +29,7 @@ export const COUNTDOWN_SECONDS = 3; // the lobby countdown: once everyone is rea
 
 /** How long a Tap Race round lasts. */
 export const TAP_RACE_SECONDS = 15;
+export const TUG_SECONDS = 15; // Tug of War lasts as long as Tap Race
 
 /**
  * How long the "you won / you lost" sequence lasts when a round ends: input is stopped and a message plays over the
@@ -70,6 +71,11 @@ export const PENGUIN_SECONDS = 60;
 
 /** How long a Santa's Sack round lasts. */
 export const SANTA_SECONDS = 60;
+export const GOAT_SECONDS = 45; // Closing the Gap
+export const FLAKE_SECONDS = 60; // Snowflake Match
+export const PIRATE_SECONDS = 90; // Broadside Battle
+export const SHELTER_SECONDS = 90; // Zoo Adoption
+export const SHELTER_PAN_SECONDS = 7; // Zoo Adoption's opening: the camera pans along the adopters (the countdown follows it)
 /** The color of a bag in Santa's Sack that nobody is winning (a leather brown that is NOT one of PLAYER_COLORS, so it is never mistaken for a player). */
 export const SANTA_NEUTRAL_BAG_COLOR = '#8b6b45';
 
@@ -139,3 +145,12 @@ export const FISH_KINDS: FishKind[] = ['school', 'regular', 'big']; // (the orde
 
 /** How long a player's seat is held after their connection drops (a page refresh, a bad signal) before they are counted as having left (GAME_RULES.md #15). */
 export const RECONNECT_GRACE_SECONDS = 45;
+
+/**
+ * Tug of War's closing sequence (GAME_RULES.md #18), after the 15 seconds are up: the teams STRAIN (anticipation), the winners give one massive PULL, the losers FALL while the winners stand
+ * and cheer. Then the usual winner moment (WINNER_SECONDS: the camera pans out and the winning team is named). All in seconds.
+ */
+export const TUG_STRAIN_SECONDS = 1.5;
+export const TUG_PULL_SECONDS = 0.7;
+export const TUG_FALL_SECONDS = 1.7;
+export const TUG_CLOSING_SECONDS = TUG_STRAIN_SECONDS + TUG_PULL_SECONDS + TUG_FALL_SECONDS; // 3.9

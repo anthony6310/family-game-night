@@ -4,6 +4,7 @@ import type { GameAction, Player, RoundResult, SantaSackView } from '@fgn/shared
 import { useRemainingMs } from './Countdown';
 import { SantaSackScene, type ElfStyle } from './santa/SantaSackScene';
 import { ThrowPad, type Pull } from './ThrowPad';
+import { useStarted } from './useStarted';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
 import { FALLBACK_COLOR } from './playerColors';
 import { SpectatorControls } from '../spectate/SpectatorControls';
@@ -61,7 +62,7 @@ export default function SantaSackScreen({ game, players, colors, selfId, serverN
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [Object.keys(game.players).join(',')],
   );
-  const camera = useSpectatorCamera(subjects, !isPlayer, false);
+  const camera = useSpectatorCamera(subjects, !isPlayer);
 
   // The winner moment: the camera glides to the winner's elf for EVERYONE (on a draw nobody wins, so it pulls back high over the whole room).
   const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow);
@@ -72,10 +73,12 @@ export default function SantaSackScreen({ game, players, colors, selfId, serverN
     else scene.current?.setCameraView({ targetId: isPlayer ? selfId : camera.targetId });
   }, [winnerMoment, winnerId, isPlayer, selfId, camera.targetId]);
 
+  const started = useStarted(game.startsAt, serverNow);
+
   // The pull: letting go throws a gift from your pile (a tiny pull is not a throw). The scene turns the pull into a direction on the floor for your camera.
   const aim = (pull: Pull | null) => scene.current?.setAim(pull);
   const throwIt = (pull: Pull) => {
-    if (pull.power < game.throwMinPower || !scene.current) return;
+    if (!started || pull.power < game.throwMinPower || !scene.current) return; // (no throwing before GO)
     const dir = scene.current.toWorld(pull);
     sendAction({ type: 'throw', x: dir.x, z: dir.z, power: pull.power });
   };
@@ -105,8 +108,8 @@ export default function SantaSackScreen({ game, players, colors, selfId, serverN
 
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
-      {isPlayer && !frozen && <ThrowPad onAim={aim} onThrow={throwIt} />}
-      {!isPlayer && !frozen && <SpectatorControls camera={camera} allowFree={false} />}
+      {isPlayer && started && !frozen && <ThrowPad onAim={aim} onThrow={throwIt} />}
+      {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );
 }

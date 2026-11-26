@@ -3,6 +3,7 @@ import { UNDERDOG_SECONDS, type Player, type Underdog } from '@fgn/shared';
 import { audio } from '../audio/spatialAudio';
 import { siren } from '../audio/gameSounds';
 import { Avatar } from './Avatar';
+import { Icon } from './Icon';
 import { vpScale } from './WinnerMoment';
 
 interface Props {
@@ -31,14 +32,14 @@ export function UnderdogReveal({ underdog, players, endsAt, serverNow }: Props) 
   return (
     <div className="underdog-screen" role="alert">
       <div className="underdog-glow" aria-hidden="true" />
-      <p className="underdog-kicker">🚨 Underdog alert 🚨</p>
+      <p className="underdog-kicker"><Icon name="alert" /> Underdog alert <Icon name="alert" /></p>
       {player && <Avatar url={player.avatarUrl} name={player.name} size={110} />}
       <h1 className="underdog-name">{player?.name ?? 'A player'}</h1>
       <p className="underdog-line">Everyone else was bet on. Nobody backed them.</p>
       <p className="underdog-prize">
         If they win, they get
         <strong style={{ fontSize: `${vpScale(total)}em` }}>+{total}</strong>
-        <span>🏆 victory {total === 1 ? 'point' : 'points'}</span>
+        <span><Icon name="trophy" /> victory {total === 1 ? 'point' : 'points'}</span>
       </p>
       <p className="underdog-small">A draw that includes them counts as their win too.</p>
     </div>

@@ -11,7 +11,6 @@ import { createRoundClock } from '../../audio/roundClock';
 import { captureChime, cashIn, loopMiss, skateSwish } from '../../audio/iceSounds';
 import type { SoundFn } from '../../audio/snowSounds';
 import { SpectatorRig } from '../../spectate/SpectatorRig';
-import type { CameraMode } from '../../spectate/useSpectatorCamera';
 import { FleckSystem } from '../snowball/effects';
 import { HeadKit } from './headKit';
 import { createNameTag, disposeNameTag } from '../labelTexture';
@@ -119,8 +118,7 @@ export class PenguinScene {
   /** The start countdown's camera move, 0 (over everyone) .. 1 (on the player); set by the game screen from the server's clock. */
   introFactor: () => number = () => 1;
   private rig: SpectatorRig;
-  private view: { mode: CameraMode; targetId: string | null };
-  private pan: { current: { x: number; z: number } } = { current: { x: 0, z: 0 } };
+  private view: { targetId: string | null };
   private zoom = 1;
   // The countdown every game shares (see GAME_RULES.md #1): ticks for the last 5 seconds, then the whistle.
   private clock = createRoundClock((sound, gain) => this.playHere(sound, gain));
@@ -175,7 +173,7 @@ export class PenguinScene {
     private styles: Record<string, SkaterStyle>,
     selfId: string | null,
   ) {
-    this.view = { mode: 'follow', targetId: selfId };
+    this.view = { targetId: selfId };
     this.renderer = new WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
@@ -213,14 +211,9 @@ export class PenguinScene {
     this.clock.update(secondsLeft);
   }
 
-  /** Which skater the camera follows, or the free camera. (Players follow themselves; spectators choose.) */
-  setCameraView(view: { mode: CameraMode; targetId: string | null }) {
+  /** Which skater the camera follows. (Players follow themselves; spectators choose.) */
+  setCameraView(view: { targetId: string | null }) {
     this.view = view;
-  }
-
-  /** The free camera's movement input: an object whose `current` is read every frame (a React ref). */
-  setPanSource(pan: { current: { x: number; z: number } }) {
-    this.pan = pan;
   }
 
   dispose() {
@@ -566,9 +559,9 @@ export class PenguinScene {
     }
     this.updateEffects(dt);
     this.updateIgloos(dt);
-    // Camera: follow a skater, or fly the free camera (see SpectatorRig). Size 1: the follow view doesn't depend on size.
+    // Camera: follow a skater (see SpectatorRig). Size 1: the follow view doesn't depend on size.
     const followed = this.view.targetId && poses ? poses[this.view.targetId] : undefined;
-    this.rig.update(dt, this.view.mode, followed && { x: followed.x, y: 0, z: followed.z, size: 1 }, this.pan.current, this.zoom, this.introFactor());
+    this.rig.update(dt, followed && { x: followed.x, y: 0, z: followed.z, size: 1 }, this.zoom, this.introFactor());
     this.flecks.update(dt);
     this.renderer.render(this.scene, this.camera);
   };

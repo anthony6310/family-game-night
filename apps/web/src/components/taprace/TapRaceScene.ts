@@ -8,7 +8,6 @@ import { typewriterClick } from '../../audio/clickSounds';
 import { createRoundClock } from '../../audio/roundClock';
 import { SpectatorRig } from '../../spectate/SpectatorRig';
 import { SparkSystem } from './sparks';
-import type { CameraMode } from '../../spectate/useSpectatorCamera';
 
 /** One player's button: its color and name. (Fixed when the round starts.) */
 export interface ButtonStyle {
@@ -53,8 +52,8 @@ interface ButtonVisual {
  * latest counts (`setCounts`) and a container; it owns the renderer, the animation loop and all cleanup.
  *
  * The scene is ONE board holding every player's button, laid out in a grid. Players look down at their own button from a
- * fixed spot above it (no camera controls); a spectator follows any player's view or flies a free camera over the whole
- * board. The camera itself is the game-agnostic SpectatorRig, the same one Snowball uses.
+ * fixed spot above it (no camera controls); a spectator follows any player's view.
+ * The camera itself is the game-agnostic SpectatorRig, the same one Snowball uses.
  */
 export class TapRaceScene {
   private renderer: WebGLRenderer;
@@ -68,8 +67,7 @@ export class TapRaceScene {
   /** The start countdown's camera move, 0 (over everyone) .. 1 (on the player); set by the game screen from the server's clock. */
   introFactor: () => number = () => 1;
   private rig: SpectatorRig;
-  private view: { mode: CameraMode; targetId: string | null };
-  private pan: { current: { x: number; z: number } } = { current: { x: 0, z: 0 } };
+  private view: { targetId: string | null };
   private zoom = 1; // pulls the camera back on narrow (portrait) screens
   private textureLoader = new TextureLoader().setCrossOrigin('anonymous'); // profile pictures may live on another site (Supabase)
   private sparks = new SparkSystem();
@@ -85,7 +83,7 @@ export class TapRaceScene {
     styles: ButtonStyle[],
     private selfId: string | null,
   ) {
-    this.view = { mode: 'follow', targetId: selfId };
+    this.view = { targetId: selfId };
     this.renderer = new WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
@@ -94,7 +92,7 @@ export class TapRaceScene {
     this.scene.fog = new Fog(LAB_BACKGROUND, 45, 120);
 
     const { positions, reach } = layout(styles.length);
-    // The free camera may roam over the whole board and a little beyond; its height is set from this too.
+    // The rig's overview (used before the round and when there is nobody to follow) is sized from the board.
     this.rig = new SpectatorRig(this.camera, reach + 6, () => ({ height: 9.5, back: 4.8 })); // players see their button from almost straight above
     this.buildWorld(reach);
     this.scene.add(this.sparks.object);
@@ -151,14 +149,9 @@ export class TapRaceScene {
     audio.play(sound, this.rig.focusX, this.rig.focusZ, gain, 1);
   }
 
-  /** Spectators: which player's view to follow, or the free camera. (Players never call this: they follow their own button.) */
-  setCameraView(view: { mode: CameraMode; targetId: string | null }) {
+  /** Spectators: which player's view to follow. (Players never call this: they follow their own button.) */
+  setCameraView(view: { targetId: string | null }) {
     this.view = view;
-  }
-
-  /** The free camera's movement input: an object whose `current` is read every frame (a React ref). */
-  setPanSource(pan: { current: { x: number; z: number } }) {
-    this.pan = pan;
   }
 
   dispose() {
@@ -404,7 +397,7 @@ export class TapRaceScene {
     audio.setListener(this.rig.focusX, this.rig.focusZ); // you hear from where the camera is looking
 
     const followed = this.view.targetId ? this.buttons.get(this.view.targetId) : undefined;
-    this.rig.update(dt, this.view.mode, followed && { x: followed.x, y: 0, z: followed.z, size: 0 }, this.pan.current, this.zoom, this.introFactor());
+    this.rig.update(dt, followed && { x: followed.x, y: 0, z: followed.z, size: 0 }, this.zoom, this.introFactor());
     this.renderer.render(this.scene, this.camera);
   };
 }

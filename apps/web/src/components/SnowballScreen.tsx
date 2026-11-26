@@ -3,6 +3,8 @@ import { useEffect, useMemo, useRef } from 'react';
 import type { GameAction, Player, RoundResult, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './Joystick';
+import { Icon } from './Icon';
+import { useStarted } from './useStarted';
 import { SnowballScene, type BallStyle } from './snowball/SnowballScene';
 import { SprintButton, StaminaBar } from './snowball/SprintControls';
 import { useSprint } from './snowball/useSprint';
@@ -63,8 +65,9 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
     scene.current?.setItems(game.items); // the pick-ups lying in the arena
   }, [game]);
 
-  const setStick = useSteering(sendAction, !frozen);
-  const setSprintHeld = useSprint(sendAction, !frozen); // hold the button (or Shift / Space) to sprint
+  const started = useStarted(game.startsAt, serverNow); // (no control before GO)
+  const setStick = useSteering(sendAction, !frozen && started);
+  const setSprintHeld = useSprint(sendAction, !frozen && started); // hold the button (or Shift / Space) to sprint
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   useEffect(() => {
     scene.current?.setSecondsLeft(remainingMs / 1000); // the last 5 seconds tick, then the whistle: the same countdown as every game
@@ -79,15 +82,14 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
     [Object.keys(game.balls).join(',')],
   );
   const camera = useSpectatorCamera(subjects, !isPlayer);
-  useEffect(() => { scene.current?.setPanSource(camera.pan); }, [camera.pan]);
   // The winner moment (shared with the other games): the camera goes to the winner for EVERYONE, with a banner and the drumroll + fanfare.
   const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow);
   const winnerId = result?.winnerId ?? null;
   useWinnerSounds(frozen, result, finishEndsAt, serverNow);
   useEffect(() => {
-    if (winnerMoment) scene.current?.setCameraView({ mode: 'follow', targetId: winnerId });
-    else if (!isPlayer) scene.current?.setCameraView({ mode: camera.mode, targetId: camera.targetId });
-  }, [winnerMoment, winnerId, isPlayer, camera.mode, camera.targetId]);
+    if (winnerMoment) scene.current?.setCameraView({ targetId: winnerId });
+    else if (!isPlayer) scene.current?.setCameraView({ targetId: camera.targetId });
+  }, [winnerMoment, winnerId, isPlayer, camera.targetId]);
 
   // The stamina bar shows the ball you are playing (or, for a spectator, the one they follow).
   const subjectBall = (isPlayer ? selfId : camera.targetId) ? game.balls[(isPlayer ? selfId : camera.targetId)!] : undefined;
@@ -107,20 +109,20 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
           {standings.map(({ id, size, style, leader, fish }) => (
             <li key={id} className={id === selfId ? 'me' : ''}>
               <span className="dot" style={{ background: style?.color }} />
-              <span className="snow-name">{leader && '👑 '}{style?.name ?? '?'}</span>
-              {fish > 0 && <span className="snow-fish" title="Fish: each adds +5 damage to the next hit">🐟{fish}</span>}
+              <span className="snow-name">{leader && <><Icon name="crown" /> </>}{style?.name ?? '?'}</span>
+              {fish > 0 && <span className="snow-fish" title="Fish: each adds +5 damage to the next hit"><Icon name="fish" />{fish}</span>}
               <span className="snow-size">{size}</span>
             </li>
           ))}
         </ul>
         {!frozen && subjectBall && <StaminaBar stamina={subjectBall.stamina} startAt={game.staminaStart} sprinting={subjectBall.sprinting} recovering={subjectBall.escape} />}
-        {isPlayer && !frozen && <p className="snow-hint">Drag to steer · WASD / arrows · hold Shift, Space or ⚡ to sprint</p>}
+        {isPlayer && !frozen && <p className="snow-hint">Drag to steer · WASD / arrows · hold Shift, Space or the sprint button to sprint</p>}
       </div>
 
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
-      {isPlayer && !frozen && <Joystick onChange={setStick} />}
-      {isPlayer && !frozen && <SprintButton onHold={setSprintHeld} active={Boolean(subjectBall?.sprinting)} />}
+      {isPlayer && started && !frozen && <Joystick onChange={setStick} />}
+      {isPlayer && started && !frozen && <SprintButton onHold={setSprintHeld} active={Boolean(subjectBall?.sprinting)} />}
       {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );

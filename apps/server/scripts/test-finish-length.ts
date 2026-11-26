@@ -3,7 +3,7 @@
  *   npm run test:finish-length -w @fgn/server
  * Tap Race: 1.5 s on your own button + 4 s naming the winner = 5.5 s.
  */
-import { TAP_RACE_FINISH_SECONDS, TAP_RACE_OWN_BUTTON_SECONDS, TAP_RACE_WINNER_SECONDS, type GameId, type Player } from '@fgn/shared';
+import { TUG_CLOSING_SECONDS, TAP_RACE_FINISH_SECONDS, TAP_RACE_OWN_BUTTON_SECONDS, TAP_RACE_WINNER_SECONDS, type GameId, type Player } from '@fgn/shared';
 import { RoomManager } from '../src/rooms';
 
 let failures = 0;
@@ -39,6 +39,8 @@ const lasso = finishLength('penguin-lasso');
 check(`Penguin Lasso: the same 5.5 s winner sequence (got ${lasso} ms)`, Math.abs(lasso - 5500) <= 30);
 const fishing = finishLength('fishing');
 check(`Fishing: 4.4 s for the hooks breaking the surface, then the same 5.5 s winner sequence = 9.9 s (got ${fishing} ms)`, Math.abs(fishing - 9900) <= 30);
+const tug = finishLength('tug-of-war');
+check(`Tug of War: its own closing sequence (strain, pull, fall: ${TUG_CLOSING_SECONDS} s) then the 4 s winner moment = ${TUG_CLOSING_SECONDS + 4} s (got ${tug} ms)`, Math.abs(tug - (TUG_CLOSING_SECONDS + 4) * 1000) <= 30);
 const forced = finishLength('tap-race', { finishMs: 500 });
 check(`a test override still applies to every game (got ${forced} ms)`, Math.abs(forced - 500) <= 30);
 

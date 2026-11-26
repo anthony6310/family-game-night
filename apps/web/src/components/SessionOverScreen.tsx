@@ -1,3 +1,4 @@
+import { Icon } from './Icon';
 import type { RoomState } from '@fgn/shared';
 import { Avatar } from './Avatar';
 
@@ -21,7 +22,7 @@ export function SessionOverScreen({ room, selfId, error, onReset, onClose, onLea
     <main className="page">
       <p className="muted">Session complete</p>
       {champion && <Avatar url={champion.avatarUrl} name={champion.name} size={110} />}
-      <h1>👑 {champion?.name ?? 'Nobody'} wins!</h1>
+      <h1><Icon name="crown" /> {champion?.name ?? 'Nobody'} wins!</h1>
       {champion?.id === selfId && <p className="muted">That's you!</p>}
 
       <ul className="players">
@@ -29,7 +30,7 @@ export function SessionOverScreen({ room, selfId, error, onReset, onClose, onLea
           <li key={p.id}>
             <Avatar url={p.avatarUrl} name={p.name} size={36} />
             <span className="player-name">{p.name}{p.id === selfId && ' (you)'}</span>
-            <span className="badge wins" title="Rounds won">🏆 {room.scores[p.id] ?? 0}</span>
+            <span className="badge wins" title="Rounds won"><Icon name="trophy" /> {room.scores[p.id] ?? 0}</span>
           </li>
         ))}
       </ul>

@@ -92,5 +92,46 @@ check('a spectator who leaves takes their bet with them', state().bets.C === und
 check('...but keeps their points on record (7) for the session winner', state().scores.C === 7);
 // stake is clamped to what you have when the round starts
 rooms.setBet('E', 'B', 0);
+
+// ---- seats: giving one up, who gets it, and who can bet ----
+{
+  const r = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0 });
+  const m = r.create(player('H'));
+  if (!m.ok) throw new Error('create failed');
+  const c2 = m.room.code, st = () => r.stateOf(c2)!;
+  r.join(c2, player('S1')); r.join(c2, player('S2'));
+  check('with seats free, giving yours up makes you a spectator who can bet', r.setWatching('S1', true).ok && st().spectatorOnlyIds.join() === 'S1' && st().watchingIds.includes('S1'));
+  check('...and a spectator cannot take a seat back on their own, even with seats free', errorOf(r.setWatching('S1', false)) === 'NO_SEAT');
+  check('a seat holder cannot bet, a spectator can', errorOf(r.setBet('S2', 'H', 0)) === 'NOT_A_SPECTATOR' && r.setBet('S1', 'H', 0).ok);
+  r.setWatching('S2', true);
+  check('a second one giving up does not hand the first one back a seat (no seat was needed: it just frees one)', st().spectatorOnlyIds.join() === 'S1,S2');
+  // fill the room: 8 seats
+  const r2 = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0 });
+  const m2 = r2.create(player('P0'));
+  if (!m2.ok) throw new Error('create failed');
+  const c3 = m2.room.code, st2 = () => r2.stateOf(c3)!;
+  for (let i = 1; i < 8; i++) r2.join(c3, player(`P${i}`));
+  r2.join(c3, player('Q1')); r2.join(c3, player('Q2'));
+  check('with every seat taken, newcomers wait in line in the order they came', st2().spectatorOnlyIds.join() === 'Q1,Q2');
+  r2.setWatching('P3', true);
+  check('a full room: giving up a seat gives it to the first in line, and you go to the back', st2().spectatorOnlyIds.join() === 'Q2,P3' && !st2().watchingIds.includes('Q1'));
+  r2.leave('P4');
+  check('a seat holder leaving gives the seat to the next in line', st2().spectatorOnlyIds.join() === 'P3' && !st2().watchingIds.includes('Q2'));
+  check('a spectator who just got a seat cannot bet any more', errorOf(r2.setBet('Q1', 'P0', 0)) === 'NOT_A_SPECTATOR');
+  r2.leave('Q1'); r2.leave('P3'); // (a spectator leaving changes no seats)
+  check('a spectator leaving takes nobody off the line but themselves', st2().spectatorOnlyIds.length === 0 && st2().players.length === 7);
+  r2.join(c3, player('N1'));
+  check('a free seat is taken by the next person to join', st2().spectatorOnlyIds.length === 0 && !st2().watchingIds.includes('N1'));
+  // joining as a spectator is a choice made only on joining
+  const r3 = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0 });
+  const m3 = r3.create(player('Hh'));
+  if (!m3.ok) throw new Error('create failed');
+  const c4 = m3.room.code, st3 = () => r3.stateOf(c4)!;
+  const j = r3.join(c4, player('W1'), undefined, true);
+  check('joining as a spectator with seats free: a spectator in the line, watching, and able to bet', j.ok && st3().spectatorOnlyIds.join() === 'W1' && st3().watchingIds.includes('W1') && r3.setBet('W1', 'Hh', 0).ok);
+  check('...and they cannot switch to playing later', errorOf(r3.setWatching('W1', false)) === 'NO_SEAT');
+  r3.join(c4, player('Pl'));
+  check('joining normally still takes a seat', !st3().spectatorOnlyIds.includes('Pl') && !st3().watchingIds.includes('Pl'));
+}
 console.log(failures === 0 ? '\nAll betting checks passed.' : `\n${failures} check(s) FAILED.`);
 process.exit(failures === 0 ? 0 : 1);

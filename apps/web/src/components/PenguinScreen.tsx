@@ -4,6 +4,8 @@ import type { GameAction, PenguinLassoView, Player, RoundResult } from '@fgn/sha
 import { useRemainingMs } from './Countdown';
 import { BagMeter } from './BagMeter';
 import { Joystick } from './Joystick';
+import { Icon } from './Icon';
+import { useStarted } from './useStarted';
 import { PenguinScene, type SkaterStyle } from './penguin/PenguinScene';
 import { useSteering } from './snowball/useSteering';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
@@ -61,7 +63,8 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
     scene.current?.pushView(game);
   }, [game]);
 
-  const setStick = useSteering(sendAction, !frozen);
+  const started = useStarted(game.startsAt, serverNow); // (no control before GO)
+  const setStick = useSteering(sendAction, !frozen && started);
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   useEffect(() => {
     scene.current?.setSecondsLeft(remainingMs / 1000); // the shared countdown: ticks for the last 5 seconds, then the whistle
@@ -74,7 +77,6 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
     [Object.keys(game.skaters).join(',')],
   );
   const camera = useSpectatorCamera(subjects, !isPlayer);
-  useEffect(() => { scene.current?.setPanSource(camera.pan); }, [camera.pan]);
   // The winner moment: the camera goes to the winner for EVERYONE (on a draw nobody wins, so it pulls back to the middle).
   // The bag display shows the bag of the skater you are watching (yourself, or the one a spectator follows). When that skater closes a loop
   // round animals that do not fit, the circles flash red and shake.
@@ -94,9 +96,9 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
   useWinnerSounds(frozen, result, finishEndsAt, serverNow); // drumroll, then the fanfare as the camera reaches the winner
   const winnerId = result?.winnerId ?? null;
   useEffect(() => {
-    if (winnerMoment) scene.current?.setCameraView({ mode: 'follow', targetId: winnerId });
-    else if (!isPlayer) scene.current?.setCameraView({ mode: camera.mode, targetId: camera.targetId });
-  }, [winnerMoment, winnerId, isPlayer, camera.mode, camera.targetId]);
+    if (winnerMoment) scene.current?.setCameraView({ targetId: winnerId });
+    else if (!isPlayer) scene.current?.setCameraView({ targetId: camera.targetId });
+  }, [winnerMoment, winnerId, isPlayer, camera.targetId]);
 
   const standings = Object.entries(game.skaters)
     .map(([id, s]) => ({ id, banked: s.banked, carried: s.carried, bears: s.bag.filter((k) => k === 'bear').length, full: s.bagFull, style: styles[id] }))
@@ -114,8 +116,8 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
             <li key={id} className={id === selfId ? 'me' : ''}>
               <span className="dot" style={{ background: style?.color }} />
               <span className="snow-name">{style?.name ?? '?'}</span>
-              {/* 🎒 = points in the bag (not banked yet), the plain number = points cashed in at the igloo (the score) */}
-              {carried > 0 && <span className="snow-fish" title="Points in the bag: skate home to the igloo to cash them in">🎒{carried}{full && ' full'}{bears > 0 && ` 🐻×${bears} slow`}</span>}
+              {/* the bag icon = points in the bag (not banked yet), the plain number = points cashed in at the igloo (the score) */}
+              {carried > 0 && <span className="snow-fish" title="Points in the bag: skate home to the igloo to cash them in"><Icon name="bag" />{carried}{full && ' full'}{bears > 0 && ` · ${bears} ${bears === 1 ? 'bear' : 'bears'}: slow`}</span>}
               <span className="snow-size" title="Points cashed in at the igloo: the score">{banked} pts</span>
             </li>
           ))}
@@ -129,7 +131,7 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
 
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
-      {isPlayer && !frozen && <Joystick onChange={setStick} />}
+      {isPlayer && started && !frozen && <Joystick onChange={setStick} />}
       {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );

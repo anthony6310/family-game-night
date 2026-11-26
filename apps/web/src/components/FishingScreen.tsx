@@ -52,11 +52,11 @@ export default function FishingScreen({ game, players, colors, selfId, serverNow
 
   useEffect(() => { scene.current?.pushView(game); }, [game]);
 
-  // Steering only counts once the hooks are rising (the server ignores it before that, so the control is simply hidden until then).
-  const setStick = useSteering(sendAction, !frozen);
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   const ascentMs = game.endsAt - game.ascentStartsAt;
   const casting = serverNow() < game.ascentStartsAt;
+  // Steering only counts once the hooks are rising (the server ignores it before that, so the control is simply hidden until then).
+  const setStick = useSteering(sendAction, !frozen && !casting); // (no control until the hooks start rising: GO)
   useEffect(() => { scene.current?.setSecondsLeft(remainingMs / 1000); }, [remainingMs]); // the shared countdown: ticks for the last 5 seconds, then the whistle
 
   // Spectators choose whose lane to follow (there is no free camera: the ocean is a flat picture).
@@ -65,7 +65,7 @@ export default function FishingScreen({ game, players, colors, selfId, serverNow
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [Object.keys(game.hooks).join(',')],
   );
-  const camera = useSpectatorCamera(subjects, !isPlayer, false);
+  const camera = useSpectatorCamera(subjects, !isPlayer);
 
   // The winner moment: the camera goes to the winner's lane for EVERYONE (on a draw nobody wins, so it pulls back to show the whole ocean).
   const winnerMoment = isWinnerMoment(frozen, result, finishEndsAt, serverNow);
@@ -103,7 +103,7 @@ export default function FishingScreen({ game, players, colors, selfId, serverNow
       {winnerMoment && result && <WinnerBanner result={result} players={players} />}
 
       {isPlayer && !frozen && !casting && <Joystick onChange={setStick} />}
-      {!isPlayer && !frozen && <SpectatorControls camera={camera} allowFree={false} />}
+      {!isPlayer && !frozen && <SpectatorControls camera={camera} />}
     </div>
   );
 }

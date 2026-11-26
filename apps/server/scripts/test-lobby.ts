@@ -69,7 +69,7 @@ try {
 
   check('non-host cannot change settings', errorOf(await settings(bob, { gameId: 'tap-race' })) === 'NOT_HOST');
   check('unknown game is rejected', errorOf(await settings(host, { gameId: 'nope' })) === 'INVALID_SETTING');
-  check('cannot ready up before a game is chosen', errorOf(await ready(host, true)) === 'NO_GAME_SELECTED');
+  check('a new room has Random selected by default', host.latest?.settings.random === true);
   check('host picks the game', (await settings(host, { gameId: 'tap-race' })).ok);
   check('everyone sees the game', await until(bob, (s) => s.settings.gameId === 'tap-race'));
 

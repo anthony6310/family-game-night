@@ -46,6 +46,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   const underdogTimers = new Map<string, ScheduledTimer>();
   const startingTimers = new Map<string, ScheduledTimer>();
   const rouletteTimers = new Map<string, ScheduledTimer>();
+  const teamStartTimers = new Map<string, ScheduledTimer>();
   // Slowing down abuse (each keyed by the connection's network address, which a guest can't just change by making a new name):
   const wrongPasswords = new AttemptLimiter(8, 5 * 60_000); // wrong room passwords: 8 in 5 minutes
   const roomsMade = new AttemptLimiter(6, 10 * 60_000); // rooms created: 6 in 10 minutes
@@ -87,6 +88,10 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       const started = rooms.finishRoulette(state.code, endsAt);
       if (started) publish(started); // the roulette has landed on a game: on to the underdog announcement or the flash step
     });
+    syncTimer(teamStartTimers, state.code, state.phase === 'teams' ? state.teamCountdownEndsAt : null, (endsAt) => {
+      const started = rooms.finishTeamCountdown(state.code, endsAt);
+      if (started) publish(started); // the team step's countdown ended: the round begins
+    });
     syncTimer(underdogTimers, state.code, state.phase === 'underdog' ? state.underdogEndsAt : null, (endsAt) => {
       const started = rooms.finishUnderdog(state.code, endsAt);
       if (started) publish(started); // the underdog announcement is over: the flash step begins (or the round, with no flash step)
@@ -110,12 +115,13 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   }
 
   function clearTimers(code: string) {
-    for (const timers of [countdownTimers, rouletteTimers, underdogTimers, startingTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
+    for (const timers of [countdownTimers, rouletteTimers, teamStartTimers, underdogTimers, startingTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
   }
 
-  function publishOutcome({ room, round, session }: Outcome) {
+  function publishOutcome({ room, round, rounds, session }: Outcome) {
     publish(room);
     if (round) onRound(round); // persist the decided round
+    if (rounds) for (const r of rounds) onRound(r); // (a team game: one record for every member of the winning team)
     if (session) onSession(session); // persist the finished session
   }
 
@@ -228,7 +234,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
       if (typeof ack !== 'function') return;
       const request: Partial<JoinRequest> = typeof target === 'string' ? { code: target } : target && typeof target === 'object' ? target : {};
       if (wrongPasswords.blocked(address)) return ack({ ok: false, error: 'TOO_MANY_ATTEMPTS' }); // (checked before the password is even looked at)
-      const result = rooms.join(String(request.code ?? ''), player, request.password);
+      const result = rooms.join(String(request.code ?? ''), player, request.password, request.asSpectator === true);
       if (!result.ok && result.error === 'WRONG_PASSWORD') wrongPasswords.record(address);
       enter(result, ack);
     });
@@ -245,6 +251,9 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     socket.on('room:settings', (settings, ack) => {
       command(rooms.setSettings(player.id, settings && typeof settings === 'object' ? settings : {}), ack);
     });
+    socket.on('room:cancel-start', (ack) => command(rooms.cancelTeamStart(player.id), ack));
+    socket.on('room:start-teams', (ack) => command(rooms.startFromTeams(player.id), ack));
+    socket.on('player:team', (team, ack) => command(rooms.setTeam(player.id, team), ack));
     socket.on('player:color', (color, ack) => command(rooms.setColor(player.id, String(color)), ack));
     socket.on('player:bet', (target, stake, ack) => command(rooms.setBet(player.id, typeof target === 'string' ? target : null, Number(stake)), ack));
     socket.on('player:ready', (ready, ack) => command(rooms.setReady(player.id, ready === true), ack));
@@ -266,6 +275,14 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     socket.on('game:action', (action) => {
       // Never trust the payload shape: accept only the known actions with sane values.
       const valid = action?.type === 'tap' || (action?.type === 'steer' && Number.isFinite(action.x) && Number.isFinite(action.z)) || (action?.type === 'sprint' && typeof action.on === 'boolean')
+        || (action?.type === 'pick' && Number.isInteger(action.flake) && Number.isFinite(action.at)) // (Snowflake Match; the engine checks everything again)
+        || (action?.type === 'aim' && Number.isFinite(action.yaw) && Number.isFinite(action.pitch)) // (Broadside Battle; the engine clamps it)
+        || action?.type === 'fire' // (Broadside Battle)
+        || action?.type === 'smack' // (Roach Rumble)
+        || (action?.type === 'look' && Number.isFinite(action.yaw)) // (Zoo Adoption)
+        || (action?.type === 'grab' && Number.isInteger(action.target)) // (Zoo Adoption; the engine checks the animal and the distance)
+        || action?.type === 'give' // (Zoo Adoption)
+        || (action?.type === 'jump' && Number.isFinite(action.at)) // (Mountain Goats; the engine checks the time again)
         || (action?.type === 'throw' && Number.isFinite(action.x) && Number.isFinite(action.z) && Number.isFinite(action.power)); // (Santa's Sack; the engine checks the values again)
       if (!valid) return;
       const outcome = rooms.gameAction(player.id, action);

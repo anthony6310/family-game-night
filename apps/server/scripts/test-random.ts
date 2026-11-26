@@ -10,21 +10,22 @@ let failures = 0;
 const check = (name: string, ok: boolean) => { if (!ok) failures++; console.log(`${ok ? 'PASS' : 'FAIL'}  ${name}`); };
 const player = (id: string): Player => ({ id, name: id, avatarUrl: null, isGuest: true });
 
-const rooms = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, rouletteMs: 5000, startingMs: 0, introMs: 0 });
+const rooms = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, rouletteMs: 5000, startingMs: 0, introMs: 0, forceRandom: null }); // (forceRandom null: these tests check the real Random rules, whatever the temporary switch in rooms.ts says)
 const made = rooms.create(player('A'));
 if (!made.ok) throw new Error('create failed');
 const code = made.room.code;
 rooms.join(code, player('B'));
 const state = () => rooms.stateOf(code)!;
 
-check('a new room has no game and is not random', state().settings.gameId === null && state().settings.random === false && state().roulette === null);
-check('only the host can pick the Random tile', !rooms.setSettings('B', { gameId: RANDOM_GAME }).ok && !state().settings.random);
+check('a new room starts with Random selected: no game rolled yet', state().settings.gameId === null && state().settings.random === true && state().roulette === null);
+check('only the host can change the pick', !rooms.setSettings('B', { gameId: 'tap-race' }).ok && state().settings.random);
+check('the host can pick a game instead, and Random again', rooms.setSettings('A', { gameId: 'tap-race' }).ok && !state().settings.random && state().settings.gameId === 'tap-race');
 check('the host picks Random: nothing is rolled yet (no game until everyone is ready)', rooms.setSettings('A', { gameId: RANDOM_GAME }).ok && state().settings.random === true && state().settings.gameId === null);
 check('players can ready up with Random chosen', rooms.setReady('A', true).ok && rooms.setReady('B', true).ok && state().phase === 'countdown');
 const first = state();
 rooms.finishCountdown(code, first.countdownEndsAt!);
 const s1 = state();
-check('when the countdown ends the room goes to the roulette step, with the chosen game and when the spin ends', s1.phase === 'roulette' && s1.roulette !== null && GAMES.some((g) => g.id === s1.roulette!.gameId) && s1.roulette.endsAt - s1.roulette.startsAt === 5000);
+check('when the countdown ends the room goes to the roulette step, with the chosen game and when the spin ends', s1.phase === 'roulette' && s1.roulette !== null && GAMES.some((g) => g.id === s1.roulette!.gameId && !(g as { teams?: boolean }).teams) && s1.roulette.endsAt - s1.roulette.startsAt === 5000);
 check('the game the roulette lands on is the game that is played', s1.settings.gameId === s1.roulette!.gameId);
 check('a stale roulette timer does nothing', rooms.finishRoulette(code, s1.roulette!.endsAt + 1) === null && state().phase === 'roulette');
 check('settings cannot be changed during the roulette', !rooms.setSettings('A', { gameId: 'tap-race' }).ok);
@@ -44,7 +45,7 @@ check('a player leaving during the roulette calls it off when too few remain', s
 
 // over many rolls every game comes up, and picking a game by hand clears the random mark
 const seen = new Set<string>();
-const many = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, rouletteMs: 1000, startingMs: 0, introMs: 0 });
+const many = new RoomManager({ countdownMs: 0, roundMs: 10_000, finishMs: 0, resultsMs: 0, rouletteMs: 1000, startingMs: 0, introMs: 0, forceRandom: null }); // (forceRandom null: these tests check the real Random rules, whatever the temporary switch in rooms.ts says)
 const m = many.create(player('X')); if (!m.ok) throw new Error('create failed');
 many.join(m.room.code, player('Y'));
 for (let i = 0; i < 80; i++) {
@@ -53,7 +54,8 @@ for (let i = 0; i < 80; i++) {
   seen.add(many.stateOf(m.room.code)!.settings.gameId!);
   many.returnToLobby('X');
 }
-check('over many rolls every game comes up', seen.size === GAMES.length);
+const normal = GAMES.filter((g) => !(g as { teams?: boolean }).teams);
+check('over many rolls every ordinary game comes up, and a team game never does (teams need their own lobby step: GAME_RULES.md #17)', seen.size === normal.length && !seen.has('tug-of-war'));
 many.setSettings('X', { gameId: 'tap-race' });
 check('picking a game by hand clears the random mark', many.stateOf(m.room.code)!.settings.gameId === 'tap-race' && many.stateOf(m.room.code)!.settings.random === false);
 check('an unknown game is still refused', !many.setSettings('X', { gameId: 'nope' as never }).ok);

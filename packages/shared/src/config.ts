@@ -154,3 +154,4 @@ export const TUG_STRAIN_SECONDS = 1.5;
 export const TUG_PULL_SECONDS = 0.7;
 export const TUG_FALL_SECONDS = 1.7;
 export const TUG_CLOSING_SECONDS = TUG_STRAIN_SECONDS + TUG_PULL_SECONDS + TUG_FALL_SECONDS; // 3.9
+export const FROG_SECONDS = 60; // Frog Climb: the time cap (the first frog to the top wins sooner)

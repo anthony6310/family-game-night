@@ -62,6 +62,8 @@ export type GameAction =
   | { type: 'look'; yaw: number } // Zoo Adoption: which way the volunteer faces (0 = south, +z), so others and spectators see it
   | { type: 'grab'; target: number } // Zoo Adoption: pick up animal number `target` (it must be within reach)
   | { type: 'give' } // Zoo Adoption: hand the animal you carry to the adoptee in front of you, or put it down if nobody is in reach
+  | { type: 'climb' } // Frog Climb: hop up the pole
+  | { type: 'swap' } // Frog Climb: scramble to the other side of the pole
   | { type: 'jump'; at: number } // Mountain Goats: a tap, made at `at` on the phone's idea of the server clock
   | { type: 'throw'; x: number; z: number; power: number }; // Santa's Sack: throw a gift from your pile in the direction (x, z) on the floor, with `power` 0..1 (how far)
 
@@ -319,6 +321,17 @@ export interface MountainGoatView {
   players: Record<string, GoatPlayerView>;
 }
 
+/** One frog on its pole in Frog Climb. `h` is its height (0..POLE_TOP), `side` the side of the pole it clings to (-1 left, +1 right) and `lean` the pole's bend (-1..1, see pole.ts). The `...At` times let phones start the hop, scramble and slip at the right moment. */
+export interface FrogPlayerView { h: number; side: -1 | 1; lean: number; readyAt: number; climbAt: number; swapAt: number; slipAt: number; finishedAt: number | null }
+/** Frog Climb, as phones see it: every player has their own pole and frog. */
+export interface FrogClimbView {
+  gameId: 'frog-climb';
+  startsAt: number;
+  endsAt: number;
+  seed: number; // (the obstacles are made from it: obstaclesFor)
+  players: Record<string, FrogPlayerView>;
+}
+
 /** One falling snowflake in Snowflake Match: its design, when its current fall began and the lane it began in (its place on the screen is worked out from these and the clock: see flakePose). */
 export interface FlakeView { design: number; born: number; lane: number }
 export interface FlakePlayerView { points: number; hand: number[]; flakes: FlakeView[] } // the designs in the player's hand, and the player's own falling field (everyone starts with the same one; a flake you match falls again in YOUR field only)
@@ -448,7 +461,7 @@ export interface RoachHuntView {
   poisonAt: number | null;
 }
 
-export type GameView = RoachHuntView | PirateBroadsideView | AdoptionDayView | SnowflakeMatchView | MountainGoatView | TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
+export type GameView = FrogClimbView | RoachHuntView | PirateBroadsideView | AdoptionDayView | SnowflakeMatchView | MountainGoatView | TapRaceView | SnowballView | PenguinLassoView | FishingView | SantaSackView | TugOfWarView;
 
 /** A spectator's bet on one player to win a round. With no stake it is a free bet worth 1 victory point if it wins. With a stake, the spectator puts up victory points of their own and wins (or loses) exactly that many. */
 export interface Bet {

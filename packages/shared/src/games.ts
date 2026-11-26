@@ -56,6 +56,15 @@ export const GAMES = [
     finishSeconds: WINNER_FINISH_SECONDS + FISHING_BREACH_SECONDS, // the hooks breaking the surface, then the piles (own view), then the winner
   },
   {
+    id: 'frog-climb',
+    name: 'Frog Climb',
+    description: 'Every frog climbs its own long, springy pole, and the first one to the top wins. Tap Climb to hop up the pole, but a frog clinging to one side bends the pole toward that side, and the higher it climbs the faster and harder the pole bends. Tap Swap to scramble round to the other side and bend it back before it bends too far: an over-bent pole drops your frog down the pole. Clusters of thorns start about a third of the way up, with more thorns the higher you go: hop into one on your side and you fall, so swap sides to get past. The pole turns redder the more it bends. If nobody reaches the top in time, the highest frog wins!',
+    minPlayers: 2,
+    maxPlayers: MAX_PLAYERS,
+    scoreLabel: 'm', // (height up the pole; the top is 100)
+    finishSeconds: WINNER_FINISH_SECONDS, // own view, then the winner
+  },
+  {
     id: 'penguin-lasso',
     name: 'Penguin Lasso',
     description: 'Skate around the ice looking for animals. Your skate trail is your lasso: skate a closed loop around one to put it in your bag. The trail is short and fades as you go, so close your loops fast. Penguins are worth 1 point, tricky sliding seals 2, and a rare polar bear 5 (but it takes 3 of your 6 bag spaces and slows you down: by half with one bear, to a third with two). When your bag is full your trail disappears until you cash in. Skate back to your igloo to cash in: only cashed-in points count. Most points wins!',

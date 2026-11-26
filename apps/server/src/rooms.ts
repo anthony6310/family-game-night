@@ -3,12 +3,13 @@ import { hashPassword, verifyPassword } from './passwords';
 import {
   PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
   COUNTDOWN_SECONDS, FINISH_SECONDS, RANDOM_GAME, ROULETTE_SECONDS, GAME_INTRO_COUNT_SECONDS, GAME_INTRO_HOLD_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
-  FLAKE_SECONDS, GOAT_SECONDS, PIRATE_SECONDS, SHELTER_SECONDS, PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, TUG_SECONDS, getGame,
+  FLAKE_SECONDS, FROG_SECONDS, GOAT_SECONDS, PIRATE_SECONDS, SHELTER_SECONDS, PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, TUG_SECONDS, getGame,
   DEFAULT_ROOM_NAME, MAX_ROOMS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult, type Bet, type BetResult, type Underdog, TEAM_IDS, TEAM_NAMES, isTeamId, type TeamId,
 } from '@fgn/shared';
 import { createAdoptionDay } from './games/adoptionDay';
+import { createFrogClimb } from './games/frogClimb';
 import { createMountainGoat } from './games/mountainGoat';
 import { createPenguinLasso } from './games/penguinLasso';
 import { createPirateBroadside } from './games/pirateBroadside';
@@ -114,6 +115,7 @@ export class RoomManager {
       'pirate-broadside': createPirateBroadside({ durationMs: options.snowballMs ?? PIRATE_SECONDS * 1000 }),
       'roach-hunt': createRoachHunt({ durationMs: options.snowballMs }),
       'adoption-day': createAdoptionDay({ durationMs: options.snowballMs ?? SHELTER_SECONDS * 1000 }),
+      'frog-climb': createFrogClimb({ durationMs: options.snowballMs ?? FROG_SECONDS * 1000 }),
       'mountain-goat': createMountainGoat({ durationMs: options.snowballMs ?? GOAT_SECONDS * 1000 }),
       'snowflake-match': createSnowflakeMatch({ durationMs: options.snowballMs ?? FLAKE_SECONDS * 1000 }),
       'tap-race': createTapRace(options.roundMs ?? TAP_RACE_SECONDS * 1000),

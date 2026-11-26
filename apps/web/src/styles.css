@@ -446,3 +446,17 @@ button.chip { cursor: pointer; }
 /* Roach Rumble: the right half of a roach's screen turns its camera (drag); the stick is on the left half. */
 .roach-look { position: absolute; top: 0; right: 0; width: 50%; height: 100%; z-index: 3; touch-action: none; pointer-events: auto; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 2.6rem; }
 .roach-look-hint { padding: 0.4rem 0.9rem; border-radius: 1rem; background: rgba(20, 33, 61, 0.55); color: #fff; font-weight: bold; letter-spacing: 0.05em; font-size: 0.85rem; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); pointer-events: none; opacity: 0.8; }
+
+/* Frog Climb */
+.snow-screen.frog-screen { background: #cfe9ee; }
+.frog-screen .snow-hud { color: #14352b; }
+.frog-screen .snow-timer { color: #14352b; text-shadow: 0 1px 4px rgba(255, 255, 255, 0.8); }
+.frog-screen .snow-standings { background: rgba(255, 255, 255, 0.6); }
+.frog-screen .snow-size small { opacity: 0.55; font-weight: normal; }
+.frog-hint { bottom: 7.5rem; padding: 0 1rem; color: #14352b; text-shadow: 0 1px 4px rgba(255, 255, 255, 0.9); }
+.frog-vignette { position: absolute; inset: 0; pointer-events: none; z-index: 2; background: radial-gradient(ellipse at center, rgba(220, 40, 30, 0) 50%, rgba(220, 40, 30, 0.6) 100%); transition: opacity 0.12s linear; }
+.frog-zone { position: absolute; top: 0; bottom: 0; width: 50%; z-index: 5; touch-action: none; user-select: none; -webkit-user-select: none; display: flex; align-items: flex-end; justify-content: center; padding-bottom: calc(2.2rem + env(safe-area-inset-bottom)); }
+.frog-zone.left { left: 0; } .frog-zone.right { right: 0; }
+.frog-zone-hint { padding: 0.4rem 0.9rem; border-radius: 1rem; color: #fff; font-weight: bold; letter-spacing: 0.05em; font-size: 0.9rem; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6); pointer-events: none; transition: opacity 0.1s; }
+.frog-zone.left .frog-zone-hint { background: rgba(74, 123, 216, 0.75); } .frog-zone.right .frog-zone-hint { background: rgba(58, 166, 85, 0.75); }
+.frog-zone.cooling .frog-zone-hint { opacity: 0.55; }

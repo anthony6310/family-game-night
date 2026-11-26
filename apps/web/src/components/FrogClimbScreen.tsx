@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { CLIMB_COOLDOWN_MS, POLE_TOP, bendStress, SWAP_COOLDOWN_MS, type FrogClimbView, type GameAction, type Player, type RoundResult } from '@fgn/shared';
+import { useLatest } from './useLatest';
 import { StartCountdown, introProgress } from './StartCountdown';
 import { useStarted } from './useStarted';
 import { useRemainingMs } from './Countdown';
@@ -26,6 +27,7 @@ interface Props {
  * blurred behind. The pole itself turns redder the more it bends. The server does the real judging; the tap fields only show the cooldown the server enforces.
  */
 export default function FrogClimbScreen({ game, players, colors, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
+  const latestGame = useLatest(game); // (the scene lives on, so what it reads must be the newest `game`: GO moves while phones get the game on screen)
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<FrogClimbScene | null>(null);
   const readyAt = useRef(0); // when your next action will be accepted (the server's rule, worked out locally from your own taps)
@@ -46,7 +48,7 @@ export default function FrogClimbScreen({ game, players, colors, selfId, serverN
   useEffect(() => {
     const s = new FrogClimbScene(container.current!, serverNow, styles, isPlayer ? selfId : camera.targetId);
     scene.current = s;
-    s.introFactor = () => introProgress(game.startsAt, serverNow());
+    s.introFactor = () => introProgress(latestGame.current.startsAt, serverNow());
     return () => { s.dispose(); scene.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

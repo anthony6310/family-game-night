@@ -5,12 +5,16 @@ import {
   type ServerToClientEvents, type TeamId,
 } from '@fgn/shared';
 import { useAuth } from '../auth/AuthContext';
+import { ClockSync } from '../lib/clockSync';
 import { SERVER_URL } from '../lib/serverUrl';
 import { supabase } from '../lib/supabase';
 
 type ClientSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
 const GUEST_TOKEN_KEY = 'fgn.guestToken';
+const PING_BURST = 5; // clock pings straight after connecting
+const PING_EVERY_MS = 2000; // then one every 2 s (a few bytes)
+const PING_TIMEOUT_MS = 3000;
 const readGuestToken = () => { try { return localStorage.getItem(GUEST_TOKEN_KEY) ?? undefined; } catch { return undefined; } };
 
 const ERROR_TEXT: Record<RoomError, string> = {
@@ -65,6 +69,8 @@ interface RoomContextValue {
   /** Host, step 2: pick the game. */
   updateSettings: (change: { gameId?: GameId | 'random'; teamSwap?: boolean; name?: string; password?: string | null }) => Promise<string | null>;
   setReady: (ready: boolean) => Promise<string | null>;
+  /** Tell the server the round's game is on this phone's screen and drawing smoothly (during the 'starting' step; the round's GO waits for every phone: GAME_RULES.md #8). */
+  reportLoaded: () => Promise<string | null>;
   /** Host: end the current game and go back to the lobby. */
   returnToLobby: () => Promise<string | null>;
   /** Send an in-game action (a tap). Fire-and-forget: the server's count is what matters. */
@@ -77,7 +83,7 @@ interface RoomContextValue {
   /** One-off message to show on the Play page (e.g. "The host closed the room"). */
   notice: string | null;
   clearNotice: () => void;
-  /** The server's current time (ms), estimated from the offset measured on the last update. */
+  /** The server's current time (ms), as this phone estimates it (see lib/clockSync.ts). */
   serverNow: () => number;
 }
 
@@ -89,11 +95,11 @@ export function RoomProvider({ children }: { children: ReactNode }) {
   const guestNameRef = useRef(guestName);
   guestNameRef.current = guestName;
   const [room, setRoom] = useState<RoomState | null>(null);
-  // serverTime - localTime, refreshed on every update. Phone clocks can be seconds off, so the
-  // countdown is shown relative to the SERVER's clock and every phone sees the same zero.
-  const clockOffset = useRef(0);
+  // serverTime - localTime. Phone clocks can be seconds off, so everything timed across phones (countdowns, the loading page lifting, GO) is drawn on the SERVER's clock and every
+  // phone sees the same zero. It is measured by pinging the server (and from the stamp on every message), and smoothed so it never jumps: see lib/clockSync.ts.
+  const clock = useRef(new ClockSync());
   const applyState = useCallback((state: RoomState) => {
-    clockOffset.current = state.serverTime - Date.now();
+    clock.current.update(state.serverTime);
     setRoom(state);
   }, []);
   const [selfId, setSelfId] = useState<string | null>(null);
@@ -129,7 +135,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       socket.on('room:state', applyState); // the server is the source of truth: just mirror it
       // Continuous games (Snowball) stream their state here many times a second. Merge it into the room.
       socket.on('game:view', (view, serverTime) => {
-        clockOffset.current = serverTime - Date.now();
+        clock.current.update(serverTime);
         setRoom((prev) => (prev && prev.phase === 'playing' ? { ...prev, game: view, serverTime } : prev));
       });
       socket.on('room:closed', () => {
@@ -152,6 +158,14 @@ export function RoomProvider({ children }: { children: ReactNode }) {
       });
       // Every (re)connection while we hold a seat: ask for it back and take the fresh state.
       socket.on('connect', () => { if (inRoomRef.current) rejoin(socket, true); });
+      // Clock sync: a few pings straight after every (re)connection, then one every PING_EVERY_MS for as long as this connection is the current one.
+      const ping = () => {
+        if (!socket.connected) return;
+        const sentAt = Date.now();
+        socket.timeout(PING_TIMEOUT_MS).emit('clock:ping', (err, serverTime) => { if (!err && typeof serverTime === 'number') clock.current.ping(sentAt, serverTime); }); // (an old server never answers: the timeout drops it)
+      };
+      socket.on('connect', () => { for (let i = 0; i < PING_BURST; i++) setTimeout(ping, i * 150); });
+      const pinger = window.setInterval(() => { if (socketRef.current !== socket) window.clearInterval(pinger); else ping(); }, PING_EVERY_MS);
       socketRef.current = socket;
     }
     return socketRef.current;
@@ -241,6 +255,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     endSession: () => command((s, ack) => s.emit('session:end', ack)),
     updateSettings: (change) => command((s, ack) => s.emit('room:settings', change, ack)),
     setReady: (ready) => command((s, ack) => s.emit('player:ready', ready, ack)),
+    reportLoaded: () => command((s, ack) => s.emit('player:loaded', ack)),
     returnToLobby: () => command((s, ack) => s.emit('room:return-to-lobby', ack)),
     sendAction: (action) => socketRef.current?.emit('game:action', action),
     resetRoom: () => command((s, ack) => s.emit('room:reset', ack)),
@@ -248,7 +263,7 @@ export function RoomProvider({ children }: { children: ReactNode }) {
     restoring,
     notice,
     clearNotice: () => setNotice(null),
-    serverNow: () => Date.now() + clockOffset.current,
+    serverNow: () => Date.now() + clock.current.offset,
     leaveRoom: () => {
       inRoomRef.current = false;
       socketRef.current?.emit('room:leave');

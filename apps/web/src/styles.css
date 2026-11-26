@@ -225,7 +225,7 @@ fieldset { border: 1px solid #3a3a5c; border-radius: 0.75rem; padding: 0.75rem; 
 .starting-screen { position: fixed; top: 0; left: 0; width: 100vw; height: 100dvh; z-index: 1000; background: #eafcff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.4rem; padding: 1rem; }
 .starting-art { width: min(86vw, 30rem); aspect-ratio: 16 / 10; object-fit: cover; border-radius: 1rem; box-shadow: 0 0.6rem 2rem rgba(60, 100, 140, 0.35); animation: starting-in 1s ease-out both; }
 .starting-screen p { margin: 0; font-size: 2rem; font-weight: bold; color: #5a7d99; letter-spacing: 0.05em; text-align: center; animation: starting-in 1s ease-out 0.15s both; }
-.starting-screen.leaving { pointer-events: none; animation: starting-out 0.8s ease-in-out 0.35s both; }
+.starting-screen.leaving { pointer-events: none; animation: starting-out 0.8s ease-in-out both; } /* (no delay: it starts at the server's reveal moment, which is already REVEAL_LEAD_MS after the round began) */
 .starting-screen.leaving .starting-art, .starting-screen.leaving p { animation: none; }
 @keyframes starting-in { from { opacity: 0; transform: translateY(0.6rem) scale(0.97); } to { opacity: 1; transform: none; } }
 @keyframes starting-out { from { opacity: 1; } to { opacity: 0; } }

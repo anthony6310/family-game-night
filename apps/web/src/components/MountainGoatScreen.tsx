@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { FALL_MS, JUMP_MS, JUMP_TAP_GAP_MS, judgeJump, type GameAction, type GoatPlayerView, type MountainGoatView, type Player, type RoundResult } from '@fgn/shared';
+import { useLatest } from './useLatest';
 import { StartCountdown, introProgress } from './StartCountdown';
 import { useStarted } from './useStarted';
 import { useRemainingMs } from './Countdown';
@@ -26,6 +27,7 @@ interface Props {
  * (or tumbles) the instant you tap; the server judges the same tap with the same numbers and its view takes over without a jump. Spectators follow any player's goat.
  */
 export default function MountainGoatScreen({ game, players, colors, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
+  const latestGame = useLatest(game); // (the scene lives on, so what it reads must be the newest `game`: GO moves while phones get the game on screen)
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<MountainGoatScene | null>(null);
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
@@ -46,7 +48,7 @@ export default function MountainGoatScreen({ game, players, colors, selfId, serv
   useEffect(() => {
     const s = new MountainGoatScene(container.current!, serverNow, styles, isPlayer ? selfId : camera.targetId);
     scene.current = s;
-    s.introFactor = () => introProgress(game.startsAt, serverNow());
+    s.introFactor = () => introProgress(latestGame.current.startsAt, serverNow());
     return () => { s.dispose(); scene.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

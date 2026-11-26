@@ -1,9 +1,10 @@
-import { Suspense, lazy, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
-import { TEAM_COLORS, getGame, type GameId } from '@fgn/shared';
+import { STARTING_MAX_MS, TEAM_COLORS, getGame, type GameId } from '@fgn/shared';
 import { RouletteScreen } from '../components/GameCarousel';
 import { ResultsScreen } from '../components/ResultsScreen';
 import { SessionOverScreen } from '../components/SessionOverScreen';
+import { waitUntilSettled } from '../lib/settle';
 import { StartingScreen } from '../components/StartingScreen';
 import { LobbyHub } from '../components/lobby/LobbyHub';
 import { TeamStep } from '../components/lobby/TeamStep';
@@ -37,42 +38,62 @@ const SantaSackScreen = lazy(loadSantaScreen);
 const loadFishingScreen = () => import('../components/FishingScreen');
 const FishingScreen = lazy(loadFishingScreen);
 
+/**
+ * Every game's loader, by id. `Record<GameId, ...>` makes it a compile error to add a game to games.ts and forget it here. The game's code starts downloading the moment the host picks it, so it
+ * is normally in by the time the loading step mounts the game.
+ */
+const GAME_LOADERS: Record<GameId, () => Promise<unknown>> = {
+  'adoption-day': loadAdoptionScreen,
+  fishing: loadFishingScreen,
+  'frog-climb': loadFrogScreen,
+  'mountain-goat': loadGoatScreen,
+  'penguin-lasso': loadPenguinScreen,
+  'pirate-broadside': loadPirateScreen,
+  'roach-hunt': loadRoachScreen,
+  'santa-sack': loadSantaScreen,
+  snowball: loadSnowballScreen,
+  'snowflake-match': loadFlakeScreen,
+  'tap-race': loadTapRaceScreen,
+  'tug-of-war': loadTugScreen,
+};
+
+/** How long this phone tries to get the game on screen and smooth before it reports anyway (shorter than the server's own STARTING_MAX_MS, so the report still counts). */
+const READY_REPORT_MAX_MS = STARTING_MAX_MS - 2500;
+/** The loading page's fade (styles.css, `starting-out`), with a little to spare: after `revealAt` plus this, a page that missed its fade's end (a hidden tab) is not shown any more. */
+const CURTAIN_FADE_MS = 1000;
+
 /** A picture of each game for the game picker, taken from the real game (files in public/games). A game with no picture yet shows a plain tile. */
 const GAME_IMAGES: Partial<Record<GameId, string>> = { 'tap-race': '/games/tap-race.png', snowball: '/games/snowball.png', 'penguin-lasso': '/games/penguin-lasso.png', fishing: '/games/fishing.png', 'santa-sack': '/games/santa-sack.png', 'tug-of-war': '/games/tug-of-war.png', 'mountain-goat': '/games/mountain-goat.png', 'snowflake-match': '/games/snowflake-match.png', 'adoption-day': '/games/adoption-day.png', 'pirate-broadside': '/games/pirate-broadside.png', 'roach-hunt': '/games/roach-hunt.png', 'frog-climb': '/games/frog-climb.png' };
 
 /** The room screen. It renders whatever phase the server says the room is in; it holds no game logic. */
 export function LobbyPage() {
   const navigate = useNavigate();
-  const { restoring, room: liveRoom, selfId, leaveRoom, returnToLobby, resetRoom, closeRoom, sendAction, serverNow } = useRoom();
+  const { restoring, room: liveRoom, selfId, leaveRoom, returnToLobby, resetRoom, closeRoom, sendAction, serverNow, reportLoaded } = useRoom();
   const [error, setError] = useState<string | null>(null);
   // Before every round the screen flashes over the countdown and fades to a plain "starting" page, and the round begins almost at the end of the flash.
   // The server runs that as its own step (phase 'starting') so the game never starts under the flash; the flash itself is the same for every game (see screenFlash.ts).
   const room = useScreenFlash(liveRoom, (from, to) => from !== null && to !== null && from.phase !== 'starting' && to.phase === 'starting');
 
-  // The loading page does not just disappear when the round begins: it is kept on top of the game and fades away (see StartingScreen). `curtain` is the game it was for.
-  const [curtain, setCurtain] = useState<GameId | null>(null);
-  const previousPhase = useRef<string | null>(null);
-  useLayoutEffect(() => { // (before the browser paints, so the game is never seen for a frame without the page over it)
-    if (previousPhase.current === 'starting' && room?.phase === 'playing') setCurtain(room.settings.gameId);
-    previousPhase.current = room?.phase ?? null;
-  }, [room?.phase, room?.settings.gameId]);
+  // The loading page does not just disappear when the round begins: it fades away over the game at the round's reveal moment (see StartingScreen). This is the round whose page has finished fading.
+  const [curtainGone, setCurtainGone] = useState<number | null>(null);
 
   // As soon as the host picks a game, start downloading its code so the round can begin instantly.
   const pickedGame = room?.settings.gameId;
   useEffect(() => {
-    if (pickedGame === 'snowball') void loadSnowballScreen();
-    if (pickedGame === 'tap-race') void loadTapRaceScreen();
-    if (pickedGame === 'tug-of-war') void loadTugScreen();
-    if (pickedGame === 'pirate-broadside') void loadPirateScreen();
-    if (pickedGame === 'roach-hunt') void loadRoachScreen();
-    if (pickedGame === 'adoption-day') void loadAdoptionScreen();
-    if (pickedGame === 'snowflake-match') void loadFlakeScreen();
-    if (pickedGame === 'mountain-goat') void loadGoatScreen();
-    if (pickedGame === 'frog-climb') void loadFrogScreen();
-    if (pickedGame === 'penguin-lasso') void loadPenguinScreen();
-    if (pickedGame === 'fishing') void loadFishingScreen();
-    if (pickedGame === 'santa-sack') void loadSantaScreen();
+    if (pickedGame) void GAME_LOADERS[pickedGame]();
   }, [pickedGame]);
+
+  // THE LOADING STEP (GAME_RULES.md #8). The round's game is made when the 'starting' step begins, and this phone mounts it straight away, under the loading page: the real scene, built once.
+  // When it is on screen and drawing smoothly (`waitUntilSettled`; at once if this page is hidden) the phone tells the server, which waits for every phone (and the minimum time) and then announces
+  // one reveal moment and GO for everyone. A ref, not the effect's cleanup, makes it report once per round (React's development double-run); a late report is harmless, the server refuses it.
+  const loadingRound = room?.phase === 'starting' && room.game ? room.roundId : null;
+  const reported = useRef<number | null>(null);
+  useEffect(() => {
+    if (loadingRound === null || reported.current === loadingRound) return;
+    reported.current = loadingRound;
+    void waitUntilSettled(READY_REPORT_MAX_MS).then(() => void reportLoaded());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loadingRound]);
 
   // No room (refresh, lost connection, or the host closed it): back to the hub.
   if (!room) return restoring ? <main className="page"><p className="muted">Getting you back into the room…</p></main> : <Navigate to="/play" replace />; // (right after a refresh the seat is being taken back: do not send them away yet)
@@ -86,8 +107,8 @@ export function LobbyPage() {
     navigate('/play');
   }
 
-  // While a round runs, and during its short finish sequence (the game stays on screen, frozen, under the message).
-  if ((room.phase === 'playing' || room.phase === 'finish') && room.game) {
+  // While the round loads (under the loading page), while it runs, and during its short finish sequence (the game stays on screen, frozen, under the message).
+  if ((room.phase === 'starting' || room.phase === 'playing' || room.phase === 'finish') && room.game) {
     const frozen = room.phase === 'finish';
     // No game lets a player act before GO (rule 10): whatever a screen sends before the round's clock has started is dropped here, as well as on the server.
     const startsAt = (room.game as { startsAt: number }).startsAt;
@@ -98,69 +119,71 @@ export function LobbyPage() {
     const screen =
       room.game.gameId === 'snowball' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <SnowballScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+          <SnowballScreen key={room.roundId} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'penguin-lasso' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <PenguinScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+          <PenguinScreen key={room.roundId} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'santa-sack' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <SantaSackScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+          <SantaSackScreen key={room.roundId} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'roach-hunt' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <RoachScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+          <RoachScreen key={room.roundId} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'pirate-broadside' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <PirateScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+          <PirateScreen key={room.roundId} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'adoption-day' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <AdoptionScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+          <AdoptionScreen key={room.roundId} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'frog-climb' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <FrogClimbScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+          <FrogClimbScreen key={room.roundId} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'mountain-goat' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <MountainGoatScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+          <MountainGoatScreen key={room.roundId} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'snowflake-match' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <SnowflakeMatchScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+          <SnowflakeMatchScreen key={room.roundId} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'tug-of-war' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <TugOfWarScreen key={room.game.startsAt} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
+          <TugOfWarScreen key={room.roundId} game={room.game} players={room.players} colors={room.colors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : room.game.gameId === 'fishing' ? (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <FishingScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+          <FishingScreen key={room.roundId} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       ) : (
         <Suspense fallback={<p className="center">Loading…</p>}>
-          <TapRaceScreen key={room.game.startsAt} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
+          <TapRaceScreen key={room.roundId} game={room.game} players={room.players} colors={gameColors} selfId={selfId}
             serverNow={serverNow} sendAction={sendGameAction} frozen={frozen} result={room.result} finishEndsAt={room.finishEndsAt} />
         </Suspense>
       );
-    // The page over the game is the SAME element (same key, same place) as the one shown during the starting step, so it only gains the fade-out: it is never rebuilt
-    // (a rebuilt page would reload its picture and could blink for a frame). On the very first render of the round `curtain` is not set yet, so the previous phase tells.
-    const over = curtain ?? (previousPhase.current === 'starting' ? room.settings.gameId : null);
-    return <>{screen}{over && <StartingScreen key="curtain" leaving title={getGame(over)?.name ?? ''} image={GAME_IMAGES[over]} onGone={() => setCurtain(null)} />}</>; // every game stages the shared winner moment inside its own screen (see GAME_RULES.md #2)
+    // The loading page over the game: up for the whole 'starting' step, then fading at the reveal moment (the same element throughout, same key and place, so it is never rebuilt: a rebuilt
+    // page would reload its picture and could blink). A page that opens on a round already revealed (a refresh) shows no curtain.
+    const curtainUp = room.phase === 'starting' || (room.phase === 'playing' && room.revealAt !== null && curtainGone !== room.roundId && serverNow() < room.revealAt + CURTAIN_FADE_MS);
+    const roundId = room.roundId;
+    return <>{screen}{curtainUp && <StartingScreen key="curtain" title={getGame(room.settings.gameId)?.name ?? ''} image={room.settings.gameId ? GAME_IMAGES[room.settings.gameId] : undefined}
+      revealAt={room.phase === 'playing' ? room.revealAt : null} serverNow={serverNow} onGone={() => setCurtainGone(roundId)} />}</>; // every game stages the shared winner moment inside its own screen (see GAME_RULES.md #2)
   }
   // The Random tile's roulette (after the countdown): the host's options are gone; everyone, host included, watches the carousel spin and slow onto the game that was chosen.
   if (room.phase === 'roulette' && room.roulette) {
@@ -174,7 +197,7 @@ export function LobbyPage() {
   if (room.phase === 'underdog' && room.underdog && room.underdogEndsAt !== null) {
     return <UnderdogReveal underdog={room.underdog} players={room.players} endsAt={room.underdogEndsAt} serverNow={serverNow} />;
   }
-  // The flash step: a plain page under the flash (like a loading screen) until the round begins.
+  // The flash step without a game (it always has one: this is only a fallback): the plain loading page.
   if (room.phase === 'starting') {
     return <>{null}<StartingScreen key="curtain" title={getGame(room.settings.gameId)?.name ?? ''} image={room.settings.gameId ? GAME_IMAGES[room.settings.gameId] : undefined} /></>;
   }

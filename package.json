@@ -7,6 +7,9 @@
   ],
   "scripts": {
     "dev": "concurrently -n server,web -c blue,green \"npm run dev -w @fgn/server\" \"npm run dev -w @fgn/web\"",
+    "build": "npm run build -w @fgn/web",
+    "server": "npm run dev -w @fgn/server",
+    "preview": "npm run preview -w @fgn/web",
     "typecheck": "npm run typecheck --workspaces --if-present",
     "format": "prettier --write ."
   },

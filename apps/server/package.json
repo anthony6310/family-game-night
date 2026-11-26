@@ -22,6 +22,8 @@
     "test:penguin": "tsx scripts/test-penguin.ts",
     "test:fishing": "tsx scripts/test-fishing.ts",
     "test:starting": "tsx scripts/test-starting.ts",
+    "test:pending": "tsx scripts/test-pending.ts",
+    "test:starting-net": "tsx --env-file=.env scripts/test-starting-net.ts",
     "test:intro": "tsx scripts/test-intro.ts",
     "test:flakes": "tsx scripts/test-flakes.ts",
     "test:pirate": "tsx scripts/test-pirate.ts",

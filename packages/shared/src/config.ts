@@ -123,7 +123,18 @@ export const GAME_INTRO_SECONDS = GAME_INTRO_HOLD_SECONDS + GAME_INTRO_COUNT_SEC
 
 export const START_FLASH_IN_MS = 600;
 export const START_FLASH_OUT_MS = 1400;
-export const STARTING_MS = 3500; // how long the 'starting' step lasts: 3.5 s
+export const STARTING_MS = 3500; // how long the 'starting' step lasts AT LEAST: 3.5 s
+/**
+ * The 'starting' step is also the LOADING step (GAME_RULES.md #8), and STARTING_MS is only its MINIMUM. The round is created when the step begins, so every phone gets the real game and
+ * builds it on its own screen, under the loading page, while the page is up. The round then waits until every phone has reported (`player:loaded`) that the game is on its screen and drawing
+ * smoothly, so a slow phone never starts frozen or misses the opening. STARTING_MAX_MS is the safety net: a phone that never reports (stuck, a very slow device) cannot hold the room for longer than this.
+ */
+export const STARTING_MAX_MS = 20_000;
+/**
+ * When the wait is over the server announces ONE moment, `revealAt`, this far ahead, and GO is the intro after it. Every phone lifts the loading page at `revealAt` on the server's
+ * clock (not when its message happens to arrive), so every screen is revealed, holds still, counts 3, 2, 1 and says GO together. The lead covers the message's trip to a phone on Wi-Fi.
+ */
+export const REVEAL_LEAD_MS = 350;
 
 /**
  * Rooms are found in a LIST (not by a code). The host names the room (this name is used if they don't), and may add a password. Names and

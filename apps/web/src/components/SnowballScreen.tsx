@@ -1,3 +1,4 @@
+import { useLatest } from './useLatest';
 import { StartCountdown, introProgress } from './StartCountdown';
 import { useEffect, useMemo, useRef } from 'react';
 import type { GameAction, Player, RoundResult, SnowballView } from '@fgn/shared';
@@ -35,6 +36,7 @@ interface Props {
  * Loaded on demand (see LobbyPage) so the landing page doesn't download three.js.
  */
 export default function SnowballScreen({ game, players, colors, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
+  const latestGame = useLatest(game); // (the scene lives on, so what it reads must be the newest `game`: GO moves while phones get the game on screen)
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<SnowballScene | null>(null);
 
@@ -51,7 +53,7 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
     s.setBaseSpeed(game.speedRange.base);
     s.setMaxSpeedFactor(game.speedRange.max / game.speedRange.base);
     scene.current = s;
-    s.introFactor = () => introProgress(game.startsAt, serverNow()); // the camera's start-countdown move (see StartCountdown)
+    s.introFactor = () => introProgress(latestGame.current.startsAt, serverNow()); // the camera's start-countdown move (see StartCountdown)
     return () => {
       s.dispose();
       scene.current = null;

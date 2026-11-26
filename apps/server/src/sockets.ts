@@ -45,6 +45,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   const resultsTimers = new Map<string, ScheduledTimer>();
   const underdogTimers = new Map<string, ScheduledTimer>();
   const startingTimers = new Map<string, ScheduledTimer>();
+  const startingDeadlineTimers = new Map<string, ScheduledTimer>(); // the safety net of the loading step (STARTING_MAX_MS)
   const rouletteTimers = new Map<string, ScheduledTimer>();
   const teamStartTimers = new Map<string, ScheduledTimer>();
   // Slowing down abuse (each keyed by the connection's network address, which a guest can't just change by making a new name):
@@ -98,7 +99,11 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     });
     syncTimer(startingTimers, state.code, state.phase === 'starting' ? state.startingEndsAt : null, (endsAt) => {
       const started = rooms.finishStarting(state.code, endsAt);
-      if (started) publish(started); // the flash is almost over: the round begins
+      if (started) publish(started); // the minimum time is over and every phone has the game on screen: the round begins (otherwise it waits for `player:loaded`)
+    });
+    syncTimer(startingDeadlineTimers, state.code, state.phase === 'starting' ? state.startingDeadline : null, (endsAt) => {
+      const started = rooms.forceStarting(state.code, endsAt);
+      if (started) publish(started); // some phone never got the game on screen: the round begins without waiting any longer
     });
     syncTimer(roundTimers, state.code, state.phase === 'playing' ? (state.game?.endsAt ?? null) : null, (endsAt) => {
       const outcome = rooms.finishRound(state.code, endsAt);
@@ -115,7 +120,7 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
   }
 
   function clearTimers(code: string) {
-    for (const timers of [countdownTimers, rouletteTimers, teamStartTimers, underdogTimers, startingTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
+    for (const timers of [countdownTimers, rouletteTimers, teamStartTimers, underdogTimers, startingTimers, startingDeadlineTimers, roundTimers, finishTimers, resultsTimers]) syncTimer(timers, code, null, () => {});
   }
 
   function publishOutcome({ room, round, rounds, session }: Outcome) {
@@ -257,6 +262,8 @@ export function registerSockets(io: GameServer, rooms: RoomManager, { onRound, o
     socket.on('player:color', (color, ack) => command(rooms.setColor(player.id, String(color)), ack));
     socket.on('player:bet', (target, stake, ack) => command(rooms.setBet(player.id, typeof target === 'string' ? target : null, Number(stake)), ack));
     socket.on('player:ready', (ready, ack) => command(rooms.setReady(player.id, ready === true), ack));
+    socket.on('player:loaded', (ack) => command(rooms.setLoaded(player.id), ack));
+    socket.on('clock:ping', (ack) => { if (typeof ack === 'function') ack(Date.now()); }); // (clock sync: answered at once, nothing else; see the web client's clockSync.ts)
     socket.on('room:return-to-lobby', (ack) => command(rooms.returnToLobby(player.id), ack));
     socket.on('room:reset', (ack) => command(rooms.reset(player.id), ack));
     socket.on('room:close', async (ack) => {

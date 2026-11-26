@@ -1,3 +1,4 @@
+import { useLatest } from './useLatest';
 import { StartCountdown, introProgress } from './StartCountdown';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { GameAction, PenguinLassoView, Player, RoundResult } from '@fgn/shared';
@@ -35,6 +36,7 @@ interface Props {
  * Loaded on demand (see LobbyPage) so the landing page doesn't download three.js.
  */
 export default function PenguinScreen({ game, players, colors, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
+  const latestGame = useLatest(game); // (the scene lives on, so what it reads must be the newest `game`: GO moves while phones get the game on screen)
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<PenguinScene | null>(null);
   const isPlayer = selfId !== null && selfId in game.skaters;
@@ -50,7 +52,7 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
   useEffect(() => {
     const s = new PenguinScene(container.current!, game.arenaRadius, game.trailMax, styles, isPlayer ? selfId : null);
     scene.current = s;
-    s.introFactor = () => introProgress(game.startsAt, serverNow()); // the camera's start-countdown move (see StartCountdown)
+    s.introFactor = () => introProgress(latestGame.current.startsAt, serverNow()); // the camera's start-countdown move (see StartCountdown)
     return () => {
       s.dispose();
       scene.current = null;

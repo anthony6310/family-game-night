@@ -1,9 +1,10 @@
+import { shiftTimes } from './games/shiftTime';
 import { randomInt } from 'node:crypto';
 import { hashPassword, verifyPassword } from './passwords';
 import {
   PLAYER_COLORS, MIN_STAKE, UNDERDOG_MIN_PLAYERS, UNDERDOG_SECONDS,
   COUNTDOWN_SECONDS, FINISH_SECONDS, RANDOM_GAME, ROULETTE_SECONDS, GAME_INTRO_COUNT_SECONDS, GAME_INTRO_HOLD_SECONDS, GAMES, MAX_PLAYERS, MAX_SPECTATORS, RESULTS_SECONDS, ROOM_CODE_ALPHABET, ROOM_CODE_LENGTH,
-  FLAKE_SECONDS, FROG_SECONDS, GOAT_SECONDS, PIRATE_SECONDS, SHELTER_SECONDS, PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, STARTING_MS, TAP_RACE_SECONDS, TUG_SECONDS, getGame,
+  FLAKE_SECONDS, FROG_SECONDS, GOAT_SECONDS, PIRATE_SECONDS, SHELTER_SECONDS, PENGUIN_SECONDS, SANTA_SECONDS, SNOWBALL_SECONDS, REVEAL_LEAD_MS, STARTING_MAX_MS, STARTING_MS, TAP_RACE_SECONDS, TUG_SECONDS, getGame,
   DEFAULT_ROOM_NAME, MAX_ROOMS, ROOM_NAME_MAX, ROOM_PASSWORD_MAX, type RoomListing,
   type GameAction, type GameId, type GameView, type Player, type RoomError, type RoomPhase, type RoomSettings, type RoomState,
   type RoundResult, type Bet, type BetResult, type Underdog, TEAM_IDS, TEAM_NAMES, isTeamId, type TeamId,
@@ -46,10 +47,17 @@ interface Room {
   offline: Set<string>; // players whose connection dropped: their seat is held (the server's timer removes them if they do not come back)
   roulette: { gameId: GameId; startsAt: number; endsAt: number } | null; // the Random tile's roulette step: the chosen game and when the spin ends
   teamCountdownEndsAt: number | null; // the team step: the host pressed Start and the countdown is running (they can cancel it)
-  startingEndsAt: number | null; // when the 'starting' (flash) step ends and the round begins
+  startingEndsAt: number | null; // when the MINIMUM time of the 'starting' (flash + loading) step is over (null once it has passed)
+  startingDeadline: number | null; // the latest the 'starting' step can last: the round begins then even if some phone never reported it had loaded
+  startingMinPassed: boolean; // the minimum time is over: from now on the round begins as soon as everyone has loaded
+  loaded: Set<string>; // players whose phone reported (`player:loaded`) that the picked game is ready, this round
   wins: Record<string, number>; // rounds won this session, by player id (kept when a player leaves)
   sessionSaved: boolean; // this session's winner has already been handed out for saving (never save twice)
-  game: { engine: GameEngine; state: unknown; lastTickAt: number; playStartsAt: number } | null; // (playStartsAt: when the start countdown ends and the round really begins) // set while phase is 'playing' or 'finish' (frozen in 'finish')
+  // (playStartsAt: GO, when the start countdown ends and the round really begins.) Made when the 'starting' step begins, with a PROVISIONAL clock: phones build the game under the loading page meanwhile,
+  // nothing moves and nobody can act, and when the step's wait is over (`beginPlay`) the whole state is moved so that GO is one reveal lead plus one intro from then.
+  game: { engine: GameEngine; state: unknown; lastTickAt: number; playStartsAt: number } | null; // set while phase is 'starting', 'playing' or 'finish' (frozen in 'finish')
+  revealAt: number | null; // when the loading page lifts on every phone (set when the round begins; see RoomState.revealAt)
+  roundSeq: number; // counts the rounds this room has started (the screens' key: see RoomState.roundId)
   result: RoundResult | null; // set while phase is 'finish' or 'results'
   finishEndsAt: number | null; // when the "you won / you lost" sequence ends
   resultsEndsAt: number | null;
@@ -96,18 +104,20 @@ export class RoomManager {
   private rouletteMs: number; // how long the Random tile's roulette step lasts (0 in tests that shorten the countdown, unless they ask)
   private resultsMs: number;
   private introMsOverride: number | undefined; // set by tests: the in-game start countdown lasts this long for every game
-  private startingMs: number; // how long the flash step before every round lasts (0 = none)
+  private startingMs: number; // how long the flash step before every round lasts AT LEAST (0 = none)
+  private startingMaxMs: number; // the most it can last while waiting for slow phones to load
   private finishMsOverride: number | undefined; // set by tests: every game's finish sequence lasts this long
   private engines: Record<GameId, GameEngine>;
 
   /** Durations are injectable so tests can run fast. */
-  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number; startingMs?: number; introMs?: number; rouletteMs?: number; forceRandom?: GameId | null } = {}) {
+  constructor(options: { countdownMs?: number; roundMs?: number; snowballMs?: number; resultsMs?: number; finishMs?: number; startingMs?: number; startingMaxMs?: number; introMs?: number; rouletteMs?: number; forceRandom?: GameId | null } = {}) {
     this.forceRandom = options.forceRandom ?? null; // (only tests use this: it makes the Random tile land on one game, even a team game)
     this.countdownMs = options.countdownMs ?? COUNTDOWN_SECONDS * 1000;
     this.rouletteMs = options.rouletteMs ?? (options.countdownMs !== undefined ? 0 : ROULETTE_SECONDS * 1000);
     this.resultsMs = options.resultsMs ?? RESULTS_SECONDS * 1000;
     // The flash step lasts STARTING_MS, except in tests: a test that shortens the countdown wants fast rounds too, so it gets no flash step unless it asks for one.
     this.startingMs = options.startingMs ?? (options.countdownMs !== undefined ? 0 : STARTING_MS);
+    this.startingMaxMs = options.startingMaxMs ?? STARTING_MAX_MS;
     // The in-game start countdown (GAME_INTRO_SECONDS, or the game's own): none in tests that shorten the countdown, unless they ask for one.
     this.introMsOverride = options.introMs ?? (options.countdownMs !== undefined ? 0 : undefined);
     this.finishMsOverride = options.finishMs;
@@ -158,9 +168,14 @@ export class RoomManager {
       roulette: null,
       teamCountdownEndsAt: null,
       startingEndsAt: null,
+      startingDeadline: null,
+      startingMinPassed: false,
+      loaded: new Set(),
       wins: {},
       sessionSaved: false,
       game: null,
+      roundSeq: 0,
+      revealAt: null,
       result: null,
       finishEndsAt: null,
       resultsEndsAt: null,
@@ -257,8 +272,8 @@ export class RoomManager {
     if (room.underdog?.playerId === playerId) room.underdog = null; // the underdog left: there is nobody to win the bonus
     // Between the countdown and the start (the underdog announcement, the flash): too few players left means the round is called off.
     if ((room.phase === 'teams' || room.phase === 'roulette' || room.phase === 'underdog' || room.phase === 'starting') && (this.participants(room).length < this.minPlayers(room) || (this.isTeamGame(room) && !this.teamsFilled(room)))) this.abortRound(room);
-    // Mid-round: the leaver forfeits. If too few players remain for the game, call the round off.
-    if (room.phase === 'playing' && room.game) {
+    // Mid-round (or while the round is being loaded): the leaver forfeits. If too few players remain for the game, call the round off.
+    if ((room.phase === 'playing' || room.phase === 'starting') && room.game) {
       room.game.state = room.game.engine.removePlayer(room.game.state, playerId);
       if (this.participants(room).length < this.minPlayers(room) || (this.isTeamGame(room) && !this.teamsFilled(room))) this.abortRound(room); // (a team with nobody left in it ends the round too)
     }
@@ -586,34 +601,94 @@ export class RoomManager {
   }
 
   /**
-   * The flash step (see START_FLASH_* in config.ts): phones flash and fade to a plain page, and the round begins when it is almost over. With no
-   * flash time configured (the tests turn it off) the round simply starts.
+   * The flash step (see START_FLASH_* in config.ts), which is also the LOADING step (GAME_RULES.md #8). Phones flash and fade to a loading page, and the round is CREATED now, with a provisional
+   * clock (its GO the latest it could be), so every phone gets the real game and builds it on its own screen under the page. The step lasts at least `startingMs`, then until every phone has
+   * reported (`setLoaded`) that the game is on its screen and drawing smoothly, but never longer than `startingMaxMs` (a stuck phone cannot hold the room). Then `beginPlay` sets the real clock.
+   * With no flash time configured (the tests turn it off) the round simply starts.
    */
   private beginStarting(room: Room) {
-    if (this.startingMs <= 0) { this.startRound(room); return; }
+    if (this.startingMs <= 0) { this.createRound(room, Date.now() + this.introMsFor(room)); room.phase = 'playing'; room.revealAt = Date.now(); return; }
+    const now = Date.now();
     room.phase = 'starting';
-    room.startingEndsAt = Date.now() + this.startingMs;
+    room.startingEndsAt = now + this.startingMs;
+    room.startingDeadline = now + Math.max(this.startingMs, this.startingMaxMs);
+    room.startingMinPassed = false;
+    room.loaded.clear();
+    this.createRound(room, room.startingDeadline + REVEAL_LEAD_MS + this.introMsFor(room)); // (provisional: moved forward by `beginPlay`)
   }
 
-  /** The flash step is over: the round starts now. Same stale-timer guard as the countdown. */
+  /** The minimum time of the flash step is over. The round begins now if everyone has loaded; otherwise it waits (for `setLoaded`, or for the deadline). Returns the new state only if the round began. Same stale-timer guard as the countdown. */
   finishStarting(code: string, expectedEndsAt: number): RoomState | null {
     const room = this.rooms.get(code);
     if (!room || room.phase !== 'starting' || room.startingEndsAt !== expectedEndsAt) return null;
-    this.startRound(room);
+    room.startingEndsAt = null;
+    room.startingMinPassed = true;
+    return this.startIfLoaded(room) ? toState(room) : null;
+  }
+
+  /** The safety net: the deadline passed with some phone still not ready, so the round begins anyway. Same stale-timer guard. */
+  forceStarting(code: string, expectedDeadline: number): RoomState | null {
+    const room = this.rooms.get(code);
+    if (!room || room.phase !== 'starting' || room.startingDeadline !== expectedDeadline) return null;
+    this.beginPlay(room);
     return toState(room);
   }
 
-  private startRound(room: Room) {
+  /** A phone reports that the round's game is on its screen and drawing smoothly. Anyone in the room may report (spectators build the game too); a report outside the 'starting' step is simply refused. */
+  setLoaded(playerId: string): Result {
+    const room = this.roomFor(playerId);
+    if (!room) return fail('NOT_IN_ROOM');
+    if (room.phase !== 'starting') return fail('WRONG_PHASE');
+    room.loaded.add(playerId);
+    this.startIfLoaded(room);
+    return ok(room);
+  }
+
+  /** Once the minimum time is over, the round begins as soon as everyone still connected has reported (returns true if it just began). (Someone whose connection dropped is not waited for.) */
+  private startIfLoaded(room: Room): boolean {
+    if (room.phase !== 'starting' || !room.startingMinPassed) return false;
+    if (![...room.players.keys()].every((id) => room.offline.has(id) || room.loaded.has(id))) return false;
+    this.beginPlay(room);
+    return true;
+  }
+
+  private clearStarting(room: Room) {
+    room.startingEndsAt = null;
+    room.startingDeadline = null;
+    room.startingMinPassed = false;
+    room.loaded.clear();
+  }
+
+  /** How long the in-game start lasts for this room's game: the still buffer, then the 3, 2, 1 (or the game's own opening). */
+  private introMsFor(room: Room): number {
+    return this.introMsOverride ?? (GAME_INTRO_HOLD_SECONDS + (getGame(room.settings.gameId)?.introSeconds ?? GAME_INTRO_COUNT_SECONDS)) * 1000; // (every game gets the static buffer; then the usual 3, 2, 1, or none for a game with its own opening)
+  }
+
+  /** Makes the round's game, with its GO (the moment the round's own clock starts: every time in the engine's state counts from it) at `playStartsAt`. The lone player, if any, is drawn now. */
+  private createRound(room: Room, playStartsAt: number) {
     const engine = this.engines[room.settings.gameId!];
-    room.phase = 'playing';
     room.countdownEndsAt = null;
     room.underdogEndsAt = null;
-    room.startingEndsAt = null;
-    // The in-game start countdown: the scene is shown at once, but the round's clock (and everything in it) starts `introMs` later; until then nothing moves and actions are ignored.
-    const introMs = this.introMsOverride ?? (GAME_INTRO_HOLD_SECONDS + (getGame(room.settings.gameId)?.introSeconds ?? GAME_INTRO_COUNT_SECONDS)) * 1000; // (every game gets the static buffer; then the usual 3, 2, 1, or none for a game with its own opening)
-    const playStartsAt = Date.now() + introMs;
     if (this.isLoneGame(room)) this.pickLone(room);
+    room.roundSeq++;
     room.game = { engine, state: engine.init(this.participants(room), playStartsAt, { teams: Object.fromEntries(room.teams) }), lastTickAt: playStartsAt, playStartsAt };
+  }
+
+  /**
+   * The wait is over: the round begins. ONE moment is announced to every phone, `revealAt` (REVEAL_LEAD_MS from now, so the message is there before it), when each phone lifts its loading page
+   * by the server's clock; GO is one intro after it. The game was made with a provisional clock, so its whole state is moved in time to match (exactly as if it had been made now).
+   */
+  private beginPlay(room: Room) {
+    const game = room.game;
+    if (room.phase !== 'starting' || !game) return;
+    const revealAt = Date.now() + REVEAL_LEAD_MS;
+    const playStartsAt = revealAt + this.introMsFor(room);
+    game.state = shiftTimes(game.state, playStartsAt - game.playStartsAt);
+    game.playStartsAt = playStartsAt;
+    game.lastTickAt = playStartsAt;
+    room.phase = 'playing';
+    room.revealAt = revealAt;
+    this.clearStarting(room);
   }
 
   /** A phone sent an in-game action (e.g. a tap). Returns null if it was ignored entirely. */
@@ -834,7 +909,8 @@ export class RoomManager {
     room.bets = {}; // bets are for one round only
     room.underdog = null;
     room.underdogEndsAt = null;
-    room.startingEndsAt = null;
+    this.clearStarting(room);
+    room.revealAt = null;
     room.roulette = null;
     room.teamCountdownEndsAt = null;
     if (room.settings.random) room.settings = { ...room.settings, gameId: null }; // (the Random tile stays chosen: the next round rolls again)
@@ -866,9 +942,9 @@ export class RoomManager {
     return getGame(room.settings.gameId)?.lone === true;
   }
 
-  /** Has this round's lone player been picked yet? (From the start of the round; before that, any two players will do.) */
+  /** Has this round's lone player been picked yet? (When the round is made, at the start of the 'starting' step; before that, any two players will do.) */
   private loneDrawn(room: Room): boolean {
-    return room.phase === 'playing' || room.phase === 'finish' || room.phase === 'results';
+    return room.loneRound;
   }
 
   /**
@@ -980,6 +1056,7 @@ export class RoomManager {
       room.phase = 'lobby';
       room.countdownEndsAt = null;
     }
+    if (room.phase === 'starting') this.startIfLoaded(room); // (someone who has not loaded dropped or left: the rest need not wait for them)
   }
 
   private roomFor(playerId: string): Room | undefined {
@@ -1015,6 +1092,9 @@ function toState(room: Room): RoomState {
     roulette: room.roulette,
     teamCountdownEndsAt: room.teamCountdownEndsAt,
     startingEndsAt: room.startingEndsAt,
+    startingDeadline: room.startingDeadline,
+    revealAt: room.revealAt,
+    roundId: room.roundSeq,
     settings: { ...room.settings },
     teams: Object.fromEntries(room.teams),
     readyIds: [...room.ready],

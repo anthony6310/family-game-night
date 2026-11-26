@@ -5,6 +5,7 @@ import { createRoundClock } from '../audio/roundClock';
 
 const GO_SHOWN_MS = 900; // "GO!" stays on screen this long after the moment of GO
 const COUNT_FROM = 3; // "3, 2, 1, GO!"
+const REDRAW_MAX_MS = 200; // (so a change of GO, or of the clock estimate, is picked up soon)
 
 /**
  * How far the camera should have moved from the overview over the players to the player's own view, 0..1, for a round that starts at `startsAt`
@@ -24,12 +25,22 @@ export function introProgress(startsAt: number, now: number): number {
  */
 export function StartCountdown({ goAt, serverNow }: { goAt: number; serverNow: () => number }) {
   const [, redraw] = useState(0);
-  useEffect(() => { const id = setInterval(() => redraw((n) => n + 1), 50); return () => clearInterval(id); }, []);
+  // Redraw at the moment the number changes (and when GO! has been up long enough), never more than REDRAW_MAX_MS apart. (A fixed 50 ms poll showed each number up to 50 ms late, by a
+  // different amount on every phone: measured, two devices' 3, 2, 1 drifted 40-50 ms apart that way alone.)
+  useEffect(() => {
+    const r = goAt - serverNow();
+    const next = r > COUNT_FROM * 1000 ? r - COUNT_FROM * 1000 : r > 0 ? r - (Math.ceil(r / 1000) - 1) * 1000 : r + GO_SHOWN_MS;
+    if (next <= 0) return; // (GO! is over: nothing more to draw)
+    const id = window.setTimeout(() => redraw((n) => n + 1), Math.min(REDRAW_MAX_MS, next + 1));
+    return () => window.clearTimeout(id);
+  });
   const clock = useRef(createRoundClock((sound, gain) => audio.playFlat(sound, gain))).current;
   const primed = useRef(false);
   const remaining = goAt - serverNow();
   if (!primed.current && remaining > (COUNT_FROM - 1) * 1000 && remaining <= COUNT_FROM * 1000) { clock.update(COUNT_FROM + 1); primed.current = true; } // (so the "3" ticks too)
-  clock.update(remaining / 1000);
+  // The round clock ticks for each of its last 5 seconds, but this countdown starts at 3: the still buffer before it is silent (rule 10), so the clock is never told more than that. (It used to
+  // tick at 5 and 4 over the still picture, and the "5" fell whenever this phone received the round's final GO, a different moment on every phone.)
+  clock.update(Math.min(remaining / 1000, COUNT_FROM + 0.5));
   if (remaining > COUNT_FROM * 1000 || remaining < -GO_SHOWN_MS) return null; // (never above 3: nothing shows until GO is 3 seconds or less away)
   const label = remaining > 0 ? String(Math.min(COUNT_FROM, Math.ceil(remaining / 1000))) : 'GO!';
   const step = remaining > 0 ? COUNT_FROM - Math.ceil(remaining / 1000) : COUNT_FROM; // 0 for the first number ... COUNT_FROM for GO: each one is bigger than the last

@@ -541,8 +541,14 @@ export interface RoomState {
   teamCountdownEndsAt: number | null;
   /** The roulette (only when the host picked Random): the game the server chose, and when the spin starts and ends (server clock). Everyone's carousel lands on `gameId` at `endsAt`. */
   roulette: { gameId: GameId; startsAt: number; endsAt: number } | null;
-  /** Server clock when the 'starting' (flash) step ends and the round begins, or null. */
+  /** Server clock when the MINIMUM time of the 'starting' (flash + loading) step is over, or null (also null once it has passed: the step then only waits for the phones). */
   startingEndsAt: number | null;
+  /** Server clock: the latest the 'starting' step can last (the safety net for a phone that never finishes loading), or null. */
+  startingDeadline: number | null;
+  /** Server clock: the moment the loading page lifts on every phone (the round's GO is the intro after it). Set when the 'starting' step's wait is over; null before that and outside a round. */
+  revealAt: number | null;
+  /** A number that changes for every round (the game's `startsAt` moves, so it cannot name the round): screens use it as their React key. */
+  roundId: number;
   settings: RoomSettings;
   /** Every member's team (team games use it; everyone always has one, picked at random when they joined). */
   teams: Record<string, TeamId>;
@@ -555,7 +561,7 @@ export interface RoomState {
    * left: the server keeps their wins so they can still be named the winner.
    */
   scores: Record<string, number>;
-  game: GameView | null; // while phase is 'playing' or 'finish' (frozen during the finish sequence)
+  game: GameView | null; // while phase is 'starting' (the round is made but its clock is provisional: phones build it under the loading page), 'playing' or 'finish' (frozen during the finish sequence)
   result: RoundResult | null; // while phase is 'finish' or 'results'
   /** Decided rounds played this session. Draws are replayed and don't count. */
   roundsPlayed: number;
@@ -659,6 +665,10 @@ export interface ClientToServerEvents {
   /** Pick your color (one of PLAYER_COLORS that nobody else has). Lobby/countdown only. It is your color in every game. */
   'player:color': (color: string, ack?: (res: Ack<null>) => void) => void;
   'player:ready': (ready: boolean, ack?: (res: Ack<null>) => void) => void;
+  /** This phone has the round's game on its screen (under the loading page) and is drawing it smoothly. Sent during the 'starting' step; the round's GO is set once everyone has sent it, or when STARTING_MAX_MS runs out. Refused outside that step. */
+  'player:loaded': (ack?: (res: Ack<null>) => void) => void;
+  /** Clock sync: the server answers at once with its own clock (ms). The phone times the round trip, so it knows the server's clock to within half of it (see clockSync.ts). */
+  'clock:ping': (ack: (serverTime: number) => void) => void;
   /**
    * Spectators only, lobby/countdown: bet on a player to win the round (`targetId`, or null to take the bet back), putting up
    * `stake` victory points of your own (0..your points). With no stake: win +1, and you can't lose anything. With a stake: win that many points, lose that many.

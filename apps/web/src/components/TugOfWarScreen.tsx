@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { TEAM_COLORS, TEAM_NAMES, type GameAction, type Player, type RoundResult, type TugOfWarView } from '@fgn/shared';
+import { useLatest } from './useLatest';
 import { StartCountdown, introProgress } from './StartCountdown';
 import { useStarted } from './useStarted';
 import { useRemainingMs } from './Countdown';
@@ -27,6 +28,7 @@ interface Props {
  * (the strain, the massive pull, the fall and the cheering), and for the last WINNER_SECONDS the camera pans right out and a banner names the winning team (see WinnerMoment).
  */
 export default function TugOfWarScreen({ game, players, colors, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
+  const latestGame = useLatest(game); // (the scene lives on, so what it reads must be the newest `game`: GO moves while phones get the game on screen)
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<TugOfWarScene | null>(null);
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
@@ -46,7 +48,7 @@ export default function TugOfWarScreen({ game, players, colors, selfId, serverNo
   useEffect(() => {
     const s = new TugOfWarScene(container.current!, serverNow, styles, game.teams, isPlayer ? selfId : null);
     scene.current = s;
-    s.introFactor = () => introProgress(game.startsAt, serverNow());
+    s.introFactor = () => introProgress(latestGame.current.startsAt, serverNow());
     return () => { s.dispose(); scene.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

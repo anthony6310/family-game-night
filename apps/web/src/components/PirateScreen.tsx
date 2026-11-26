@@ -1,3 +1,4 @@
+import { useLatest } from './useLatest';
 import { StartCountdown, introProgress } from './StartCountdown';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { RELOAD_MS, TEAM_COLORS, TEAM_NAMES, WICK_MS, type GameAction, type PirateBroadsideView, type Player, type RoundResult } from '@fgn/shared';
@@ -30,6 +31,7 @@ interface Props {
  * lights the wick (1 second of burning, then BOOM, then 2 seconds before the next shot). A spectator follows a pirate's cannon. The ending is the shared winner moment (the camera glides to the winning ship).
  */
 export default function PirateScreen({ game, players, colors, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
+  const latestGame = useLatest(game); // (the scene lives on, so what it reads must be the newest `game`: GO moves while phones get the game on screen)
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<PirateScene | null>(null);
   const isPlayer = selfId !== null && selfId in game.players;
@@ -46,7 +48,7 @@ export default function PirateScreen({ game, players, colors, selfId, serverNow,
     const s = new PirateScene(container.current!, styles, isPlayer ? selfId : null);
     scene.current = s;
     s.serverNow = serverNow;
-    s.introFactor = () => introProgress(game.startsAt, serverNow());
+    s.introFactor = () => introProgress(latestGame.current.startsAt, serverNow());
     return () => { s.dispose(); scene.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

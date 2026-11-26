@@ -1,3 +1,4 @@
+import { useLatest } from './useLatest';
 import { StartCountdown, introProgress } from './StartCountdown';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { POISON_DRAIN, ROACH_LIFE_MAX, ROACH_LOW_LIFE, SMACK_HIT_ARREST_MS, SMACK_MISS_ARREST_MS, TEAM_COLORS, type GameAction, type Player, type RoachHuntView, type RoundResult } from '@fgn/shared';
@@ -31,6 +32,7 @@ interface Props {
  * up). The ending is the shared winner moment.
  */
 export default function RoachScreen({ game, players, colors, selfId, serverNow, sendAction, frozen = false, result = null, finishEndsAt = null }: Props) {
+  const latestGame = useLatest(game); // (the scene lives on, so what it reads must be the newest `game`: GO moves while phones get the game on screen)
   const container = useRef<HTMLDivElement>(null);
   const scene = useRef<RoachScene | null>(null);
   const isPlayer = selfId !== null && selfId in game.players;
@@ -50,7 +52,7 @@ export default function RoachScreen({ game, players, colors, selfId, serverNow, 
     const s = new RoachScene(container.current!, styles, isPlayer ? selfId : null);
     scene.current = s;
     s.serverNow = serverNow;
-    s.introFactor = () => introProgress(game.startsAt, serverNow());
+    s.introFactor = () => introProgress(latestGame.current.startsAt, serverNow());
     return () => { s.dispose(); scene.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

@@ -1,17 +1,24 @@
 import {
   BoxGeometry, BufferGeometry, CanvasTexture, CircleGeometry, Color, DirectionalLight, Fog, Group, HemisphereLight, PointLight, Matrix4, MathUtils, Mesh, MeshBasicMaterial, MeshStandardMaterial, PerspectiveCamera, PlaneGeometry,
-  Quaternion, RepeatWrapping, RingGeometry, Scene, SphereGeometry, SRGBColorSpace, Sprite, SpriteMaterial, Vector3, WebGLRenderer,
+  Quaternion, RepeatWrapping, RingGeometry, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Sprite, SpriteMaterial, Vector3, WebGLRenderer,
 } from 'three';
 import {
-  BOTTLE_RADIUS, FOOD_RADIUS, FOOD_ROT_MS, POISON_RADIUS, ROACH_LIFE_MAX, ROACH_LOW_LIFE, lightsOn, inPoison, makeLayout, ROACH_ARENA_HALF, ROACH_RADIUS, SANDAL_RADIUS, SANDAL_SPEED, SMACK_HIT_ARREST_MS, SMACK_MISS_ARREST_MS, SMACK_RADIUS, SMACK_WINDUP_MS,
-  SPECIES, VARIANTS, moveRoach, stepMover,
+  BOTTLE_RADIUS, FOOD_RADIUS, FOOD_ROT_MS, FOOD_SCALE, POISON_RADIUS, ROACH_LIFE_MAX, ROACH_LOW_LIFE, lightsOn, inPoison, makeLayout, ROACH_ARENA_HALF, ROACH_RADIUS, SANDAL_RADIUS, SANDAL_SPEED, SMACK_HIT_ARREST_MS, SMACK_MISS_ARREST_MS, SMACK_RADIUS, SMACK_WINDUP_MS,
+  SPECIES, VARIANTS, canStandAt, moveRoach, smackSpot, stepMover,
   type Disc, type Layout, type RoachHuntView, type RoachPlayerView,
 } from '@fgn/shared';
 import { buildFood } from './RoachFood';
-import { WALL_HEIGHT, buildBroom, buildIsland, buildKitchenUnits, buildMopBucket, buildPoisonBottle, buildShoe, buildTrashCan, type Piece } from './RoachKitchen';
+import { WALL_HEIGHT, WALL_PLANE, buildKitchenUnits, buildPoisonBottle, type Piece } from './RoachKitchen';
 import { buildCorpseGeometry, corpsePose } from './RoachCorpse';
 import { FoodFx } from './RoachFoodFx';
+import { DustPuff } from './RoachDust';
+import { GooSplash } from './RoachGoo';
+import { eatYawNow } from './RoachEat';
 import { LifeBar } from './RoachLifeBar';
+import { buildBroom, buildIsland, buildProp, buildShoePair, buildTable } from './RoachObstacles';
+import { POISON_DEEP, POISON_TINT, PoisonBlast, PoisonSteam } from './RoachPoisonFx';
+import { PUDDLE_DEEP, PUDDLE_TINT, buildMopBucket, buildTrashHeap, makePuddle, setDim } from './RoachLandmarks';
+import { buildSandal } from './RoachSandal';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
 import { bottleSmash, roachCurl, roachSquish, sandalSmack, sandalSwish } from '../../audio/roachSounds';
@@ -28,6 +35,7 @@ const FOV_ROACH = 72; // the horizontal field of view we want on any screen shap
 const FOV_SANDAL = 53;
 const SANDAL_VIEW = 1.5; // the sandal's camera is this much further out than before (zoomed out 50%): the high view is a benefit of the sandal alone
 const SANDAL_SIGHT = 9; // in the dark the sandal's own light lets it see this far
+const SANDAL_SCALE = 1.15; // the sandal model (about 4.1 long) is drawn this much bigger
 const SANDAL_HOVER = 4.8; // the sandal is held up in the air this high, well above the roaches
 const ROACH_SCALE = 1.7;
 const PREDICT_SNAP = 4;
@@ -40,32 +48,28 @@ const DUST_POOL = 6;
 const ease = (k: number) => k * k * (3 - 2 * k);
 const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
 
-/** The big flip-flop: a thick tan sole with a lighter footbed, red straps meeting in a V at a toe post, and a darker tread under it. Faces +z. */
-function buildSandal() {
-  const m = new Model();
-  m.oval('#a96f36', [0.95, 0.16, 2.05], [0, 0.12, 0]); // the sole
-  m.oval('#6e421f', [0.85, 0.05, 1.9], [0, 0.04, 0]); // the tread, under it
-  m.oval('#e2b27a', [0.84, 0.06, 1.9], [0, 0.27, 0]); // the footbed
-  m.oval('#cf9a63', [0.5, 0.025, 0.55], [0, 0.34, -1.2]); // the heel hollow
-  for (const s of [-1, 1]) {
-    m.limb('#d9423f', [0, 0.38, 1.05], [s * 0.82, 0.3, 0.05], 0.11); // the straps, from the toe post out to the sides
-    m.oval('#b92f2d', [0.13, 0.12, 0.13], [s * 0.82, 0.3, 0.05]);
-  }
-  m.oval('#b92f2d', [0.17, 0.15, 0.17], [0, 0.4, 1.05]); // the toe post
-  return m.build();
-}
-
 function floorTexture(): CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 256;
   const g = c.getContext('2d')!;
-  for (let y = 0; y < 2; y++) for (let x = 0; x < 2; x++) { g.fillStyle = (x + y) % 2 ? '#d9c9a3' : '#e8dcc0'; g.fillRect(x * 128, y * 128, 128, 128); }
+  for (let y = 0; y < 2; y++) for (let x = 0; x < 2; x++) { g.fillStyle = (x + y) % 2 ? '#dcc9a1' : '#f8f4ea'; g.fillRect(x * 128, y * 128, 128, 128); } // (retro diner floor: white and beige)
   g.strokeStyle = 'rgba(120,100,70,0.35)'; g.lineWidth = 3;
   g.strokeRect(1.5, 1.5, 253, 253); g.beginPath(); g.moveTo(128, 0); g.lineTo(128, 256); g.moveTo(0, 128); g.lineTo(256, 128); g.stroke();
   const t = new CanvasTexture(c);
   t.wrapS = t.wrapT = RepeatWrapping;
   t.colorSpace = SRGBColorSpace;
   t.anisotropy = 4;
+  return t;
+}
+/** The pink and white checker tile over the worktops (Retro Diner). */
+function splashTexture(): CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = c.height = 256;
+  const g = c.getContext('2d')!;
+  for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) { g.fillStyle = (x + y) % 2 ? '#f6b8c8' : '#fdeaf0'; g.fillRect(x * 64, y * 64, 64, 64); g.strokeStyle = '#e8a0b4'; g.lineWidth = 2; g.strokeRect(x * 64, y * 64, 64, 64); }
+  const t = new CanvasTexture(c);
+  t.wrapS = t.wrapT = RepeatWrapping;
+  t.colorSpace = SRGBColorSpace;
   return t;
 }
 function splatTexture(): CanvasTexture {
@@ -92,24 +96,6 @@ function shadowTexture(): CanvasTexture {
   grad.addColorStop(0, 'rgba(0,0,0,0.9)'); grad.addColorStop(0.6, 'rgba(0,0,0,0.5)'); grad.addColorStop(1, 'rgba(0,0,0,0)');
   g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
   return new CanvasTexture(c);
-}
-
-/** The spilled poison: a glowing purple pool with darker swirls and bright bubbles, soft at the edges. */
-function poisonTexture(): CanvasTexture {
-  const c = document.createElement('canvas');
-  c.width = c.height = 256;
-  const g = c.getContext('2d')!;
-  const grad = g.createRadialGradient(128, 128, 10, 128, 128, 126);
-  grad.addColorStop(0, 'rgba(200,110,255,0.8)'); grad.addColorStop(0.7, 'rgba(150,60,230,0.72)'); grad.addColorStop(0.92, 'rgba(100,35,170,0.5)'); grad.addColorStop(1, 'rgba(80,30,140,0)');
-  g.fillStyle = grad; g.fillRect(0, 0, 256, 256);
-  for (let i = 0; i < 26; i++) { // swirls and bubbles
-    const a = i * 2.399, d = 20 + ((i * 37) % 90), r = 5 + (i % 5) * 4;
-    g.fillStyle = i % 3 ? 'rgba(50,15,95,0.4)' : 'rgba(235,190,255,0.5)';
-    g.beginPath(); g.ellipse(128 + Math.cos(a) * d, 128 + Math.sin(a) * d, r * 1.4, r, a, 0, Math.PI * 2); g.fill();
-  }
-  const t = new CanvasTexture(c);
-  t.colorSpace = SRGBColorSpace;
-  return t;
 }
 
 /** A soft round blob (white, fading to nothing at the edge) for the stink and goo particles. */
@@ -139,6 +125,8 @@ interface Actor {
   seenSmack: number | null;
   bar: { holder: Group; bar: LifeBar } | null; // a roach's lifetime bar (the holder stays put in the world; the bar inside always faces the camera)
   hiddenDark: boolean; // in the dark and too far for a sandal to see
+  eatPhase: number; // the eating sway's clock, in seconds spent eating
+  eatBlend: number; // 0..1: how much of the eating sway is on (eases in and out, so it never jumps)
   corpse: boolean; // a roach that starved: its body is the curled-up one
   side: number; // which way it rolls over when it starves
 }
@@ -169,11 +157,14 @@ export class RoachScene {
   private splatAt = new Map<string, Splat>();
   private dust: Dust[] = [];
   private foodGeos = new Map<number, BufferGeometry>(); // (one model per kind of food, shared by every piece)
-  private poisonMap = poisonTexture();
   private blobMap = blobTexture();
+  private puff!: DustPuff; // the cloud of dust when the sandal smacks down
+  private goo!: GooSplash; // the drops of goo flicked out by a squashed roach
   private darkEye: { x: number; z: number } | null = null; // a sandal in the dark: what it can see is what is near it
   private layout: Layout | null = null; // this game's kitchen, made from the seed in the view
-  private poison: { zone: Mesh; bubbles: { mesh: Mesh; phase: number; x: number; z: number }[]; bottle: Piece | null; seen: number | null } | null = null;
+  private puddles: { mesh: Mesh; x: number; z: number }[] = []; // the dirty puddles at the three landmarks
+  private bucketWater: Mesh | null = null; // the water in the mop bucket
+  private poison: { bottle: Piece | null; seen: number | null; blast: PoisonBlast; steam: PoisonSteam; puddle: Mesh | null } | null = null;
   private corpseGeometry: BufferGeometry | null | undefined; // (undefined: not made yet; null: the roach model does not fit, no curl)
   private foods = new Map<number, FoodVis>();
   private blocks: { piece: Piece; fade: number }[] = [];
@@ -194,6 +185,10 @@ export class RoachScene {
   private winner = false;
   private camSmooth = { pos: new Vector3(), quat: new Quaternion(), ready: false };
   private localSmackAt = -1e9; // when you pressed smack on this phone (so the sandal reacts at once)
+  /** A fixed camera (for staging pages only): where it is, what it looks at and the horizontal field of view. The game never sets it. */
+  /** Staging pages only (the tile picture): hide every name, ring and lifetime bar, so the picture is models only. */
+  modelsOnly = false;
+  cameraOverride: { pos: [number, number, number]; look: [number, number, number]; hfov: number } | null = null;
   serverNow: () => number = () => Date.now();
   /** 0 = the opening overview .. 1 = the normal view. */
   introFactor: () => number = () => 1;
@@ -205,7 +200,7 @@ export class RoachScene {
     this.renderer = new WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     container.appendChild(this.renderer.domElement);
-    this.disposables.push(this.renderer, this.kit, this.sandalGeometry, this.floorMap, this.splatMap, this.shadowMap, this.poisonMap, this.blobMap);
+    this.disposables.push(this.renderer, this.kit, this.sandalGeometry, this.floorMap, this.splatMap, this.shadowMap, this.blobMap);
     this.scene.background = new Color('#2a2118');
     this.buildRoom();
     for (let i = 0; i < SPLAT_POOL; i++) {
@@ -220,6 +215,10 @@ export class RoachScene {
       mesh.position.y = 0.06; mesh.visible = false;
       this.scene.add(mesh); this.dust.push({ mesh, age: 99, active: false }); this.disposables.push(mat, mesh.geometry);
     }
+    this.puff = new DustPuff(this.blobMap);
+    this.scene.add(this.puff.group); this.disposables.push(this.puff);
+    this.goo = new GooSplash(this.blobMap);
+    this.scene.add(this.goo.group); this.disposables.push(this.goo);
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
@@ -243,6 +242,13 @@ export class RoachScene {
     this.winner = !!view.winner;
     if (!view.winner) this.eyeId = view.targetId;
   }
+  /** Would a smack from where your sandal is facing land on floor a roach could stand on? (The server refuses it otherwise: not over junk or the walls.) */
+  smackClear(): boolean {
+    const me = this.selfId ? this.actors.get(this.selfId) : null;
+    if (!me || me.role !== 'sandal' || !this.layout) return true;
+    const [x, z] = smackSpot(me.x, me.z, me.facing);
+    return canStandAt(this.layout, x, z);
+  }
   /** You pressed smack on this phone: the sandal starts swinging at once (the server's answer follows). */
   smackNow() { this.localSmackAt = this.serverNow(); audio.playFlat(sandalSwish, 0.5); }
 
@@ -261,30 +267,34 @@ export class RoachScene {
 
   // ---------- building ----------
   private buildRoom() {
-    const half = ROACH_ARENA_HALF;
-    this.floorMap.repeat.set(half / 2, half / 2);
-    const floorMat = new MeshStandardMaterial({ map: this.floorMap, roughness: 0.7 });
-    const floor = new Mesh(new PlaneGeometry(half * 2 + 12, half * 2 + 12).rotateX(-Math.PI / 2), floorMat);
-    this.floorMap.repeat.set((half * 2 + 12) / 4, (half * 2 + 12) / 4);
+    const half = ROACH_ARENA_HALF, WP = WALL_PLANE;
+    const floorMat = new MeshStandardMaterial({ map: this.floorMap, roughness: 0.6 });
+    const floor = new Mesh(new PlaneGeometry(WP * 2 + 6, WP * 2 + 6).rotateX(-Math.PI / 2), floorMat);
+    this.floorMap.repeat.set((WP * 2 + 6) / 4, (WP * 2 + 6) / 4);
     this.scene.add(floor);
     this.disposables.push(floorMat, floor.geometry);
-    // The walls are single-sided panels facing into the room, as tall as the kitchen: you see them from inside, but a camera behind one (a roach in a corner) sees straight through to the floor.
-    const wallMat = new MeshStandardMaterial({ color: '#cfc29a', roughness: 0.9, flatShading: true });
-    const tileMat = new MeshStandardMaterial({ color: '#e6edf0', roughness: 0.6, flatShading: true });
-    this.disposables.push(wallMat, tileMat);
+    // The walls are single-sided panels facing into the room, as tall as the kitchen, standing BEHIND the cabinets (the cabinets stand between the playable floor and the wall): you see them from inside, but a camera behind one (a roach in a corner) sees straight through to the floor.
+    const wallMat = new MeshStandardMaterial({ color: '#fbf1e2', roughness: 0.9, flatShading: true });
+    const splash = splashTexture(); splash.repeat.set((WP * 2) / 4, 0.7);
+    const tileMat = new MeshStandardMaterial({ map: splash, roughness: 0.5 });
+    const redMat = new MeshStandardMaterial({ color: '#d4453f', roughness: 0.6 });
+    const chromeMat = new MeshStandardMaterial({ color: '#e4e9ed', roughness: 0.4 });
+    this.disposables.push(wallMat, tileMat, redMat, chromeMat, splash);
     const panel = (x: number, z: number, turn: number) => {
-      const w = new Mesh(new PlaneGeometry(half * 2, WALL_HEIGHT), wallMat); w.position.set(x, WALL_HEIGHT / 2, z); w.rotation.y = turn;
-      const t = new Mesh(new PlaneGeometry(half * 2, 3), tileMat); t.position.set(x, 5.0, z); t.rotation.y = turn; t.translateZ(0.01); // the tiled splashback over the worktops
-      this.scene.add(w, t); this.disposables.push(w.geometry, t.geometry);
+      const w = new Mesh(new PlaneGeometry(WP * 2, WALL_HEIGHT), wallMat); w.position.set(x, WALL_HEIGHT / 2, z); w.rotation.y = turn;
+      const t = new Mesh(new BoxGeometry(WP * 2, 2.85, 0.15), tileMat); t.position.set(x, 5.075, z); t.rotation.y = turn; t.translateZ(0.075); // the tiled splashback, a thick slab on the wall between the worktop and the cupboards
+      const stripe = new Mesh(new BoxGeometry(WP * 2, 0.8, 0.2), redMat); stripe.position.set(x, 10.8, z); stripe.rotation.y = turn; stripe.translateZ(0.1); // the red stripe and the chrome cap above the cupboards
+      const cap = new Mesh(new BoxGeometry(WP * 2, 0.3, 0.45), chromeMat); cap.position.set(x, 11.6, z); cap.rotation.y = turn; cap.translateZ(0.22);
+      this.scene.add(w, t, stripe, cap); this.disposables.push(w.geometry, t.geometry, stripe.geometry, cap.geometry);
     };
-    panel(0, -half, 0); panel(0, half, Math.PI); panel(half, 0, -Math.PI / 2); panel(-half, 0, Math.PI / 2);
-    // The units round the walls, and the things on the floor (islands, brooms, shoes: solid for roaches; the sandal hovers over them). Each piece can fade out when it is in the camera's way.
+    panel(0, -WP, 0); panel(0, WP, Math.PI); panel(WP, 0, -Math.PI / 2); panel(-WP, 0, Math.PI / 2);
+    // The cabinets round the walls (Retro Diner), and later (once the game's layout is known) the things on the floor. Each piece can fade out when it is in the camera's way.
     this.addPieces(buildKitchenUnits(half)); // (the cooker is always in the same place; the rest of the floor is made when the first view tells us the game's layout: `ensureLayout`)
     // The lights. The kitchen is dark; the sandal carries a weak light of its own; every 15 seconds the main lights come on (see `updateLights`).
     this.hemi = new HemisphereLight('#fff3e0', '#6a5a48', 0);
     this.sun = new DirectionalLight('#fff0d6', 0);
     this.sun.position.set(-14, 40, 10);
-    this.sandalLight = new PointLight('#ffd49a', 0, 13, 1.3);
+    this.sandalLight = new PointLight('#ffd49a', 0, 17, 1.3);
     this.scene.add(this.hemi, this.sun, this.sandalLight);
     this.scene.fog = this.fog;
   }
@@ -303,28 +313,31 @@ export class RoachScene {
     const layout = makeLayout(view.layoutSeed);
     this.layout = layout;
     const bottle = buildPoisonBottle(layout.poison);
+    const mop = buildMopBucket(layout.mop);
+    this.bucketWater = mop.water;
+    this.disposables.push(mop.water.material as ShaderMaterial);
     this.addPieces([
-      ...layout.obstacles.map((o) => (o.kind === 'island' ? buildIsland(o) : buildBroom(o))),
-      ...layout.shoes.map((h) => buildShoe(h)),
-      buildTrashCan(layout.trash), buildMopBucket(layout.mop), bottle,
+      ...layout.obstacles.map((o) => (o.kind === 'island' ? buildIsland(o) : o.kind === 'table' ? buildTable(o) : buildBroom(o))),
+      ...layout.shoes.map((h) => buildShoePair(h)),
+      ...layout.props.map((q) => buildProp(q)),
+      buildTrashHeap(layout.trash), mop.piece, bottle,
     ]);
-    const mat = new MeshBasicMaterial({ map: this.poisonMap, transparent: true, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -3 });
-    const zone = new Mesh(new PlaneGeometry(POISON_RADIUS * 2.1, POISON_RADIUS * 2.1).rotateX(-Math.PI / 2), mat);
-    zone.position.set(layout.poison.cx, 0.045, layout.poison.cz); zone.visible = false;
-    this.scene.add(zone);
-    this.disposables.push(mat, zone.geometry);
-    const bubbles: { mesh: Mesh; phase: number; x: number; z: number }[] = [];
-    const bubbleMat = new MeshBasicMaterial({ color: '#e6b8ff', transparent: true, opacity: 0.8 });
-    const bubbleGeo = new SphereGeometry(0.22, 8, 6);
-    this.disposables.push(bubbleMat, bubbleGeo);
-    for (let i = 0; i < 12; i++) {
-      const a = i * 2.399, d = Math.sqrt((i + 0.5) / 12) * (POISON_RADIUS - 0.8);
-      const mesh = new Mesh(bubbleGeo, bubbleMat);
-      mesh.visible = false;
-      this.scene.add(mesh);
-      bubbles.push({ mesh, phase: i * 1.7, x: layout.poison.cx + Math.cos(a) * d, z: layout.poison.cz + Math.sin(a) * d });
-    }
-    this.poison = { zone, bubbles, bottle, seen: null };
+    // a dirty puddle spreads out from each landmark (a different shape and side each game), so they stand out
+    layout.landmarks.forEach((l, i) => {
+      const s = ((layout.seed % 1000) / 1000) * 6 + i * 2.3;
+      const px = l.x + (l.id === 'cooker' ? 0.5 : Math.cos(s) * 1.2), pz = l.z + (l.id === 'cooker' ? -0.7 : Math.sin(s) * 1.2);
+      const mesh = makePuddle(s * 1.7 + 0.5, PUDDLE_TINT, PUDDLE_DEEP, l.id === 'cooker' ? 9.0 : 8.45, 36);
+      mesh.position.set(px, 0.05, pz);
+      this.scene.add(mesh); this.disposables.push(mesh.material as ShaderMaterial, mesh.geometry);
+      this.puddles.push({ mesh, x: px, z: pz });
+    });
+    // the poison has no pool of its own: the bottle bursts over its landmark (`PoisonBlast`), that landmark's own puddle turns purple, and steam curls up off it (`PoisonSteam`)
+    const blast = new PoisonBlast(this.blobMap);
+    const pd = this.puddles[layout.landmarks.findIndex((l) => l.id === layout.poison.landmark)] ?? null;
+    const steam = new PoisonSteam(pd?.x ?? layout.poison.cx, pd?.z ?? layout.poison.cz, 6.8);
+    this.scene.add(blast.group, steam.group);
+    this.disposables.push(blast, steam);
+    this.poison = { bottle, seen: null, blast, steam, puddle: pd?.mesh ?? null };
   }
 
   private foodGeo(kind: number) {
@@ -340,7 +353,7 @@ export class RoachScene {
     group.add(mesh);
     group.position.set(x, 0, z);
     this.scene.add(group);
-    const fx = new FoodFx(this.blobMap, id + 1);
+    const fx = new FoodFx(this.blobMap, id + 1, ['#7a5a1c', '#c9a86a', '#d4a03c', '#6a4820'][kind % 4]); // (crumbs the colour of the food)
     group.add(fx.points);
     this.foods.set(id, { group, mesh, phase: Math.random() * 6, born: performance.now(), fx });
   }
@@ -351,10 +364,10 @@ export class RoachScene {
     let body: Mesh;
     if (p.role === 'sandal') {
       const mat = this.kit.material.clone(); // (a faint glow of its own, so its top is not black in the dark: only its light under it is weak)
-      mat.emissive = new Color('#4a3320'); mat.emissiveIntensity = 0.6;
+      mat.emissive = new Color('#2c3a5c'); mat.emissiveIntensity = 0.55;
       this.disposables.push(mat);
       body = new Mesh(this.sandalGeometry, mat);
-      body.scale.set(1.15, 1.9, 1.15); // (thick, so it reads as a solid object)
+      body.scale.setScalar(SANDAL_SCALE); // (the slab sandal: one thick rounded sole, a blue one with white straps)
       body.position.y = SANDAL_HOVER;
     } else {
       const type = SPECIES.findIndex((s) => s.id === 'roach');
@@ -388,7 +401,7 @@ export class RoachScene {
     this.scene.add(group);
     this.disposables.push(ring.geometry, ring.material as MeshBasicMaterial);
     let h = 0; for (const c of id) h = (h * 31 + c.charCodeAt(0)) | 0;
-    this.actors.set(id, { id, role: p.role, group, body, ring, shadow, tag, x: p.x, z: p.z, facing: p.facing, walk: 0, phase: Math.random() * 6, alive: p.alive, seenDeath: false, seenSmack: null, bar, hiddenDark: false, corpse: false, side: h & 1 ? 1 : -1 });
+    this.actors.set(id, { id, role: p.role, group, body, ring, shadow, tag, x: p.x, z: p.z, facing: p.facing, walk: 0, phase: Math.random() * 6, alive: p.alive, seenDeath: false, seenSmack: null, bar, hiddenDark: false, eatPhase: 0, eatBlend: 0, corpse: false, side: h & 1 ? 1 : -1 });
   }
 
   // ---------- per frame ----------
@@ -439,6 +452,7 @@ export class RoachScene {
       const speed = Math.hypot(a.x - px, a.z - pz) / Math.max(dt, 1e-3);
       a.walk += (Math.min(1, speed / (a.role === 'roach' ? 9 : SANDAL_SPEED)) - a.walk) * (1 - Math.exp(-10 * dt));
       a.phase += dt * (a.role === 'roach' ? 26 : 9) * (0.2 + a.walk);
+      a.eatBlend += ((p.eating ? 1 : 0) - a.eatBlend) * (1 - Math.exp(-6 * dt)); if (p.eating) a.eatPhase += dt;
       this.poseActor(a, p, now);
       this.updateBar(a, p, now);
       // A roach squashed: a splat where it was, a squish, and the roach is gone. A roach that starved stays: it tips over and curls up where it fell.
@@ -463,7 +477,10 @@ export class RoachScene {
       (d.mesh.material as MeshBasicMaterial).opacity = Math.max(0, 0.7 * (1 - k));
       if (k >= 1) { d.active = false; d.mesh.visible = false; }
     }
+    if (this.modelsOnly) for (const a of this.actors.values()) { a.tag.visible = false; a.ring.visible = false; if (a.bar) a.bar.holder.visible = false; }
     this.updateFoods(view, dt, now);
+    this.updateLandmarks(now);
+    { const px = this.renderer.domElement.height / (2 * Math.tan(MathUtils.degToRad(this.camera.fov) / 2)), dim = 0.45 + 0.55 * this.vis.lit; this.puff.update(dt, px, dim); this.goo.update(dt, px, dim); }
     this.updatePoison(view, now, dt);
     this.shake *= Math.exp(-6 * dt);
     this.updateCamera(view, dt);
@@ -507,8 +524,8 @@ export class RoachScene {
     // the sandal's own light, under it
     const sandal = view.players[view.sandalId] && this.actors.get(view.sandalId);
     if (sandal) {
-      this.sandalLight.position.set(sandal.x, 1.8 + sandal.body.position.y * 0.5, sandal.z);
-      this.sandalLight.intensity = MathUtils.lerp(70, 8, lit);
+      this.sandalLight.position.set(sandal.x, sandal.body.position.y + 2.4, sandal.z); // (a little ABOVE the sandal, so it lights the sandal's top instead of leaving it dark)
+      this.sandalLight.intensity = MathUtils.lerp(85, 8, lit);
     }
     // In the dark a sandal cannot see what its light does not reach: the rings, names, life bars, splats and the glowing poison (which are not lit) of faraway roaches are hidden.
     const sandalEyes = subject?.role === 'sandal' && this.vis.dark;
@@ -551,14 +568,24 @@ export class RoachScene {
       v.group.visible = true;
       const born = ease(MathUtils.clamp((t - v.born) / 450, 0, 1));
       const rotting = f.poisonedAt === null ? 1 : MathUtils.clamp((FOOD_ROT_MS - (now - f.poisonedAt)) / 500, 0, 1); // (shrinks away in its last half second)
-      const size = (0.5 + 0.5 * f.left) * Math.max(0.01, born) * Math.max(0.01, rotting);
+      const size = FOOD_SCALE * (0.5 + 0.5 * f.left) * Math.max(0.01, born) * Math.max(0.01, rotting); // (all the food is 30% bigger than modelled)
       v.mesh.scale.setScalar(size);
       v.mesh.position.x = f.eating ? Math.sin(v.phase) * 0.05 : 0;
       // in the dark a sandal sees the stink only near it (the glow is not lit)
       const seen = !this.darkEye || Math.hypot(f.x - this.darkEye.x, f.z - this.darkEye.z) <= SANDAL_SIGHT;
-      v.fx.update(dt, Math.max(0.3, size), f.poisonedAt !== null, seen, px);
+      v.fx.update(dt, Math.max(0.3, size), f.poisonedAt !== null, seen, px, f.eating);
     }
     for (const [id, v] of this.foods) if (!present.has(id)) { this.scene.remove(v.group); v.fx.dispose(); this.foods.delete(id); }
+  }
+
+  /** The puddles and the bucket's water are unlit, so they are darkened in the dark kitchen; a sandal in the dark sees a puddle only when it is near. */
+  private updateLandmarks(nowMs: number) {
+    const t = nowMs / 1000, dim = 0.45 + 0.55 * this.vis.lit;
+    for (const p of this.puddles) {
+      p.mesh.visible = !(this.darkEye && Math.max(0, Math.hypot(p.x - this.darkEye.x, p.z - this.darkEye.z) - 5) > SANDAL_SIGHT);
+      setDim(p.mesh, t, dim);
+    }
+    if (this.bucketWater) setDim(this.bucketWater, t, dim);
   }
 
   /** A roach's lifetime bar: how much it has left of 30 seconds (green, then yellow, then red and flashing under 5). */
@@ -569,7 +596,7 @@ export class RoachScene {
     if (!show) return;
     a.bar.holder.position.set(a.x, 2.15, a.z);
     const color = p.life >= 15 ? '#7be07b' : p.life > ROACH_LOW_LIFE ? '#f2d24b' : '#ff5a4d';
-    a.bar.bar.set(p.life / ROACH_LIFE_MAX, color, p.life <= ROACH_LOW_LIFE ? 0.45 + 0.55 * Math.abs(Math.sin(now / 110)) : 1);
+    a.bar.bar.set(p.life / ROACH_LIFE_MAX, color, p.life <= ROACH_LOW_LIFE ? 0.45 + 0.55 * Math.abs(Math.sin(now / 110)) : 1, p.lifeMax > 0 ? p.lifeMax / ROACH_LIFE_MAX : 1);
   }
 
   /** A roach that starved: its body becomes the curled-up one (the curl is blended in by `poseActor`), with a tick of a sound as it tips over. */
@@ -584,7 +611,7 @@ export class RoachScene {
     if (fresh) setTimeout(() => { if (!this.disposed) audio.playFlat(roachCurl, this.distanceToEye(a.x, a.z) < 14 ? 0.7 : 0.3); }, 380);
   }
 
-  /** The poison: the bottle is gone the moment it is smashed (a crash), and the landmark is covered in a pool of glowing purple that spreads out and then bubbles. */
+  /** The poison: the bottle is gone the moment it is smashed and bursts over its landmark; the landmark's own puddle fades to purple and purple steam curls up off it. */
   private updatePoison(view: RoachHuntView, now: number, dt: number) {
     const P = this.poison;
     if (!P) return;
@@ -595,22 +622,19 @@ export class RoachScene {
       if (now - view.poisonAt! < 1500) {
         const near = this.distanceToEye(this.layout!.poison.x, this.layout!.poison.z);
         audio.playFlat(bottleSmash, near < 16 ? 1 : 0.5);
+        P.blast.fire(this.layout!.poison.x, this.layout!.poison.z);
       }
     }
-    const k = spilled ? ease(MathUtils.clamp((now - view.poisonAt!) / 700, 0, 1)) : 0;
-    const show = spilled && !this.poisonHidden;
-    P.zone.visible = show;
-    if (show) {
-      P.zone.scale.setScalar(0.15 + 0.85 * k);
-      (P.zone.material as MeshBasicMaterial).opacity = (0.72 + 0.18 * Math.sin(now / 420)) * Math.min(1, k * 1.6);
+    const k = spilled ? ease(MathUtils.clamp((now - view.poisonAt!) / 1200, 0, 1)) : 0;
+    const dim = 0.45 + 0.55 * this.vis.lit, t = now / 1000;
+    const px = this.renderer.domElement.height / (2 * Math.tan(MathUtils.degToRad(this.camera.fov) / 2));
+    if (P.puddle) { // the puddle fades from dirty brown to purple
+      const u = (P.puddle.material as ShaderMaterial).uniforms;
+      (u.uTint.value as Color).set(PUDDLE_TINT).lerp(new Color(POISON_TINT), k);
+      (u.uDeep.value as Color).set(PUDDLE_DEEP).lerp(new Color(POISON_DEEP), k);
     }
-    for (const b of P.bubbles) {
-      b.phase += dt * 2.6;
-      const u = (Math.sin(b.phase) + 1) / 2;
-      b.mesh.visible = show && k > 0.9;
-      b.mesh.position.set(b.x, 0.1 + u * 0.35, b.z);
-      b.mesh.scale.setScalar(0.4 + u * 0.9);
-    }
+    P.blast.update(dt, px, dim, !this.poisonHidden);
+    P.steam.update(t, spilled ? MathUtils.clamp((k - 0.15) / 0.5, 0, 1) : 0, dim, !this.poisonHidden);
   }
 
   /** Waddle, tilt, and for the sandal the smack: lifted, brought down on the spot in front of it, held, then back. */
@@ -633,9 +657,10 @@ export class RoachScene {
     a.group.position.set(a.x, 0, a.z);
     a.group.rotation.y = a.facing;
     if (a.role === 'roach') {
-      a.body.rotation.y = Math.sin(a.phase) * 0.12 * a.walk;
-      a.body.position.y = Math.abs(Math.sin(a.phase * 1.3)) * 0.05 * a.walk;
-      a.body.rotation.z = Math.sin(a.phase * 0.7) * 0.05 * a.walk;
+      // eating: the head sweeps slowly from side to side in a small range (no tilting); it eases in and out so it never jumps
+      const walkYaw = Math.sin(a.phase) * 0.12 * a.walk;
+      a.body.rotation.set(0, walkYaw * (1 - a.eatBlend) + eatYawNow(a.eatPhase) * a.eatBlend, Math.sin(a.phase * 0.7) * 0.05 * a.walk);
+      a.body.position.set(0, Math.abs(Math.sin(a.phase * 1.3)) * 0.05 * a.walk, 0);
       return;
     }
     // the sandal: held up in the air, rocking a little as it walks. A smack brings it down on the spot in front of it; then it is out of the player's hands: a miss floats back up (1.5 s), a hit leaves it stuck in the guts, tugging back and forth (2.5 s).
@@ -649,7 +674,7 @@ export class RoachScene {
       if (since < D) { const k = since / D; y = lerp(SANDAL_HOVER + SMACK_LIFT, 0.05, k * k); forward = k * 2.3; tilt = lerp(-0.6, 0.02, k); } // down on the spot
       else {
         forward = 2.3; y = 0.05; tilt = 0.02;
-        const u = since - D;
+        const u = hit ? (since - D) / ((total - D) / 2360) : since - D; // (the stuck-in-the-guts animation was made for 2.5 seconds: it is played faster to fit the shorter arrest)
         if (hit) {
           if (u < 260) squash = 1 - 0.18 * ease(u / 260); // pressed into it
           else if (u < 660) { const k = (u - 260) / 400; squash = 0.82; y = 0.05 + 0.18 * ease(k); tilt = lerp(0.02, -0.28, ease(k)); } // anticipation: a heave back to pull
@@ -658,14 +683,14 @@ export class RoachScene {
             y = 0.05 + amp * 0.9 * Math.max(0, Math.sin(k * Math.PI * 3));
             roll = tug * 0.2 * amp; yaw = Math.sin(k * Math.PI * 6 + 1) * 0.16 * amp; tilt = -0.28 + 0.2 * Math.abs(tug); squash = 0.82 + 0.1 * Math.max(0, Math.sin(k * Math.PI * 3));
           } else if (u < 2020) { const k = (u - 1860) / 160; y = lerp(0.1, SANDAL_HOVER + 1.0, 1 - (1 - k) * (1 - k)); forward = 2.3 * (1 - k * 0.6); tilt = lerp(-0.3, 0.3, k); squash = lerp(0.9, 1.08, k); } // pulled free: it pops up
-          else { const k = ease((u - 2020) / (total - D - 2020)); y = lerp(SANDAL_HOVER + 1.0, SANDAL_HOVER, k); forward = 2.3 * 0.4 * (1 - k); tilt = lerp(0.3, 0.12, k); squash = lerp(1.08, 1, k); } // and settles
+          else { const k = ease((u - 2020) / (2360 - 2020)); y = lerp(SANDAL_HOVER + 1.0, SANDAL_HOVER, k); forward = 2.3 * 0.4 * (1 - k); tilt = lerp(0.3, 0.12, k); squash = lerp(1.08, 1, k); } // and settles
         } else if (u < 200) { /* pressed a moment */ }
         else { const k = ease((u - 200) / (total - D - 200)); y = lerp(0.05, SANDAL_HOVER, k); forward = 2.3 * (1 - k); tilt = lerp(0.02, 0.12, k); } // a miss: floats back up to its attack position
       }
     }
     a.body.position.set(0, y, forward);
     a.body.rotation.set(tilt, yaw, roll);
-    a.body.scale.set(1.15, 1.9 * squash, 1.15);
+    a.body.scale.set(SANDAL_SCALE, SANDAL_SCALE * squash, SANDAL_SCALE);
     // the shadow on the floor: smaller and fainter the higher the sandal is, and it goes where the sandal is
     const high = MathUtils.clamp((y - 0.05) / (SANDAL_HOVER + SMACK_LIFT), 0, 1);
     a.shadow.position.set(0, 0.04, forward);
@@ -675,6 +700,7 @@ export class RoachScene {
 
   private onSquash(a: Actor, now: number) {
     this.placeSplat(a);
+    this.goo.fire(a.x, a.z); // a couple of drops of goo fly out of it
     const d = this.distanceToEye(a.x, a.z);
     audio.playFlat(roachSquish, d < 14 ? 0.8 : 0.4);
     if (a.id === this.selfId) this.shake = Math.max(this.shake, SHAKE_DEATH);
@@ -693,6 +719,7 @@ export class RoachScene {
     setTimeout(() => {
       if (this.disposed) return;
       if (d) { d.active = true; d.age = 0; d.mesh.position.set(sandal.smackX, 0.06, sandal.smackZ); d.mesh.scale.setScalar(1); d.mesh.visible = true; }
+      this.puff.fire(sandal.smackX, sandal.smackZ); // and a puff of dust and smoke billows out
       const near = this.distanceToEye(sandal.smackX, sandal.smackZ);
       audio.playFlat(sandalSmack, near < 16 ? 1 : 0.5, 0, near < 16 ? 1 : 0.5);
       if (near < 8) this.shake = Math.max(this.shake, SHAKE_SMACK * (1 - near / 10));
@@ -721,6 +748,7 @@ export class RoachScene {
       const u = ease(MathUtils.clamp(this.introFactor(), 0, 1));
       pose = { pos: overview.pos.clone().lerp(follow.pos, u), look: overview.look.clone().lerp(follow.look, u), hfov: MathUtils.lerp(overview.hfov, follow.hfov, u) };
     }
+    if (this.cameraOverride) { const o = this.cameraOverride; pose = { pos: new Vector3(...o.pos), look: new Vector3(...o.look), hfov: o.hfov }; smooth = false; }
     this.camera.fov = this.fovFor(pose.hfov);
     this.camera.updateProjectionMatrix();
     const m = new Matrix4().lookAt(pose.pos, pose.look, new Vector3(0, 1, 0));
@@ -739,7 +767,7 @@ export class RoachScene {
         this.camera.position.x += (Math.random() - 0.5) * this.shake * 0.12; this.camera.position.y += (Math.random() - 0.5) * this.shake * 0.12;
       }
     }
-    this.fadeBlocks(subject, dt);
+    this.fadeBlocks(this.cameraOverride ? null : subject, dt);
     void view;
   }
 

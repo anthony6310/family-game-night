@@ -71,7 +71,14 @@ try {
   roach.socket.emit('game:action', { type: 'smack' });
   await sleep(100);
   check('a roach cannot smack', lastView(a).players[roach.id].smackAt === null);
-  sandal.socket.emit('game:action', { type: 'smack' });
+  // (the kitchen is random, so the spot in front of the sandal may be over an island or a prop, where a smack is refused: try each way round until one is on open floor)
+  for (const [dx, dz] of [[0, 1], [1, 0], [0, -1], [-1, 0], [1, 1], [-1, -1]]) {
+    sandal.socket.emit('game:action', { type: 'steer', x: dx, z: dz }); await sleep(60);
+    sandal.socket.emit('game:action', { type: 'steer', x: 0, z: 0 }); await sleep(60);
+    sandal.socket.emit('game:action', { type: 'smack' });
+    for (let i = 0; i < 8 && lastView(a).players[sandal.id].smackAt === null; i++) await sleep(20);
+    if (lastView(a).players[sandal.id].smackAt !== null) break;
+  }
   for (let i = 0; i < 40 && lastView(a).players[sandal.id].smackAt === null; i++) await sleep(20);
   check('the sandal smacks: the swing is in the view (the smack action gets through the whitelist)', lastView(a).players[sandal.id].smackAt !== null);
 

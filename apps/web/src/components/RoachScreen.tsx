@@ -91,11 +91,14 @@ export default function RoachScreen({ game, players, colors, selfId, serverNow, 
   const vision = scene.current?.vision();
   const poisoned = !squashed && !isSandal && !!scene.current?.standingInPoison();
   const life = me && !isSandal && me.alive ? me.life : 0;
+  const lifeMax = me && !isSandal && me.alive ? me.lifeMax : 0;
   const left = me && isSandal ? Math.max(0, me.readyAt - serverNow()) : 0;
   const ready = !!me && isSandal && left <= 0;
   const stuck = !!me && isSandal && !ready && me.smackHit;
+  const blocked = ready && !!scene.current && !scene.current.smackClear();
   function smack() {
     if (!live || !isSandal || !ready) return;
+    if (scene.current && !scene.current.smackClear()) return; // nowhere a roach could stand: the server would refuse it too
     scene.current?.smackNow();
     sendAction({ type: 'smack' });
   }
@@ -119,11 +122,11 @@ export default function RoachScreen({ game, players, colors, selfId, serverNow, 
         <p className="roach-left" aria-label="Roaches left">Roaches left <strong>{game.alive}</strong> / {game.total}</p>
         {isPlayer && !isSandal && !squashed && started && (
           <div className={life <= ROACH_LOW_LIFE ? 'roach-life low' : 'roach-life'} aria-label="Your lifetime">
-            <div className="roach-life-bar"><div style={{ width: `${Math.round(Math.min(1, life / ROACH_LIFE_MAX) * 100)}%`, background: life >= 15 ? '#7be07b' : life > ROACH_LOW_LIFE ? '#f2d24b' : '#ff5a4d' }} /></div>
+            <div className="roach-life-bar"><div style={{ width: `${Math.round(Math.min(1, life / ROACH_LIFE_MAX) * 100)}%`, background: life >= 15 ? '#7be07b' : life > ROACH_LOW_LIFE ? '#f2d24b' : '#ff5a4d' }} />{lifeMax > 0 && lifeMax < ROACH_LIFE_MAX && <span className="roach-life-block" style={{ width: `${((ROACH_LIFE_MAX - lifeMax) / ROACH_LIFE_MAX) * 100}%` }} title="The poison took this away for good" />}</div>
             <span>{Math.ceil(life)}s of life</span>
           </div>
         )}
-        {poisoned && !frozen && <p className="roach-poison">POISON! You are losing life {1 + POISON_DRAIN} times as fast. Get out!</p>}
+        {poisoned && !frozen && <p className="roach-poison">POISON! You lose life {1 + POISON_DRAIN} times as fast, and your limit drops to 20 for good. Get out!</p>}
         {isPlayer && started && !frozen && !squashed && (
           <p className="snow-hint" style={{ color: isSandal ? TEAM_COLORS.purple : TEAM_COLORS.yellow }}>
             {isSandal
@@ -140,7 +143,7 @@ export default function RoachScreen({ game, players, colors, selfId, serverNow, 
         <>
           <Joystick onChange={setStick} className="half-left" />
           <div className="roach-tap" onPointerDown={(e) => { e.preventDefault(); smack(); }} aria-label="Tap to smack">
-            <span className={ready ? 'roach-tap-hint' : 'roach-tap-hint wait'}>{ready ? 'TAP TO SMACK' : stuck ? 'STUCK' : 'RECOVERING'}</span>
+            <span className={ready && !blocked ? 'roach-tap-hint' : 'roach-tap-hint wait'}>{ready ? (blocked ? 'NO FLOOR THERE' : 'TAP TO SMACK') : stuck ? 'STUCK' : 'RECOVERING'}</span>
             {!ready && <div className="roach-recover"><div style={{ width: `${Math.round(Math.min(1, left / (stuck ? SMACK_HIT_ARREST_MS : SMACK_MISS_ARREST_MS)) * 100)}%` }} /></div>}
           </div>
         </>

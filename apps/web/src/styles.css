@@ -422,7 +422,8 @@ button.chip { cursor: pointer; }
 .roach-left { margin: 0.2rem 0 0; text-align: center; font-size: 1rem; color: #fff; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
 /* a roach's own lifetime, big, under the count (the bars over every roach in the scene show it to everyone else) */
 .roach-life { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin: 0.3rem auto 0; width: min(18rem, 70%); color: #fff; font-size: 0.9rem; font-weight: bold; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); }
-.roach-life-bar { flex: 1; height: 0.75rem; border-radius: 0.4rem; background: rgba(0, 0, 0, 0.55); overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.35); }
+.roach-life-block { position: absolute; right: 0; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, #9d4dff 0 4px, #7a2fd6 4px 8px); border-left: 2px solid #e8d9ff; }
+.roach-life-bar { position: relative; flex: 1; height: 0.75rem; border-radius: 0.4rem; background: rgba(0, 0, 0, 0.55); overflow: hidden; border: 1px solid rgba(255, 255, 255, 0.35); }
 .roach-life-bar > div { height: 100%; transition: width 0.2s linear; }
 .roach-life.low { animation: roach-flash 0.45s ease-in-out infinite alternate; }
 @keyframes roach-flash { from { opacity: 1; } to { opacity: 0.45; } }

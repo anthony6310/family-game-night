@@ -9,27 +9,29 @@ export const ROACH_RADIUS = 0.6;
 export const SANDAL_RADIUS = 1.3;
 export const SMACK_WINDUP_MS = 140; // from tapping to the sandal landing: a very quick swing
 export const SMACK_MISS_ARREST_MS = 1000; // after a smack the sandal is out of your hands this long (it floats back up to its attack position)...
-export const SMACK_HIT_ARREST_MS = 2500; // ...and this long if it squashed a roach (it is stuck in the guts and has to work itself free)
+export const SMACK_HIT_ARREST_MS = 2000; // ...and this long if it squashed a roach (it is stuck in the guts and has to work itself free)
 export const SMACK_REACH = 2.3; // how far in front of the sandal's middle the smack lands
 export const SMACK_RADIUS = 2.0; // everything within this of the landing spot is squashed
-export const FOOD_RADIUS = 1.2; // a piece of food is a solid disc this big: roaches cannot walk through it
-export const FOOD_EAT_REACH = 0.7; // a roach is eating a piece of food when it is within this of touching it AND is not moving (any pull on the stick at all stops the eating)
+export const FOOD_SCALE = 1.56; // all the food is drawn 56% bigger than first modelled (30%, then another 20%); its solid disc and its pick-up reach are scaled the same
+export const FOOD_RADIUS = 1.2 * FOOD_SCALE; // a piece of food is a solid disc this big: roaches cannot walk through it
+export const FOOD_EAT_REACH = 0.7 * FOOD_SCALE; // a roach is eating a piece of food when it is within this of touching it AND is not moving (any pull on the stick at all stops the eating)
 
 /**
  * LIFETIME (the roaches' economy). Every roach has a lifetime in seconds that runs down by ROACH_LIFE_DRAIN a second; at 0 it starves and dies on the spot. Food is life: a piece holds a pool of FOOD_POOL seconds of it, and
  * every roach eating it takes FOOD_EAT_RATE seconds of life a second out of the pool (one eater empties a piece in FOOD_POOL / FOOD_EAT_RATE = 4 seconds, two in 2, ...). Life over the maximum is lost.
  */
-export const ROACH_LIFE_START = 30; // roaches start with a full lifetime
-export const ROACH_LIFE_MAX = 30;
+export const ROACH_LIFE_MAX = 25;
+export const ROACH_LIFE_START = ROACH_LIFE_MAX; // roaches start with a full lifetime
+export const ROACH_LIFE_POISONED_MAX = 20; // a roach that has been in the spilled poison can never have more than this again (the bar shows the lost 5 seconds as a purple block)
 export const ROACH_LIFE_DRAIN = 1; // seconds of life lost each second
 export const FOOD_POOL = 10; // seconds of life in one piece of food
 export const FOOD_EAT_RATE = 2.5; // seconds of life each eater takes from a piece, each second
 export const FOOD_RESPAWN_MS = 2000; // a finished piece is replaced this long after (only if there is room: see `foodCap`)
 export const FOOD_ROT_MS = 4000; // food caught in the spilled poison goes off and is gone this long after the poison reaches it (a replacement comes as for any piece)
 export const FOOD_LANDMARK_SHARE = 0.4; // this share of new food appears next to a landmark
-export const LANDMARK_RADIUS = 6; // ...within this of its middle
+export const LANDMARK_RADIUS = 10; // ...within this of its middle (the trash heap and the mop bucket are big)
 export const BOTTLE_RADIUS = 0.5; // the bottle of poison is a small solid disc; a smack that lands within SMACK_RADIUS of it breaks it
-export const POISON_RADIUS = 6; // the poisoned patch round a landmark
+export const POISON_RADIUS = 10; // the poisoned patch round a landmark
 export const POISON_DRAIN = 0.5; // extra seconds of life a roach loses each second it stands in the poison (on top of the usual 1)
 export const ROACH_LOW_LIFE = 5; // below this many seconds a roach's bar flashes
 
@@ -41,10 +43,24 @@ export const roachRoundSeconds = (roaches: number) => ROACH_BASE_SECONDS + ROACH
 export const foodCap = (roachesAlive: number) => roachesAlive + 1;
 export const FOOD_KINDS = ['banana', 'potato', 'pizza', 'gravy'] as const; // spoiled old bananas, sprouting potatoes, mouldy pizza and gravy with a skin on it
 
-/** A solid box on the floor: a kitchen island or a broom lying down (centre and half sizes). Roaches cannot pass; the sandal hovers over it. */
-export interface Rect { x: number; z: number; hw: number; hd: number; kind: 'island' | 'broom' }
-/** A shoe on the floor (a solid disc for roaches; `angle` and `style` are for drawing: 0 sneaker, 1 boot, 2 slipper). */
-export interface Shoe { x: number; z: number; r: number; angle: number; style: 0 | 1 | 2 }
+/** A solid box on the floor: a kitchen island, the diner table with its chairs (the whole set is one rectangle), or a broom lying down (centre and half sizes). Roaches cannot pass; the sandal hovers over it. */
+export interface Rect { x: number; z: number; hw: number; hd: number; kind: 'island' | 'broom' | 'table' }
+/**
+ * A pair of shoes kicked off, one solid obstacle: shoe A is at `x, z` and shoe B at `x + dx, z + dz` (always SHOE_PAIR_GAP apart), and the footprint is ONE solid capsule (a bar of width 2 SHOE_RADIUS between them with a round end
+ * on each), so there is no gap between the two shoes for a roach to squeeze into. `style` is for drawing: 0 chunky sneakers, 1 rain boots.
+ */
+export interface ShoePair { x: number; z: number; dx: number; dz: number; style: 0 | 1 }
+/** A solid capsule: every point within `r` of the segment from `ax, az` to `bx, bz`. */
+export interface Capsule { ax: number; az: number; bx: number; bz: number; r: number }
+/**
+ * The pool of small obstacles lying about the kitchen besides the shoes: each game draws 3 to 6 from it (never more than two of one kind). Each is one solid disc of its own size (`PROP_RADIUS`), turned any way round (`ux, uz`
+ * is a unit vector, for drawing). 0 cleaning products (a toppled stash of bottles), 1 a chrome diner stool, 2 a stack of cardboard boxes, 3 a toppled stockpot with a ladle.
+ */
+export type PropKind = 0 | 1 | 2 | 3;
+export const PROP_RADIUS: Record<PropKind, number> = { 0: 2.64, 1: 1.68, 2: 2.4, 3: 2.04 };
+export interface Prop { x: number; z: number; r: number; kind: PropKind; ux: number; uz: number }
+export const SHOE_RADIUS = 1.68; // (a pair of shoes is 68% bigger than first drawn: 40%, then another 20%)
+export const SHOE_PAIR_GAP = 4.15; // how far shoe B is from shoe A
 /** A circle that blocks roaches (a piece of food, a shoe, the trash can, the mop bucket, the bottle of poison). */
 export interface Disc { x: number; z: number; r: number }
 export interface Pt { x: number; z: number }
@@ -81,12 +97,14 @@ const COOKER_LANDMARK = { id: 'cooker' as const, x: COOKER.x, z: -ROACH_ARENA_HA
 export interface Landmark { id: 'trash' | 'mop' | 'cooker'; x: number; z: number }
 /**
  * One game's kitchen: the islands, brooms and shoes, the trash can and the mop bucket, and the bottle of poison, all in different places each game (made from `seed`; the server and every phone make the SAME layout from it,
- * so the maths here sticks to + - * / and square roots, which every device does identically). The cooker is always where it is. `discs` are the fixed round things roaches cannot walk through (shoes, trash can, mop bucket).
+ * so the maths here sticks to + - * / and square roots, which every device does identically). The cooker is always where it is. `discs` are the fixed round things roaches cannot walk through (the trash heap and the mop bucket) and `capsules` the shoe pairs.
  */
 export interface Layout {
   seed: number;
   obstacles: Rect[];
-  shoes: Shoe[];
+  shoes: ShoePair[];
+  capsules: Capsule[]; // the solid footprints of the shoe pairs
+  props: Prop[]; // the small obstacles from the pool (cleaning products, a stool, boxes, a pot); each is also one of the solid `discs`
   trash: Disc;
   mop: Disc;
   landmarks: Landmark[]; // the trash can, the mop bucket and the cooker: the middle of the patch of floor where food turns up
@@ -101,6 +119,16 @@ const dist = (ax: number, az: number, bx: number, bz: number) => Math.sqrt(sq(ax
 export function distToRect(x: number, z: number, o: Rect): number {
   return dist(x, z, Math.max(o.x - o.hw, Math.min(o.x + o.hw, x)), Math.max(o.z - o.hd, Math.min(o.z + o.hd, z)));
 }
+/** How far a point is from the segment A-B. */
+export function distToSegment(px: number, pz: number, ax: number, az: number, bx: number, bz: number): number {
+  const vx = bx - ax, vz = bz - az, len2 = vx * vx + vz * vz;
+  const t = len2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * vx + (pz - az) * vz) / len2)) : 0;
+  return dist(px, pz, ax + vx * t, az + vz * t);
+}
+const capsuleOf = (h: ShoePair): Capsule => ({ ax: h.x, az: h.z, bx: h.x + h.dx, bz: h.z + h.dz, r: SHOE_RADIUS });
+/** How far a point is from the edge of the capsule (negative inside). */
+const capDist = (x: number, z: number, c: Capsule) => distToSegment(x, z, c.ax, c.az, c.bx, c.bz) - c.r;
+
 /** How far apart two boxes are (0 if they touch). */
 function gapRects(a: Rect, b: Rect): number {
   return Math.sqrt(sq(Math.max(0, Math.abs(a.x - b.x) - a.hw - b.hw)) + sq(Math.max(0, Math.abs(a.z - b.z) - a.hd - b.hd)));
@@ -118,24 +146,26 @@ function seeded(seed: number): () => number { // mulberry32
 /** The kitchen as it used to be, the same every time (also what a layout falls back to if a random one cannot be made). */
 const CLASSIC = {
   obstacles: [
-    { x: 0, z: 0, hw: 8, hd: 3.5, kind: 'island' }, { x: -24, z: -20, hw: 3.5, hd: 8, kind: 'island' }, { x: 24, z: 20, hw: 3.5, hd: 8, kind: 'island' },
-    { x: 22, z: -24, hw: 10, hd: 0.7, kind: 'broom' }, { x: -22, z: 24, hw: 10, hd: 0.7, kind: 'broom' }, { x: 0, z: -26, hw: 0.7, hd: 7, kind: 'broom' }, { x: 0, z: 26, hw: 0.7, hd: 7, kind: 'broom' },
+    { x: 0, z: 0, hw: 9.6, hd: 4.2, kind: 'island' }, // (just the one island)
+    { x: 22, z: -24, hw: 10.9, hd: 1.45, kind: 'broom' }, // (just the one broom)
+    { x: -25, z: -20, hw: 7.49, hd: 5.69, kind: 'table' }, // (and the one table with its chairs)
   ] as Rect[],
-  pairs: [[-12, 12, 0.4, 0], [12, -12, 2.2, 1], [-14, -8, 1.3, 2], [14, 8, 3.9, 0], [-30, 10, 0.9, 1], [30, -10, 5.1, 0], [-8, 30, 2.7, 2], [8, -30, 4.4, 1]] as [number, number, number, 0 | 1 | 2][],
+  pairs: [[-12, 12, 3.7, 1.85, 0], [12, -12, -1.85, 3.7, 1], [-14, -8, 3.7, -1.85, 0], [14, 8, 1.85, 3.7, 1], [-30, 10, 3.7, 1.85, 1], [30, -10, -3.7, 1.85, 0], [-8, 30, 3.7, -1.85, 1], [8, -30, 1.85, 3.7, 0]] as [number, number, number, number, 0 | 1][],
 };
 
-function finishLayout(seed: number, obstacles: Rect[], shoes: Shoe[], trash: Disc, mop: Disc, pick: number, rand: () => number): Layout | null {
+function finishLayout(seed: number, obstacles: Rect[], shoes: ShoePair[], props: Prop[], trash: Disc, mop: Disc, pick: number, rand: () => number): Layout | null {
   const landmarks: Landmark[] = [{ id: 'trash', x: trash.x, z: trash.z }, { id: 'mop', x: mop.x, z: mop.z }, COOKER_LANDMARK];
-  const discs: Disc[] = [...shoes.map((h) => ({ x: h.x, z: h.z, r: h.r })), trash, mop];
+  const discs: Disc[] = [trash, mop, ...props.map((p) => ({ x: p.x, z: p.z, r: p.r }))];
+  const capsules = shoes.map(capsuleOf);
   const lm = landmarks[Math.min(2, Math.floor(pick * 3))];
-  // the bottle: 2.6 to 4.2 from the landmark's middle, in the open
+  // the bottle: 6.6 to 8.2 from the landmark's middle (just outside the big heap or bucket), in the open
   for (let tries = 0; tries < 400; tries++) {
-    const x = lm.x + (rand() * 2 - 1) * 4.2, z = lm.z + (rand() * 2 - 1) * 4.2, d = dist(x, z, lm.x, lm.z);
-    if (d < 2.6 || d > 4.2 || Math.abs(x) > 35 || Math.abs(z) > 35) continue;
+    const x = lm.x + (rand() * 2 - 1) * 8.2, z = lm.z + (rand() * 2 - 1) * 8.2, d = dist(x, z, lm.x, lm.z);
+    if (d < 6.6 || d > 8.2 || Math.abs(x) > 35 || Math.abs(z) > 35) continue;
     if (obstacles.some((o) => distToRect(x, z, o) < BOTTLE_RADIUS + ROACH_RADIUS * 2 + 0.8)) continue;
-    if (discs.some((c) => dist(x, z, c.x, c.z) < c.r + BOTTLE_RADIUS + ROACH_RADIUS * 2 + 0.8)) continue;
+    if (discs.some((c) => dist(x, z, c.x, c.z) < c.r + BOTTLE_RADIUS + ROACH_RADIUS * 2 + 0.8) || capsules.some((c) => capDist(x, z, c) < BOTTLE_RADIUS + ROACH_RADIUS * 2 + 0.8)) continue;
     if (START_SPOTS.some(([sx, sz]) => dist(x, z, sx, sz) < 5)) continue;
-    return { seed, obstacles, shoes, trash, mop, landmarks, discs, poison: { landmark: lm.id, x, z, cx: lm.x, cz: lm.z } };
+    return { seed, obstacles, shoes, capsules, props, trash, mop, landmarks, discs, poison: { landmark: lm.id, x, z, cx: lm.x, cz: lm.z } };
   }
   return null;
 }
@@ -149,7 +179,7 @@ function connected(layout: Layout): boolean {
     const x = -ROACH_ARENA_HALF + (a + 0.5) * G, z = -ROACH_ARENA_HALF + (b + 0.5) * G;
     if (Math.abs(x) > lim || Math.abs(z) > lim) return false;
     if (layout.obstacles.some((o) => Math.abs(x - o.x) < o.hw + ROACH_RADIUS && Math.abs(z - o.z) < o.hd + ROACH_RADIUS)) return false;
-    return !all.some((c) => dist(x, z, c.x, c.z) < c.r + ROACH_RADIUS);
+    return !all.some((c) => dist(x, z, c.x, c.z) < c.r + ROACH_RADIUS) && !layout.capsules.some((c) => capDist(x, z, c) < ROACH_RADIUS);
   };
   const seen = new Uint8Array(N * N), stack: number[] = [];
   const first = START_SPOTS[0];
@@ -170,13 +200,12 @@ function connected(layout: Layout): boolean {
 
 /** The old fixed kitchen, with the trash can and the mop bucket where they used to be. */
 export function classicLayout(): Layout {
-  const shoes: Shoe[] = [];
-  for (const [x, z, angle, style] of CLASSIC.pairs) { shoes.push({ x, z, r: 1.0, angle, style }); shoes.push({ x: x + 1.9 * 0.45, z: z + 1.9 * 0.89, r: 1.0, angle: angle + 0.5, style }); }
-  return finishLayout(0, CLASSIC.obstacles, shoes, { x: 30, z: 6, r: 1.25 }, { x: -30, z: -6, r: 1.15 }, 0, seeded(7)) ?? (undefined as never);
+  const shoes: ShoePair[] = CLASSIC.pairs.map(([x, z, dx, dz, style]) => ({ x, z, dx, dz, style }));
+  return finishLayout(0, CLASSIC.obstacles, shoes, [], { x: 30, z: 6, r: 3.25 }, { x: -30, z: -6, r: 2.99 }, 0, seeded(7)) ?? (undefined as never);
 }
 
 /**
- * Make a game's kitchen from its seed: three islands, four brooms, eight pairs of shoes, the trash can and the mop bucket in different places every time, with the rules that keep it fair: everything well clear of the walls
+ * Make a game's kitchen from its seed: ONE island, ONE diner table with its chairs, one or two brooms, four to ten pairs of shoes, the trash can and the mop bucket in different places every time, with the rules that keep it fair: everything well clear of the walls
  * (so a roach can get round), of the roaches' starting spots and of the cooker, a roach-sized gap between any two big things, and the whole floor joined up. If a layout cannot be made, the classic one is used.
  */
 export function makeLayout(seed: number): Layout {
@@ -184,9 +213,11 @@ export function makeLayout(seed: number): Layout {
     const rand = seeded(seed * 7919 + attempt * 104729 + 12345);
     const cookerZone = (o: Rect) => o.z - o.hd < -27 && o.x + o.hw > COOKER.x - 9 && o.x - o.hw < COOKER.x + 9;
     const obstacles: Rect[] = [];
-    const specs: { kind: 'island' | 'broom'; long: [number, number]; short: [number, number] }[] = [
-      { kind: 'island', long: [6.5, 8.5], short: [3, 3.8] }, { kind: 'island', long: [6.5, 8.5], short: [3, 3.8] }, { kind: 'island', long: [6.5, 8.5], short: [3, 3.8] },
-      { kind: 'broom', long: [7, 10], short: [0.7, 0.7] }, { kind: 'broom', long: [7, 10], short: [0.7, 0.7] }, { kind: 'broom', long: [7, 10], short: [0.7, 0.7] }, { kind: 'broom', long: [7, 10], short: [0.7, 0.7] },
+    const specs: { kind: 'island' | 'broom' | 'table'; long: [number, number]; short: [number, number] }[] = [
+      { kind: 'island', long: [7.8, 10.2], short: [3.6, 4.56] }, // (just one island)
+      { kind: 'table', long: [7.49, 7.49], short: [5.69, 5.69] }, // (and just one diner table with its chairs: the footprint is the whole set, 15 by 11.4)
+      { kind: 'broom', long: [10.9, 10.9], short: [1.45, 1.45] }, // (a broom, lying any way round; a second one half the time)
+      ...(rand() < 0.5 ? [{ kind: 'broom' as const, long: [10.9, 10.9] as [number, number], short: [1.45, 1.45] as [number, number] }] : []),
     ];
     let ok = true;
     for (const sp of specs) {
@@ -211,30 +242,48 @@ export function makeLayout(seed: number): Layout {
       }
       return null;
     };
-    const trash = spot(1.25, []), mop = trash && spot(1.15, [trash]);
+    const trash = spot(3.25, []), mop = trash && spot(2.99, [trash]);
     if (!trash || !mop) continue;
-    // the shoes, in pairs
-    const shoes: Shoe[] = [], placedDiscs: Disc[] = [trash, mop];
+    // the small obstacles from the pool: 3 to 6 of them, any kinds (at most two of each), each one solid disc
+    const props: Prop[] = [], kindCount = [0, 0, 0, 0];
+    const propTarget = 3 + Math.floor(rand() * 4);
+    for (let q = 0; q < propTarget; q++) {
+      for (let tries = 0, placed = false; tries < 300 && !placed; tries++) {
+        const kind = Math.min(3, Math.floor(rand() * 4)) as PropKind;
+        if (kindCount[kind] >= 2) continue;
+        const r = PROP_RADIUS[kind], x = (rand() * 2 - 1) * (36 - r), z = (rand() * 2 - 1) * (36 - r);
+        let ux = rand() * 2 - 1, uz = rand() * 2 - 1; const ul = Math.sqrt(ux * ux + uz * uz);
+        if (ul < 0.3) continue;
+        ux /= ul; uz /= ul;
+        if (obstacles.some((o) => distToRect(x, z, o) < r + 2.0) || START_SPOTS.some(([sx, sz]) => dist(x, z, sx, sz) < r + 4) || (z - r < -27 && Math.abs(x - COOKER.x) < 9 + r)) continue;
+        if ([trash, mop, ...props].some((c) => dist(x, z, c.x, c.z) < r + c.r + 2.0)) continue;
+        props.push({ x, z, r, kind, ux, uz }); kindCount[kind]++; placed = true;
+      }
+    }
+    // the shoes, in pairs: the one obstacle that can be any number (4 to 10 pairs), each pair one solid capsule
+    const shoes: ShoePair[] = [], placedDiscs: Disc[] = [trash, mop, ...props];
+    const pairCount = 4 + Math.floor(rand() * 7);
     let shoesOk = true;
-    for (let p = 0; p < 8 && shoesOk; p++) {
+    for (let p = 0; p < pairCount && shoesOk; p++) {
       let placed = false;
       for (let tries = 0; tries < 300 && !placed; tries++) {
         const x = (rand() * 2 - 1) * 34, z = (rand() * 2 - 1) * 34;
         let dx = rand() * 2 - 1, dz = rand() * 2 - 1; const len = Math.sqrt(dx * dx + dz * dz);
         if (len < 0.3) continue;
-        dx = (dx / len) * 1.9; dz = (dz / len) * 1.9;
-        const pair: Disc[] = [{ x, z, r: 1 }, { x: x + dx, z: z + dz, r: 1 }];
-        const bad = pair.some((c) => Math.abs(c.x) > 36 || Math.abs(c.z) > 36 || obstacles.some((o) => distToRect(c.x, c.z, o) < c.r + ROACH_RADIUS * 2 + 0.6) || START_SPOTS.some(([sx, sz]) => dist(c.x, c.z, sx, sz) < 5)
-          || placedDiscs.some((q) => dist(c.x, c.z, q.x, q.z) < q.r + c.r + ROACH_RADIUS * 2 + 0.8) || (c.z < -27 && Math.abs(c.x - COOKER.x) < 9));
+        dx = (dx / len) * SHOE_PAIR_GAP; dz = (dz / len) * SHOE_PAIR_GAP;
+        const cap: Capsule = { ax: x, az: z, bx: x + dx, bz: z + dz, r: SHOE_RADIUS };
+        const pts: [number, number][] = [[cap.ax, cap.az], [cap.bx, cap.bz], [x + dx / 2, z + dz / 2]];
+        const gap = SHOE_RADIUS * 2 + ROACH_RADIUS * 2 + 0.8; // (a roach and a bit between two pairs)
+        const bad = pts.some(([px, pz]) => Math.abs(px) > 36 || Math.abs(pz) > 36 || obstacles.some((o) => distToRect(px, pz, o) < SHOE_RADIUS + ROACH_RADIUS * 2 + 0.6) || START_SPOTS.some(([sx, sz]) => dist(px, pz, sx, sz) < 5)
+          || placedDiscs.some((q) => dist(px, pz, q.x, q.z) < q.r + SHOE_RADIUS + ROACH_RADIUS * 2 + 0.8) || (pz < -27 && Math.abs(px - COOKER.x) < 9))
+          || shoes.some((o) => pts.some(([px, pz]) => distToSegment(px, pz, o.x, o.z, o.x + o.dx, o.z + o.dz) < gap) || [[o.x, o.z], [o.x + o.dx, o.z + o.dz]].some(([qx, qz]) => distToSegment(qx, qz, cap.ax, cap.az, cap.bx, cap.bz) < gap));
         if (bad) continue;
-        const angle = rand() * 6.28, style = Math.min(2, Math.floor(rand() * 3)) as 0 | 1 | 2;
-        shoes.push({ x, z, r: 1, angle, style }, { x: x + dx, z: z + dz, r: 1, angle: angle + 0.5, style });
-        placedDiscs.push(...pair); placed = true;
+        shoes.push({ x, z, dx, dz, style: rand() < 0.5 ? 0 : 1 }); placed = true;
       }
       if (!placed) shoesOk = false;
     }
     if (!shoesOk) continue;
-    const layout = finishLayout(seed, obstacles, shoes, trash, mop, rand(), rand);
+    const layout = finishLayout(seed, obstacles, shoes, props, trash, mop, rand(), rand);
     if (layout && connected(layout)) return layout;
   }
   return { ...classicLayout(), seed };
@@ -254,6 +303,13 @@ export function pushOut(x: number, z: number, discs: Disc[], layout: Layout): [n
         const left = x - (o.x - o.hw), right = o.x + o.hw - x, up = z - (o.z - o.hd), down = o.z + o.hd - z, m = Math.min(left, right, up, down);
         if (m === left) x = o.x - o.hw - ROACH_RADIUS; else if (m === right) x = o.x + o.hw + ROACH_RADIUS; else if (m === up) z = o.z - o.hd - ROACH_RADIUS; else z = o.z + o.hd + ROACH_RADIUS;
       }
+    }
+    for (const c of layout.capsules) { // a pair of shoes: one solid capsule
+      const vx = c.bx - c.ax, vz = c.bz - c.az, len2 = vx * vx + vz * vz;
+      const t = len2 > 0 ? Math.max(0, Math.min(1, ((x - c.ax) * vx + (z - c.az) * vz) / len2)) : 0;
+      const nx = c.ax + vx * t, nz = c.az + vz * t, dx = x - nx, dz = z - nz, d = Math.hypot(dx, dz), min = c.r + ROACH_RADIUS;
+      if (d >= min) continue;
+      if (d > 1e-6) { x = nx + (dx / d) * min; z = nz + (dz / d) * min; } else { x = nx - vz / Math.sqrt(len2 || 1) * min; z = nz + vx / Math.sqrt(len2 || 1) * min; }
     }
     for (const c of [...discs, ...layout.discs]) {
       const dx = x - c.x, dz = z - c.z, d = Math.hypot(dx, dz), min = c.r + ROACH_RADIUS;
@@ -280,6 +336,15 @@ export function smackSpot(x: number, z: number, facing: number): [number, number
   return [x + Math.sin(facing) * SMACK_REACH, z + Math.cos(facing) * SMACK_REACH];
 }
 
+/**
+ * Can a roach stand with its middle at this point? (not in the walls, an island, a broom, a shoe, the trash can or the mop bucket). Food and the bottle do not count: they come and go. The sandal may only smack where this is
+ * true: it cannot attack over something a roach could never be on top of.
+ */
+export function canStandAt(layout: Layout, x: number, z: number): boolean {
+  const [px, pz] = pushOut(x, z, [], layout);
+  return Math.abs(px - x) < 1e-6 && Math.abs(pz - z) < 1e-6;
+}
+
 /** Is this point in the poisoned patch (once the bottle has been smashed)? */
 export function inPoison(layout: Layout, x: number, z: number): boolean {
   return Math.hypot(x - layout.poison.cx, z - layout.poison.cz) <= POISON_RADIUS;
@@ -293,6 +358,7 @@ function openSpot(layout: Layout, x: number, z: number): boolean {
   if (Math.hypot(x, z) < 12) return false;
   if (layout.obstacles.some((o) => distToRect(x, z, o) < FOOD_RADIUS + ROACH_RADIUS * 2 + 0.6)) return false;
   if (layout.discs.some((h) => Math.hypot(x - h.x, z - h.z) < h.r + FOOD_RADIUS + ROACH_RADIUS * 2 + 0.4)) return false;
+  if (layout.capsules.some((c) => capDist(x, z, c) < FOOD_RADIUS + ROACH_RADIUS * 2 + 0.4)) return false;
   if (Math.hypot(x - layout.poison.x, z - layout.poison.z) < BOTTLE_RADIUS + FOOD_RADIUS + ROACH_RADIUS * 2 + 0.4) return false;
   return !START_SPOTS.some(([sx, sz]) => Math.hypot(x - sx, z - sz) < 8);
 }

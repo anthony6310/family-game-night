@@ -1,7 +1,7 @@
 // Roach Rumble engine rules (no sockets). Run: npx tsx scripts/test-roach.ts
 import {
-  BOTTLE_RADIUS, COOKER, FOOD_LANDMARK_SHARE, FOOD_POOL, FOOD_RADIUS, FOOD_RESPAWN_MS, FOOD_ROT_MS, LANDMARK_RADIUS, LIGHTS_EVERY_S, LIGHTS_ON_S, POISON_DRAIN, POISON_RADIUS, classicLayout, distToRect, inPoison, lightsOn, makeLayout, ROACH_ARENA_HALF, ROACH_LIFE_MAX, ROACH_LIFE_START, ROACH_RADIUS,
-  ROACH_SPEED, SANDAL_SPEED, SMACK_HIT_ARREST_MS, SMACK_MISS_ARREST_MS, SMACK_WINDUP_MS, foodCap, moveRoach, placeFood, pushOut, roachRoundSeconds, roachStart, smackSpot, type Layout,
+  BOTTLE_RADIUS, COOKER, FOOD_LANDMARK_SHARE, FOOD_POOL, FOOD_RADIUS, FOOD_RESPAWN_MS, FOOD_ROT_MS, LANDMARK_RADIUS, LIGHTS_EVERY_S, LIGHTS_ON_S, POISON_DRAIN, POISON_RADIUS, canStandAt, classicLayout, distToRect, inPoison, lightsOn, makeLayout, ROACH_ARENA_HALF, ROACH_LIFE_MAX, ROACH_LIFE_POISONED_MAX, ROACH_LIFE_START, ROACH_RADIUS,
+  PROP_RADIUS, ROACH_SPEED, SANDAL_SPEED, SHOE_PAIR_GAP, SHOE_RADIUS, distToSegment, SMACK_HIT_ARREST_MS, SMACK_MISS_ARREST_MS, SMACK_WINDUP_MS, foodCap, moveRoach, placeFood, pushOut, roachRoundSeconds, roachStart, smackSpot, type Layout,
   type RoachHuntView,
 } from '@fgn/shared';
 import { createRoachHunt } from '../src/games/roachHunt';
@@ -10,10 +10,11 @@ let failed = 0;
 const check = (name: string, ok: boolean) => { console.log(`${ok ? 'ok  ' : 'FAIL'} ${name}`); if (!ok) failed++; };
 const T0 = 1_000_000;
 const L = classicLayout(); // (the fixed old kitchen, so the tests can put things where they know what is; random kitchens are checked further down)
+const capNear = (lay: Layout, x: number, z: number) => lay.shoes.some((h) => distToSegment(x, z, h.x, h.z, h.x + h.dx, h.z + h.dz) < SHOE_RADIUS + ROACH_RADIUS); // (is a roach standing here overlapping a pair of shoes?)
 const OBSTACLES = L.obstacles, SHOES = L.shoes, TRASH_CAN = L.trash, MOP_BUCKET = L.mop, LANDMARKS = L.landmarks;
 const eng = createRoachHunt({ durationMs: 90_000, layout: L });
 const teams = { s: 'purple', a: 'yellow', b: 'yellow', c: 'yellow' } as const;
-// (the real game starts every roach on a full 30; most of these checks want room to gain, so they start the roaches on 15)
+// (the real game starts every roach on a full 25; most of these checks want room to gain, so they start the roaches on 15)
 const fresh = (ids = ['s', 'a', 'b', 'c']) => { const g = eng.init(ids, T0, { teams: { ...teams } }); for (const p of Object.values((g as unknown as { players: Record<string, { role: string; life: number }> }).players)) if (p.role === 'roach') p.life = 15; return g; };
 type S = ReturnType<typeof fresh>;
 const view = (s: S) => eng.view(s) as RoachHuntView;
@@ -35,11 +36,11 @@ check('a fixed round length can be given (for tests)', view(s).endsAt - T0 === 9
   const len = (n: number) => { const ids = ['s', ...Array.from({ length: n }, (_, i) => `r${i}`)]; const v = real.view(real.init(ids, T0, { teams: Object.fromEntries(ids.map((id) => [id, id === 's' ? 'purple' : 'yellow'])) as never })) as RoachHuntView; return (v.endsAt - T0) / 1000; };
   check('the round is 45 seconds + 7 for every roach: 52 for 1, 66 for 3, 94 for 7', len(1) === 52 && len(3) === 66 && len(7) === 94 && roachRoundSeconds(3) === 66);
 }
-check('every roach starts with a FULL lifetime (30 seconds, the maximum), the sandal has none', (() => { const g = eng.view(eng.init(['s', 'a', 'b'], T0, { teams: { s: 'purple', a: 'yellow', b: 'yellow' } })) as RoachHuntView; return g.players.a.life === 30 && g.players.b.life === 30 && g.players.s.life === 0 && ROACH_LIFE_START === ROACH_LIFE_MAX && ROACH_LIFE_MAX === 30; })());
+check('every roach starts with a FULL lifetime (25 seconds, the maximum), the sandal has none', (() => { const g = eng.view(eng.init(['s', 'a', 'b'], T0, { teams: { s: 'purple', a: 'yellow', b: 'yellow' } })) as RoachHuntView; return g.players.a.life === 25 && g.players.b.life === 25 && g.players.a.lifeMax === 25 && g.players.s.life === 0 && g.players.s.lifeMax === 0 && ROACH_LIFE_START === ROACH_LIFE_MAX && ROACH_LIFE_MAX === 25 && ROACH_LIFE_POISONED_MAX === 20; })());
 
 // the floor plan
 {
-  const free = (x: number, z: number) => !OBSTACLES.some((o) => Math.abs(x - o.x) < o.hw + ROACH_RADIUS && Math.abs(z - o.z) < o.hd + ROACH_RADIUS) && !SHOES.some((h) => Math.hypot(x - h.x, z - h.z) < h.r + ROACH_RADIUS)
+  const free = (x: number, z: number) => !OBSTACLES.some((o) => Math.abs(x - o.x) < o.hw + ROACH_RADIUS && Math.abs(z - o.z) < o.hd + ROACH_RADIUS) && !capNear(L, x, z)
     && Math.hypot(x - TRASH_CAN.x, z - TRASH_CAN.z) >= TRASH_CAN.r + ROACH_RADIUS && Math.hypot(x - MOP_BUCKET.x, z - MOP_BUCKET.z) >= MOP_BUCKET.r + ROACH_RADIUS;
   const G = 0.5, N = Math.round((ROACH_ARENA_HALF * 2) / G);
   const cell = (v: number) => Math.floor((v + ROACH_ARENA_HALF) / G);
@@ -106,7 +107,17 @@ check('a bad steer is ignored', Number.isFinite(view(s).players.a.x));
   const shoe = SHOES[0];
   [x, z] = [shoe.x, shoe.z - 4];
   for (let i = 0; i < 20; i++) [x, z] = moveRoach(x, z, 0, 1, 0.05, [], L);
-  check('a roach cannot walk through a shoe either', Math.hypot(x - shoe.x, z - shoe.z) >= shoe.r + ROACH_RADIUS - 1e-6 || x !== shoe.x);
+  check('a roach cannot walk through a pair of shoes either', !capNear(L, x, z) || distToSegment(x, z, shoe.x, shoe.z, shoe.x + shoe.dx, shoe.z + shoe.dz) >= SHOE_RADIUS + ROACH_RADIUS - 1e-6);
+  { // the pair is ONE solid capsule: the middle between the two shoes is solid too, so there is no gap to squeeze into
+    const mx = shoe.x + shoe.dx / 2, mz = shoe.z + shoe.dz / 2;
+    const [px, pz] = pushOut(mx, mz, [], L);
+    check('...and the space between the two shoes is solid as well (one footprint, no gap)', Math.hypot(px - mx, pz - mz) > 0.5 && Math.hypot(shoe.dx, shoe.dz) > 0 && Math.abs(Math.hypot(shoe.dx, shoe.dz) - SHOE_PAIR_GAP) < 0.05);
+    let [qx, qz] = [mx - shoe.dz * 2, mz + shoe.dx * 2]; // a roach coming at the middle from the side
+    const nx = -shoe.dz / SHOE_PAIR_GAP, nz = shoe.dx / SHOE_PAIR_GAP;
+    [qx, qz] = [mx + nx * 4, mz + nz * 4];
+    for (let i = 0; i < 40; i++) [qx, qz] = moveRoach(qx, qz, -nx, -nz, 0.05, [], L);
+    check('a roach pushed straight at the middle of the pair is stopped at the side of it', distToSegment(qx, qz, shoe.x, shoe.z, shoe.x + shoe.dx, shoe.z + shoe.dz) >= SHOE_RADIUS + ROACH_RADIUS - 1e-3);
+  }
   const broom = OBSTACLES.find((o) => o.kind === 'broom')!;
   [x, z] = [broom.x, broom.z + broom.hd + 3];
   for (let i = 0; i < 40; i++) [x, z] = moveRoach(x, z, 0, -1, 0.05, [], L);
@@ -137,6 +148,7 @@ adjacent(raw(s).players.a, f0);
 let t = run(s, T0 + 10, 100);
 check('a roach that is not moving next to food starts eating at once and its life goes UP (net +1.5 a second)', view(s).foods[0].eating && view(s).foods[0].left < 1 && view(s).players.a.life > START15 - 0.05 + 0.1);
 t = run(s, t, 1900);
+check('the view says which roach is eating (and the others are not)', view(s).players.a.eating === true && view(s).players.b.eating === false && view(s).players.s.eating === false);
 check('one eater takes 2.5 seconds of life a second out of the pool: after 2 seconds the pool is half gone', Math.abs(view(s).foods[0].left - 0.5) < 0.03 && Math.abs(view(s).players.a.life - (START15 - 2 + 5)) < 0.1);
 t = run(s, t, 2100);
 check('one eater empties a piece in 4 seconds and has gained its 10 seconds (15 - 4 + 10 = 21); the piece is gone', view(s).foods.length === 3 && Math.abs(view(s).players.a.life - 21) < 0.15);
@@ -151,7 +163,7 @@ check('one eater empties a piece in 4 seconds and has gained its 10 seconds (15 
   check('...and split it: each gains 5 seconds (15 - 2 + 5 = 18)', view(m).foods.length === 3 && Math.abs(view(m).players.a.life - 18) < 0.2 && Math.abs(view(m).players.b.life - 18) < 0.2);
   // three at once: the last bit is split evenly, nobody is shortchanged or overpaid
   const n = fresh();
-  const h = raw(n).foods[0];
+  const h = raw(n).foods[0]; h.x = 5; h.z = 13; // (open floor, so nobody is pushed off)
   raw(n).players.a.x = h.x + 2.5; raw(n).players.a.z = h.z; raw(n).players.b.x = h.x - 2.5; raw(n).players.b.z = h.z; raw(n).players.c.x = h.x; raw(n).players.c.z = h.z + 2.5;
   run(n, T0 + 10, 2000);
   const gained = ['a', 'b', 'c'].map((id) => view(n).players[id].life + 2); // (they all ate for ~1.4 s and lost 2 s)
@@ -163,9 +175,9 @@ check('one eater empties a piece in 4 seconds and has gained its 10 seconds (15 
   const g = raw(m).foods[1];
   raw(m).players.a.life = 29; adjacent(raw(m).players.a, g);
   const u = run(m, T0 + 10, 2000);
-  check('life over the maximum is lost (a roach at 29 is held at 30, not 38) while it eats', view(m).players.a.life === ROACH_LIFE_MAX);
+  check('life over the maximum is lost (a roach at 29 is held at 25, not 38) while it eats', view(m).players.a.life === ROACH_LIFE_MAX);
   run(m, u, 2050);
-  check('...and the piece is still used up in the same 4 seconds', !view(m).foods.some((f) => f.id === 1) && view(m).players.a.life > 29.5 && view(m).players.a.life <= ROACH_LIFE_MAX);
+  check('...and the piece is still used up in the same 4 seconds', !view(m).foods.some((f) => f.id === 1) && view(m).players.a.life > ROACH_LIFE_MAX - 0.5 && view(m).players.a.life <= ROACH_LIFE_MAX);
 }
 {
   // standing still, then moving: eating stops, and the pool keeps what is left
@@ -320,6 +332,37 @@ raw(s).players.a.alive = false;
 eng.reduce(s, 'a', { type: 'steer', x: 1, z: 0 }, T0 + 3000);
 eng.reduce(s, 'a', { type: 'smack' }, T0 + 3000);
 check('a squashed roach cannot move, and roaches cannot smack', view(s).players.a.smackAt === null);
+// the sandal can only attack over floor a roach could stand on
+{
+  const isl = OBSTACLES[0]; // the big island in the middle: x -8..8, z -3.5..3.5
+  const face = (m: S, x: number, z: number, fx: number, fz: number) => { raw(m).players.s.x = x; raw(m).players.s.z = z; eng.reduce(m, 's', { type: 'steer', x: fx, z: fz }, T0 + 5); eng.tick!(m, 0.001, T0 + 6); eng.reduce(m, 's', { type: 'steer', x: 0, z: 0 }, T0 + 7); };
+  const m1 = fresh(); farFoods(m1); face(m1, isl.x, isl.z - 5, 0, 1); // the smack would land at z = -2.7: on the island
+  eng.reduce(m1, 's', { type: 'smack' }, T0 + 1000);
+  check('a smack that would land on a kitchen island is refused: nothing swings and the sandal is not locked', view(m1).players.s.smackAt === null && view(m1).players.s.readyAt === 0);
+  const m2 = fresh(); farFoods(m2); face(m2, 0, 38.6, 0, 1); // would land at z = 40.9: outside the walls
+  eng.reduce(m2, 's', { type: 'smack' }, T0 + 1000);
+  check('...or out over the wall', view(m2).players.s.smackAt === null);
+  const sh = SHOES[0]; const m3 = fresh(); farFoods(m3); face(m3, sh.x, sh.z - 2.3, 0, 1);
+  eng.reduce(m3, 's', { type: 'smack' }, T0 + 1000);
+  check('...or on a shoe', view(m3).players.s.smackAt === null);
+  const m4 = fresh(); farFoods(m4); face(m4, TRASH_CAN.x, TRASH_CAN.z - 2.3, 0, 1);
+  eng.reduce(m4, 's', { type: 'smack' }, T0 + 1000);
+  check('...or on the trash can', view(m4).players.s.smackAt === null);
+  const m5 = fresh(); farFoods(m5); face(m5, MOP_BUCKET.x - 2.3, MOP_BUCKET.z, 1, 0);
+  eng.reduce(m5, 's', { type: 'smack' }, T0 + 1000);
+  check('...or on the mop bucket', view(m5).players.s.smackAt === null);
+  const m6 = fresh(); farFoods(m6); face(m6, 20, 0, 0, 1);
+  eng.reduce(m6, 's', { type: 'smack' }, T0 + 1000);
+  check('...but over open floor it swings as usual', view(m6).players.s.smackAt === T0 + 1000);
+  const m7 = fresh(); farFoods(m7); face(m7, isl.x + isl.hw + 2.6, isl.z, -1, 0); // lands 0.3 off the island's edge: a roach cannot stand with its middle there (it is 0.6 wide)
+  eng.reduce(m7, 's', { type: 'smack' }, T0 + 1000);
+  check('...and a spot a roach is too wide to stand on (right against the edge) is refused too', view(m7).players.s.smackAt === null);
+  const f = raw(m6).foods[0]; const m8 = fresh(); farFoods(m8); const f8 = raw(m8).foods[0]; face(m8, 18, 0, 0, 1); f8.x = 18; f8.z = 2.3;
+  eng.reduce(m8, 's', { type: 'smack' }, T0 + 1000);
+  check('food does not stop a smack (it is gone as soon as it is eaten; roaches at it can be hit)', view(m8).players.s.smackAt === T0 + 1000);
+  void f;
+}
+
 // one smack, several roaches
 s = fresh(); farFoods(s);
 const sp = raw(s).players;
@@ -336,8 +379,9 @@ check('the kitchen is dark at the start, and the lights come on for 3 seconds ev
 const flood = (lay: Layout) => {
   const G = 0.5, N = Math.round((ROACH_ARENA_HALF * 2) / G), lim = ROACH_ARENA_HALF - ROACH_RADIUS;
   const discs = [...lay.discs, { x: lay.poison.x, z: lay.poison.z, r: BOTTLE_RADIUS }];
+  const capBlocked = (x: number, z: number) => capNear(lay, x, z);
   const cell = (v: number) => Math.floor((v + ROACH_ARENA_HALF) / G);
-  const open = (a: number, b: number) => { const x = -ROACH_ARENA_HALF + (a + 0.5) * G, z = -ROACH_ARENA_HALF + (b + 0.5) * G; return Math.abs(x) <= lim && Math.abs(z) <= lim && !lay.obstacles.some((o) => Math.abs(x - o.x) < o.hw + ROACH_RADIUS && Math.abs(z - o.z) < o.hd + ROACH_RADIUS) && !discs.some((c) => Math.hypot(x - c.x, z - c.z) < c.r + ROACH_RADIUS); };
+  const open = (a: number, b: number) => { const x = -ROACH_ARENA_HALF + (a + 0.5) * G, z = -ROACH_ARENA_HALF + (b + 0.5) * G; return Math.abs(x) <= lim && Math.abs(z) <= lim && !lay.obstacles.some((o) => Math.abs(x - o.x) < o.hw + ROACH_RADIUS && Math.abs(z - o.z) < o.hd + ROACH_RADIUS) && !discs.some((c) => Math.hypot(x - c.x, z - c.z) < c.r + ROACH_RADIUS) && !capBlocked(x, z); };
   const seen = new Set<number>(), stack = [cell(33) * N + cell(33)]; seen.add(stack[0]);
   while (stack.length) { const k = stack.pop()!, a = Math.floor(k / N), b = k % N; for (const [da, db] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const na = a + da, nb = b + db; if (na < 0 || nb < 0 || na >= N || nb >= N || seen.has(na * N + nb) || !open(na, nb)) continue; seen.add(na * N + nb); stack.push(na * N + nb); } }
   let free = 0; for (let a = 0; a < N; a++) for (let b = 0; b < N; b++) if (open(a, b)) free++;
@@ -347,22 +391,33 @@ const flood = (lay: Layout) => {
   const layouts = Array.from({ length: 80 }, (_, i) => makeLayout(1000 + i * 37));
   check('the same seed makes the very same kitchen (so the server and every phone agree)', JSON.stringify(makeLayout(4242)) === JSON.stringify(makeLayout(4242)) && makeLayout(4242).seed === 4242);
   check('different seeds make different kitchens: the islands, shoes, trash can and mop bucket all move', new Set(layouts.map((l) => JSON.stringify(l.obstacles))).size === 80 && new Set(layouts.map((l) => JSON.stringify(l.shoes))).size === 80 && new Set(layouts.map((l) => `${l.trash.x}`)).size === 80 && new Set(layouts.map((l) => `${l.mop.x}`)).size === 80);
-  check('every kitchen has 3 islands, 4 brooms, 8 pairs of shoes, one trash can, one mop bucket and the cooker landmark', layouts.every((l) => l.obstacles.filter((o) => o.kind === 'island').length === 3 && l.obstacles.filter((o) => o.kind === 'broom').length === 4 && l.shoes.length === 16 && l.landmarks.length === 3 && l.landmarks[2].id === 'cooker' && l.landmarks[2].x === COOKER.x));
-  const inside = (l: Layout) => l.obstacles.every((o) => o.x - o.hw >= -36.01 && o.x + o.hw <= 36.01 && o.z - o.hd >= -36.01 && o.z + o.hd <= 36.01) && [...l.shoes, l.trash, l.mop].every((c) => Math.abs(c.x) <= 36 && Math.abs(c.z) <= 36);
+  check('every kitchen has exactly ONE island, exactly ONE diner table with its chairs (a 15 by 11.4 rectangle), ONE or TWO brooms, 4 to 10 pairs of shoes, one trash heap, one mop bucket and the cooker landmark (the shoes vary most; the brooms are never more than two)', layouts.every((l) => l.obstacles.filter((o) => o.kind === 'island').length === 1 && l.obstacles.filter((o) => o.kind === 'table').length === 1 && l.obstacles.filter((o) => o.kind === 'table').every((o) => Math.abs(Math.min(o.hw, o.hd) - 5.69) < 1e-9 && Math.abs(Math.max(o.hw, o.hd) - 7.49) < 1e-9) && l.obstacles.filter((o) => o.kind === 'broom').length >= 1 && l.obstacles.filter((o) => o.kind === 'broom').length <= 2 && l.shoes.length >= 4 && l.shoes.length <= 10 && l.capsules.length === l.shoes.length && l.landmarks.length === 3 && l.landmarks[2].id === 'cooker' && l.landmarks[2].x === COOKER.x));
+  check('...the number of brooms is 1 in some games and 2 in others', new Set(layouts.map((l) => l.obstacles.filter((o) => o.kind === 'broom').length)).size === 2);
+  {
+    const kinds = new Set<number>();
+    for (const l of layouts) for (const q of l.props) kinds.add(q.kind);
+    check('every kitchen has 3 to 6 small obstacles from the pool (never more than two of one kind), and over many games all four kinds turn up (cleaning products, stool, boxes, pot)', layouts.every((l) => l.props.length >= 3 && l.props.length <= 6 && [0, 1, 2, 3].every((k) => l.props.filter((q) => q.kind === k).length <= 2)) && kinds.size === 4 && new Set(layouts.map((l) => l.props.length)).size >= 3);
+    check('...each is one solid disc of its own size in the layout, well inside the walls, a roach and a bit from the big things, off the starting spots and out of the cooker\'s way', layouts.every((l) => l.props.every((q) => l.discs.some((d) => d.x === q.x && d.z === q.z && d.r === q.r) && q.r === PROP_RADIUS[q.kind] && Math.abs(q.x) <= 36 - q.r + 1e-9 && Math.abs(q.z) <= 36 - q.r + 1e-9 && l.obstacles.every((o) => distToRect(q.x, q.z, o) >= q.r + 1.8) && Array.from({ length: 8 }, (_, i) => roachStart(i, 8)).every(([x, z]) => Math.hypot(x - q.x, z - q.z) >= q.r + 3) && Math.abs(Math.hypot(q.ux, q.uz) - 1) < 1e-9 && !(q.z - q.r < -27 && Math.abs(q.x - COOKER.x) < 9 + q.r))));
+    check('...and no two of them (or one and the trash heap or mop bucket) are closer than a roach and a bit', layouts.every((l) => { const all = [...l.props, l.trash, l.mop]; return all.every((a, i) => all.every((b, j) => i === j || Math.hypot(a.x - b.x, a.z - b.z) >= a.r + b.r + 1.9)); }));
+    const lp = layouts.find((l) => l.props.length > 0)!, q = lp.props[0];
+    check('a roach cannot walk through one, and the sandal cannot smack onto it', (() => { let [x, z] = [q.x - q.r - 3, q.z]; for (let i = 0; i < 40; i++) [x, z] = moveRoach(x, z, 1, 0, 0.05, [], lp); return Math.hypot(x - q.x, z - q.z) >= q.r + ROACH_RADIUS - 1e-3 || Math.abs(z - q.z) > 0.05; })() && !canStandAt(lp, q.x, q.z));
+  }
+  check('...the number of shoe pairs differs from game to game', new Set(layouts.map((l) => l.shoes.length)).size >= 5 && new Set(layouts.map((l) => l.obstacles.length)).size <= 2 && layouts.every((l) => l.shoes.every((h) => l.shoes.length > 0 && (h.style === 0 || h.style === 1))) && new Set(layouts.flatMap((l) => l.shoes.map((h) => h.style))).size === 2);
+  const inside = (l: Layout) => l.obstacles.every((o) => o.x - o.hw >= -36.01 && o.x + o.hw <= 36.01 && o.z - o.hd >= -36.01 && o.z + o.hd <= 36.01) && [...l.shoes.flatMap((h) => [{ x: h.x, z: h.z }, { x: h.x + h.dx, z: h.z + h.dz }]), l.trash, l.mop].every((c) => Math.abs(c.x) <= 36 && Math.abs(c.z) <= 36);
   check('everything is well inside the walls', layouts.every(inside));
-  const apart = (l: Layout) => l.obstacles.every((o, i) => l.obstacles.every((p, j) => i === j || Math.hypot(Math.max(0, Math.abs(o.x - p.x) - o.hw - p.hw), Math.max(0, Math.abs(o.z - p.z) - o.hd - p.hd)) >= 3.39)) && [...l.shoes, l.trash, l.mop].every((c) => l.obstacles.every((o) => distToRect(c.x, c.z, o) >= c.r + ROACH_RADIUS * 2));
+  const apart = (l: Layout) => l.obstacles.every((o, i) => l.obstacles.every((p, j) => i === j || Math.hypot(Math.max(0, Math.abs(o.x - p.x) - o.hw - p.hw), Math.max(0, Math.abs(o.z - p.z) - o.hd - p.hd)) >= 3.39)) && [...l.shoes.flatMap((h) => [{ x: h.x, z: h.z, r: SHOE_RADIUS }, { x: h.x + h.dx, z: h.z + h.dz, r: SHOE_RADIUS }]), l.trash, l.mop].every((c) => l.obstacles.every((o) => distToRect(c.x, c.z, o) >= c.r + ROACH_RADIUS * 2));
   check('a roach can always squeeze between any two big things, and round the shoes, can and bucket', layouts.every(apart));
-  check('nothing sits on a roach starting spot or in front of the cooker', layouts.every((l) => Array.from({ length: 8 }, (_, i) => roachStart(i, 8)).every(([x, z]) => l.obstacles.every((o) => distToRect(x, z, o) > 5) && [...l.shoes, l.trash, l.mop].every((c) => Math.hypot(x - c.x, z - c.z) > 4)) && l.obstacles.every((o) => !(o.z - o.hd < -27 && o.x + o.hw > COOKER.x - 9 && o.x - o.hw < COOKER.x + 9))));
+  check('nothing sits on a roach starting spot or in front of the cooker', layouts.every((l) => Array.from({ length: 8 }, (_, i) => roachStart(i, 8)).every(([x, z]) => l.obstacles.every((o) => distToRect(x, z, o) > 5) && [...l.shoes.flatMap((h) => [{ x: h.x, z: h.z }, { x: h.x + h.dx, z: h.z + h.dz }]), l.trash, l.mop].every((c) => Math.hypot(x - c.x, z - c.z) > 4)) && l.obstacles.every((o) => !(o.z - o.hd < -27 && o.x + o.hw > COOKER.x - 9 && o.x - o.hw < COOKER.x + 9))));
   check('the whole floor is joined up in every kitchen: all eight starts can reach each other, no walled-off pockets', layouts.every((l) => { const f = flood(l); return f.joined && f.starts; }));
-  check('the bottle of poison stands 2.6-4.2 from one of the three landmarks, in the open', layouts.every((l) => { const lm = l.landmarks.find((x) => x.id === l.poison.landmark)!; const d = Math.hypot(l.poison.x - lm.x, l.poison.z - lm.z); return d >= 2.6 - 1e-9 && d <= 4.2 + 1e-9 && l.poison.cx === lm.x && l.poison.cz === lm.z && l.obstacles.every((o) => distToRect(l.poison.x, l.poison.z, o) > BOTTLE_RADIUS + ROACH_RADIUS * 2); }));
+  check('the bottle of poison stands 6.6-8.2 from one of the three landmarks, in the open', layouts.every((l) => { const lm = l.landmarks.find((x) => x.id === l.poison.landmark)!; const d = Math.hypot(l.poison.x - lm.x, l.poison.z - lm.z); return d >= 6.6 - 1e-9 && d <= 8.2 + 1e-9 && l.poison.cx === lm.x && l.poison.cz === lm.z && l.obstacles.every((o) => distToRect(l.poison.x, l.poison.z, o) > BOTTLE_RADIUS + ROACH_RADIUS * 2); }));
   const counts = new Map<string, number>(); for (const l of layouts) counts.set(l.poison.landmark, (counts.get(l.poison.landmark) ?? 0) + 1);
   check('...and which landmark gets the poison changes from game to game (all three come up)', counts.size === 3 && [...counts.values()].every((n) => n >= 10));
   let overlap = false;
   for (const l of layouts.slice(0, 40)) for (let i = 0; i < 10; i++) for (const f of placeFood(l, 6)) {
     const near = (c: { x: number; z: number; r: number }) => Math.hypot(f.x - c.x, f.z - c.z) < c.r + FOOD_RADIUS + ROACH_RADIUS * 2;
-    if (l.obstacles.some((o) => distToRect(f.x, f.z, o) < FOOD_RADIUS + ROACH_RADIUS * 2) || l.discs.some(near) || near({ x: l.poison.x, z: l.poison.z, r: BOTTLE_RADIUS })) overlap = true;
+    if (l.obstacles.some((o) => distToRect(f.x, f.z, o) < FOOD_RADIUS + ROACH_RADIUS * 2) || l.discs.some(near) || l.shoes.some((h) => distToSegment(f.x, f.z, h.x, h.z, h.x + h.dx, h.z + h.dz) < SHOE_RADIUS + FOOD_RADIUS + ROACH_RADIUS * 2) || near({ x: l.poison.x, z: l.poison.z, r: BOTTLE_RADIUS })) overlap = true;
   }
-  check('food never turns up on an island, a broom, a shoe, the trash can, the mop bucket or the bottle, even beside a landmark (2400 pieces in 40 kitchens)', !overlap);
+  check('food never turns up on an island, the broom, a pair of shoes, the trash can, the mop bucket or the bottle, even beside a landmark (2400 pieces in 40 kitchens)', !overlap);
   const eng2 = createRoachHunt({ seed: 77 });
   const st = eng2.init(['s', 'a', 'b'], T0, { teams: { s: 'purple', a: 'yellow', b: 'yellow' } });
   const v2 = eng2.view(st) as RoachHuntView;
@@ -389,7 +444,7 @@ const flood = (lay: Layout) => {
   smackAt(m2, P.x, P.z);
   check('a smack on the bottle smashes it: the poison is spilled at that moment', view(m2).poisonAt === T0 + 1000 + SMACK_WINDUP_MS && !view(m2).players.s.smackHit);
   check('...and breaking a bottle is a miss for the sandal (1 second), not a squashed roach', view(m2).players.s.readyAt === T0 + 1000 + SMACK_MISS_ARREST_MS);
-  check('the poison covers 6 units round the landmark', inPoison(L, lm.x + POISON_RADIUS - 0.01, lm.z) && !inPoison(L, lm.x + POISON_RADIUS + 0.01, lm.z) && POISON_DRAIN === 0.5 && POISON_RADIUS === 6);
+  check('the poison covers 10 units round the landmark', inPoison(L, lm.x + POISON_RADIUS - 0.01, lm.z) && !inPoison(L, lm.x + POISON_RADIUS + 0.01, lm.z) && POISON_DRAIN === 0.5 && POISON_RADIUS === 10);
   // life in the poison
   const spot = (() => { for (let a = 0; a < 40; a++) { const x = lm.x + Math.cos(a) * 3.3, z = lm.z + Math.sin(a) * 3.3; if (Math.hypot(x - P.x, z - P.z) > 2 && Math.hypot(x - lm.x, z - lm.z) > 2.5 && Math.abs(x) < 36 && Math.abs(z) < 36 && !OBSTACLES.some((o) => distToRect(x, z, o) < 2)) return { x, z }; } return { x: lm.x, z: lm.z + 3 }; })();
   const safe = fresh(); farFoods(safe);
@@ -420,6 +475,24 @@ const flood = (lay: Layout) => {
   while (view(respawn).foods.length === 4 && u < T0 + 8000) u = run(respawn, u, 25);
   run(respawn, u, 5000);
   check('a replacement piece after the spill (a new id) is not in the poisoned patch', view(respawn).foods.length === 4 && view(respawn).foods.filter((f) => f.id >= 4).length === 1 && view(respawn).foods.filter((f) => f.id >= 4).every((f) => Math.hypot(f.x - lm.x, f.z - lm.z) >= POISON_RADIUS));
+  // standing in the spilled poison lowers a roach's limit for good
+  {
+    const m = fresh(); farFoods(m);
+    raw(m).players.a.life = 24; raw(m).players.a.x = spot.x; raw(m).players.a.z = spot.z; raw(m).players.b.x = 0; raw(m).players.b.z = 14; raw(m).players.c.x = 0; raw(m).players.c.z = 16;
+    run(m, T0 + 10, 200);
+    check('a roach has a limit of 25 until the poison is spilled (and a roach standing where the poison will go is not hurt before)', view(m).players.a.lifeMax === 25 && view(m).players.b.lifeMax === 25);
+    (m as unknown as { poisonAt: number }).poisonAt = T0 + 300;
+    const u = run(m, T0 + 300, 200);
+    const a = view(m).players.a;
+    check('the moment it is in the spilled poison its limit drops to 20 and any life over that is lost at once', a.lifeMax === ROACH_LIFE_POISONED_MAX && a.life <= 20 && a.life > 18 && view(m).players.b.lifeMax === 25 && view(m).players.s.lifeMax === 0);
+    raw(m).players.a.x = 0; raw(m).players.a.z = 18; // walks out of the poison
+    const v = run(m, u, 300);
+    check('...and walking out does not give it back: the limit stays 20', view(m).players.a.lifeMax === 20);
+    // it cannot eat above 20
+    const f = raw(m).foods[1]; f.x = 5; f.z = 13; raw(m).players.a.x = 5 + FOOD_RADIUS + ROACH_RADIUS + 0.2; raw(m).players.a.z = 13; raw(m).players.a.life = 19;
+    run(m, v, 1500);
+    check('...and eating never takes it above 20 (a roach with the full limit can go to 25)', view(m).players.a.life <= 20.0001 && view(m).players.a.life > 18);
+  }
   // food caught in the poison goes off
   {
     const m = fresh(); farFoods(m);

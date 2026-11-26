@@ -411,12 +411,14 @@ export interface RoachPlayerView {
   alive: boolean;
   diedAt: number | null; // server clock (epoch ms) a roach died
   life: number; // a roach's lifetime left, in seconds (0 once it is dead)
+  lifeMax: number; // the most life it can have now: ROACH_LIFE_MAX, or ROACH_LIFE_POISONED_MAX once it has been in the spilled poison (0 for the sandal)
   cause: 'squashed' | 'starved' | 'left' | null; // how a dead roach died (a starved one curls up where it fell; a squashed one is a splat; one that left is just gone)
   /** The sandal only: server time the swing started (it lands SMACK_WINDUP_MS later), and the spot it landed or will land. */
   smackAt: number | null;
   smackX: number;
   smackZ: number;
   readyAt: number; // the sandal only: when it is back in your hands (it is out of your control, floating back up, until then)
+  eating: boolean; // a roach only: it is sitting still next to a piece of food and eating it right now
   smackHit: boolean; // the sandal only: the last smack squashed a roach (so it is stuck in the guts for longer)
 }
 /** A piece of food on the floor. */

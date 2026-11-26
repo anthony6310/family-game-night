@@ -32,6 +32,7 @@ void main() {
   gl_FragColor = vec4(uColor, a);
 }`;
 
+const CRUMBS = 14;
 const rnd = (seed: number) => { const x = Math.sin(seed * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
 
 export class FoodFx {
@@ -47,7 +48,19 @@ export class FoodFx {
   private radius = new Float32Array(N);
   private phase = new Float32Array(N);
 
-  constructor(map: Texture, seed: number) {
+  // the crumbs: while a roach eats, little bits of food pop up off the piece and fall back (separate cloud, brown, small, hard-edged)
+  private crumbPoints: Points;
+  private crumbGeometry = new BufferGeometry();
+  private crumbMaterial: ShaderMaterial;
+  private cpos = new Float32Array(CRUMBS * 3);
+  private calpha = new Float32Array(CRUMBS);
+  private csize = new Float32Array(CRUMBS);
+  private cage = new Float32Array(CRUMBS);
+  private clife = new Float32Array(CRUMBS);
+  private cvel = new Float32Array(CRUMBS * 3);
+  private cactive = new Uint8Array(CRUMBS);
+
+  constructor(map: Texture, seed: number, crumbColor = '#d8b878') {
     this.material = new ShaderMaterial({ transparent: true, depthWrite: false, uniforms: { uColor: { value: GREEN.clone() }, uMap: { value: map }, uScale: { value: 600 } }, vertexShader: VERT, fragmentShader: FRAG });
     for (let i = 0; i < N; i++) {
       this.life[i] = i < WISPS ? 2.0 + rnd(seed + i) * 1.2 : 1.5 + rnd(seed + i) * 0.8;
@@ -62,12 +75,22 @@ export class FoodFx {
     this.points = new Points(this.geometry, this.material);
     this.points.frustumCulled = false;
     this.points.renderOrder = 5;
+    this.crumbMaterial = new ShaderMaterial({ transparent: true, depthWrite: false, uniforms: { uColor: { value: new Color(crumbColor) }, uMap: { value: map }, uScale: { value: 600 } }, vertexShader: VERT, fragmentShader: FRAG });
+    for (let i = 0; i < CRUMBS; i++) { this.cage[i] = rnd(seed * 17 + i) * 0.8; this.clife[i] = 0.5 + rnd(seed * 19 + i) * 0.4; }
+    this.crumbGeometry.setAttribute('position', new BufferAttribute(this.cpos, 3));
+    this.crumbGeometry.setAttribute('aAlpha', new BufferAttribute(this.calpha, 1));
+    this.crumbGeometry.setAttribute('aSize', new BufferAttribute(this.csize, 1));
+    this.crumbPoints = new Points(this.crumbGeometry, this.crumbMaterial);
+    this.crumbPoints.frustumCulled = false;
+    this.crumbPoints.renderOrder = 6;
+    this.points.add(this.crumbPoints); // (a child of the stink cloud, so it moves and hides with it)
   }
 
   /** `scale` is the food's size now (it shrinks as it is eaten), `poisoned` makes the stink purple and heavier, `px` converts a world size to pixels (screen height over twice the tangent of half the field of view). */
-  update(dt: number, scale: number, poisoned: boolean, visible: boolean, px: number) {
+  update(dt: number, scale: number, poisoned: boolean, visible: boolean, px: number, eating = false) {
     this.points.visible = visible;
     if (!visible) return;
+    this.updateCrumbs(dt, scale, eating, px);
     (this.material.uniforms.uColor.value as Color).copy(poisoned ? PURPLE : GREEN);
     this.material.uniforms.uScale.value = px;
     const speed = poisoned ? 1.5 : 1;
@@ -92,5 +115,30 @@ export class FoodFx {
     this.geometry.attributes.aSize.needsUpdate = true;
   }
 
-  dispose() { this.geometry.dispose(); this.material.dispose(); }
+  /** Crumbs: each pops off the top of the piece in a small arc (up and out, then falling) while a roach is eating it; when nobody is eating the ones in the air finish their fall and no new ones start. */
+  private updateCrumbs(dt: number, scale: number, eating: boolean, px: number) {
+    this.crumbMaterial.uniforms.uScale.value = px;
+    for (let i = 0; i < CRUMBS; i++) {
+      const o = i * 3;
+      if (!this.cactive[i]) {
+        if (!eating) { this.calpha[i] = 0; continue; }
+        // start a crumb: from the top of the piece, flung up and outwards
+        const a = Math.random() * Math.PI * 2, sp = (0.7 + Math.random() * 1.5) * scale;
+        this.cactive[i] = 1; this.cage[i] = 0; this.clife[i] = 0.5 + Math.random() * 0.4;
+        this.cpos[o] = Math.cos(a) * 0.3 * scale; this.cpos[o + 1] = 0.9 * scale; this.cpos[o + 2] = Math.sin(a) * 0.3 * scale;
+        this.cvel[o] = Math.cos(a) * sp; this.cvel[o + 1] = (2.6 + Math.random() * 2.4) * scale; this.cvel[o + 2] = Math.sin(a) * sp;
+        this.csize[i] = 0.16 + Math.random() * 0.14;
+      }
+      this.cage[i] += dt;
+      if (this.cage[i] >= this.clife[i]) { this.cactive[i] = 0; this.calpha[i] = 0; continue; }
+      this.cvel[o + 1] -= 11 * dt; // gravity
+      this.cpos[o] += this.cvel[o] * dt; this.cpos[o + 1] = Math.max(0.05, this.cpos[o + 1] + this.cvel[o + 1] * dt); this.cpos[o + 2] += this.cvel[o + 2] * dt;
+      this.calpha[i] = 1 - Math.max(0, (this.cage[i] / this.clife[i] - 0.7) / 0.3);
+    }
+    this.crumbGeometry.attributes.position.needsUpdate = true;
+    this.crumbGeometry.attributes.aAlpha.needsUpdate = true;
+    this.crumbGeometry.attributes.aSize.needsUpdate = true;
+  }
+
+  dispose() { this.geometry.dispose(); this.material.dispose(); this.crumbGeometry.dispose(); this.crumbMaterial.dispose(); }
 }

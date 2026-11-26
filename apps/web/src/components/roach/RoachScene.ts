@@ -21,7 +21,7 @@ import { PUDDLE_DEEP, PUDDLE_TINT, buildMopBucket, buildTrashHeap, makePuddle, s
 import { buildSandal } from './RoachSandal';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
-import { bottleSmash, roachCurl, roachSquish, sandalSmack, sandalSwish } from '../../audio/roachSounds';
+import { bubblingPoison, crunchySquelch, fastSkitter, glassCrash, heartbeat, nibbleCrunch, sandalWhipSmack, sandalWhoosh, tinyTwitches } from '../../audio/roachRumbleSounds';
 import { createNameTag, disposeNameTag } from '../labelTexture';
 import { AnimalKit, Model } from '../shelter/AnimalKit';
 
@@ -250,7 +250,7 @@ export class RoachScene {
     return canStandAt(this.layout, x, z);
   }
   /** You pressed smack on this phone: the sandal starts swinging at once (the server's answer follows). */
-  smackNow() { this.localSmackAt = this.serverNow(); audio.playFlat(sandalSwish, 0.5); }
+  smackNow() { this.localSmackAt = this.serverNow(); audio.playFlat(sandalWhoosh, 0.5); }
 
   dispose() {
     this.disposed = true;
@@ -455,6 +455,7 @@ export class RoachScene {
       a.eatBlend += ((p.eating ? 1 : 0) - a.eatBlend) * (1 - Math.exp(-6 * dt)); if (p.eating) a.eatPhase += dt;
       this.poseActor(a, p, now);
       this.updateBar(a, p, now);
+      this.updateRoachSounds(a, p, dt);
       // A roach squashed: a splat where it was, a squish, and the roach is gone. A roach that starved stays: it tips over and curls up where it fell.
       if (!p.alive && !a.seenDeath) {
         a.seenDeath = true;
@@ -588,6 +589,19 @@ export class RoachScene {
     if (this.bucketWater) setDim(this.bucketWater, t, dim);
   }
 
+  /** The followed roach's own sounds: nibbling while it eats, skittering while it runs, bubbling while it stands in poison, and a heartbeat when its life is nearly out. */
+  private updateRoachSounds(a: Actor, p: RoachPlayerView, dt: number) {
+    const c = this.sfxClock;
+    if (a.id !== this.eyeId || a.role !== 'roach' || !p.alive) { c.eat = c.skitter = c.poison = c.low = 0; return; }
+    c.eat -= dt; c.skitter -= dt; c.poison -= dt; c.low -= dt;
+    if (p.eating && c.eat <= 0) { audio.playFlat(nibbleCrunch, 0.5); c.eat = 0.9; }
+    if (a.walk > 0.25 && c.skitter <= 0) { audio.playFlat(fastSkitter, 0.35); c.skitter = 0.4 - 0.15 * a.walk; }
+    const v = this.latest;
+    if (v && v.poisonAt !== null && this.layout && inPoison(this.layout, a.x, a.z) && c.poison <= 0) { audio.playFlat(bubblingPoison, 0.4); c.poison = 1.4; }
+    if (p.life <= ROACH_LOW_LIFE && c.low <= 0) { audio.playFlat(heartbeat, 0.5); c.low = 1.4; }
+  }
+  private sfxClock = { eat: 0, skitter: 0, poison: 0, low: 0 }; // seconds until each of those sounds may play again
+
   /** A roach's lifetime bar: how much it has left of 30 seconds (green, then yellow, then red and flashing under 5). */
   private updateBar(a: Actor, p: RoachPlayerView, now: number) {
     if (!a.bar) return;
@@ -608,7 +622,7 @@ export class RoachScene {
     }
     if (this.corpseGeometry) { a.body.geometry = this.corpseGeometry; a.body.updateMorphTargets(); a.body.morphTargetInfluences = [0]; }
     a.corpse = true;
-    if (fresh) setTimeout(() => { if (!this.disposed) audio.playFlat(roachCurl, this.distanceToEye(a.x, a.z) < 14 ? 0.7 : 0.3); }, 380);
+    if (fresh) setTimeout(() => { if (!this.disposed) audio.playFlat(tinyTwitches, this.distanceToEye(a.x, a.z) < 14 ? 0.7 : 0.3); }, 380);
   }
 
   /** The poison: the bottle is gone the moment it is smashed and bursts over its landmark; the landmark's own puddle fades to purple and purple steam curls up off it. */
@@ -621,7 +635,7 @@ export class RoachScene {
       P.seen = view.poisonAt;
       if (now - view.poisonAt! < 1500) {
         const near = this.distanceToEye(this.layout!.poison.x, this.layout!.poison.z);
-        audio.playFlat(bottleSmash, near < 16 ? 1 : 0.5);
+        audio.playFlat(glassCrash, near < 16 ? 1 : 0.5);
         P.blast.fire(this.layout!.poison.x, this.layout!.poison.z);
       }
     }
@@ -702,7 +716,7 @@ export class RoachScene {
     this.placeSplat(a);
     this.goo.fire(a.x, a.z); // a couple of drops of goo fly out of it
     const d = this.distanceToEye(a.x, a.z);
-    audio.playFlat(roachSquish, d < 14 ? 0.8 : 0.4);
+    audio.playFlat(crunchySquelch, d < 14 ? 0.8 : 0.4);
     if (a.id === this.selfId) this.shake = Math.max(this.shake, SHAKE_DEATH);
     void now;
   }
@@ -721,7 +735,7 @@ export class RoachScene {
       if (d) { d.active = true; d.age = 0; d.mesh.position.set(sandal.smackX, 0.06, sandal.smackZ); d.mesh.scale.setScalar(1); d.mesh.visible = true; }
       this.puff.fire(sandal.smackX, sandal.smackZ); // and a puff of dust and smoke billows out
       const near = this.distanceToEye(sandal.smackX, sandal.smackZ);
-      audio.playFlat(sandalSmack, near < 16 ? 1 : 0.5, 0, near < 16 ? 1 : 0.5);
+      audio.playFlat(sandalWhipSmack, near < 16 ? 1 : 0.5, 0, near < 16 ? 1 : 0.5);
       if (near < 8) this.shake = Math.max(this.shake, SHAKE_SMACK * (1 - near / 10));
     }, delay);
   }

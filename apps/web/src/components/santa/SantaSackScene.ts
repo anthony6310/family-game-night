@@ -7,7 +7,7 @@ import {
   BAG_MOUTH_HEIGHT, BAG_NECK_RADIUS, BAG_TILT, BAG_TOP_EXTRA, SANTA_NEUTRAL_BAG_COLOR, lobPlan, type SantaBagView, type SantaKickedView, type SantaLandedView, type SantaSackView } from '@fgn/shared';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
-import { giftGrab, giftIn, giftMiss, giftThrow } from '../../audio/santaSounds';
+import { giftGrab, giftIn, giftMiss, giftToss } from '../../audio/santaSounds';
 import { createNameTag, disposeNameTag } from '../labelTexture';
 import { SparkSystem } from '../taprace/sparks';
 import type { Pull } from '../ThrowPad';
@@ -395,7 +395,7 @@ export class SantaSackScene {
     if (elf && f.bounces === 0 && this.serverNow() - f.t0 < 500) {
       elf.throwAge = 0;
       elf.wantYaw = Math.atan2(f.vz, f.vx);
-      audio.play(giftThrow, f.x0, f.z0, f.owner === this.selfId ? 0.7 : 0.4, 1);
+      audio.play(giftToss, f.x0, f.z0, f.owner === this.selfId ? 0.7 : 0.4, 1);
     }
   }
 

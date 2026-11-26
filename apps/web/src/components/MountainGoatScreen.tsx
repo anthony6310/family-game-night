@@ -6,6 +6,8 @@ import { useStarted } from './useStarted';
 import { useRemainingMs } from './Countdown';
 import { MountainGoatScene, type GoatStyle } from './goat/MountainGoatScene';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
+import { audio } from '../audio/spatialAudio';
+import { crevasseWind } from '../audio/goatSounds';
 import { FALLBACK_COLOR } from './playerColors';
 import { SpectatorControls } from '../spectate/SpectatorControls';
 import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
@@ -34,6 +36,8 @@ export default function MountainGoatScreen({ game, players, colors, selfId, serv
   const over = remainingMs <= 0;
   const started = useStarted(game.startsAt, serverNow);
   const isPlayer = selfId !== null && selfId in game.players;
+  // The crevice wind blows from the moment this screen is up until it goes away (the theme is played by the room screen: audio/gameThemes.ts).
+  useEffect(() => audio.startBed(crevasseWind, 0.35), []);
   const [, rerender] = useState(0);
   const pred = useRef<GoatPlayerView | null>(null); // your own latest tap, judged locally, until the server's view has caught up with it
 

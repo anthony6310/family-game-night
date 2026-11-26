@@ -1,4 +1,5 @@
 import { grain, type SoundFn } from './snowSounds';
+import { noise, whoosh } from './synth';
 
 /** Santa's Sack sounds, MADE LIVE by the browser's audio engine (no sound files). Same signature as every other sound (see snowSounds.ts). */
 const rand = (min: number, max: number) => min + Math.random() * (max - min);
@@ -48,4 +49,10 @@ export const giftIn: SoundFn = (ctx, out, t) => {
 /** A toy lands on the floor: a dull thud. */
 export const giftMiss: SoundFn = (ctx, out, t) => {
   grain(ctx, out, t, { type: 'lowpass', freq: 420, q: 0.8, gain: 0.45, duration: 0.14 });
+};
+
+/** THROWING A GIFT: "Toss and rustle" (picked by ear from three): a soft paper rustle and a rush of air. */
+export const giftToss: SoundFn = (ctx, out, t) => {
+  noise(ctx, out, t, { type: 'bandpass', f: 2500, q: 1, g: 0.15, dur: 0.08, att: 0.01 });
+  whoosh(ctx, out, t + 0.03, 500, 1500, 0.3, 0.15);
 };

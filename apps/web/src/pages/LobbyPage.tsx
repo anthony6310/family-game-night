@@ -11,6 +11,7 @@ import { TeamStep } from '../components/lobby/TeamStep';
 import { UnderdogReveal } from '../components/UnderdogReveal';
 import { useRoom } from '../room/RoomContext';
 import { useScreenFlash } from '../components/screenFlash';
+import { useGameTheme } from '../audio/gameThemes';
 
 // three.js is big, so the 3D game screens are their own downloads, fetched only when needed.
 const loadSnowballScreen = () => import('../components/SnowballScreen');
@@ -82,6 +83,9 @@ export function LobbyPage() {
   useEffect(() => {
     if (pickedGame) void GAME_LOADERS[pickedGame]();
   }, [pickedGame]);
+
+  // THE GAME'S THEME: the lobby's music rests and the selected game's theme takes over as soon as the round starts loading, until its finish sequence begins (audio/gameThemes.ts).
+  useGameTheme(room?.game?.gameId ?? null, (room?.phase === 'starting' || room?.phase === 'playing') && !!room.game);
 
   // THE LOADING STEP (GAME_RULES.md #8). The round's game is made when the 'starting' step begins, and this phone mounts it straight away, under the loading page: the real scene, built once.
   // When it is on screen and drawing smoothly (`waitUntilSettled`; at once if this page is hidden) the phone tells the server, which waits for every phone (and the minimum time) and then announces

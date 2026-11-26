@@ -1,5 +1,5 @@
 import { WhaleActor } from './WhaleActor';
-import { WHALE_TUNING, whaleVisitAt } from '@fgn/shared';
+import { WHALE_TUNING, breachEvents, whaleVisitAt } from '@fgn/shared';
 import {
   AdditiveBlending, BoxGeometry, Color, DirectionalLight, DoubleSide, Fog, Group, HemisphereLight, MathUtils, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, PerspectiveCamera, PlaneGeometry,
   Quaternion, Scene, ShaderMaterial, SphereGeometry, Sprite, SpriteMaterial, Texture, Vector3, WebGLRenderer, BackSide, CylinderGeometry, Object3D,
@@ -10,7 +10,7 @@ import {
 } from '@fgn/shared';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
-import { cannonBoom, seaSplash, shipHit, wickLight } from '../../audio/pirateSounds';
+import { cannonBoom, hitReceived, readyClang, reloadChain, seaSplash, shipHit, whaleBlocked, whaleRumble, whaleSplash, whaleSpout, wickBurn, wickLight } from '../../audio/pirateSounds';
 import { createNameTag, disposeNameTag } from '../labelTexture';
 import { SparkSystem } from '../taprace/sparks';
 import {
@@ -28,6 +28,9 @@ const TEAM_COLOR: Record<TeamId, string> = { yellow: '#ffd23d', purple: '#8e44ad
 const CAM_FOLLOW_YAW = 0.7; // the view turns this much of the way with the cannon (the barrel then moves across the view)
 const CAM_FOLLOW_PITCH = 0.45;
 const BALL_POOL = 24;
+const BREACH = breachEvents(WHALE_TUNING); // (the moments of the big breach: the splash sound lands on `enter`)
+const MUZZLE_SMOKE_SHARE = 0.2; // the grey smoke of a cannon firing: 80% less than before
+const MUZZLE_SPARK_SHARE = 0.85; // the sparks of a cannon firing: 15% fewer than before
 const BLAST_SCALE = 1.8; // (the smoke of it is then 20% less, and the sparks 40% more and 50% bigger) // the flash, flame and smoke of a cannon firing: 80% more than at first
 const WICK_AT_Z = 1.4; // the wick grows out of the top of the barrel about half way up what the player can see of it (the back of the cannon is cropped off the screen)
 // The recoil: the whole cannon (the barrel on its wheeled carriage) rolls straight back along the deck by this share of the barrel's length, very fast, and then rolls forward to its firing place over the reload; the wheels turn as it goes.
@@ -89,6 +92,7 @@ export class PirateScene {
   /** The whale's three visits are drawn from the view's schedule; the review page turns this off and drives its own. */
   whaleEnabled = true;
   private whale!: WhaleActor;
+  private whaleHeard = new Set<string>(); // which of the whale's sounds have played
   get world() { return this.scene; }
   get cam() { return this.camera; }
   private clock = createRoundClock((sound, gain) => audio.playFlat(sound, gain));
@@ -402,12 +406,12 @@ export class PirateScene {
     const K = BLAST_SCALE;
     this.puff(at, dir.clone().multiplyScalar(2), { life: 0.14, s0: 2 * K, s1: 4.2 * K, color: '#ffe9a8', additive: true, alpha: 0.8 });
     for (let i = 0; i < Math.round(16 * K); i++) this.puff(at.clone().addScaledVector(dir, this.rand(0, 0.8 * K)), dir.clone().multiplyScalar(this.rand(9, 20) * 1.4).add(new Vector3(this.rand(-1.2, 1.2) * K, this.rand(-0.6, 1.6) * K, this.rand(-1.2, 1.2) * K)), { life: this.rand(0.1, 0.26) * 1.4, s0: this.rand(1.6, 2.6) * K, s1: 0.5 * K, color: i % 2 ? '#ff8a1c' : '#ffd45a', additive: true, drag: 3 });
-    for (let i = 0; i < Math.round(24 * K * 1.4); i++) { // (40% more sparks)
+    for (let i = 0; i < Math.round(24 * K * 1.4 * MUZZLE_SPARK_SHARE); i++) { // (40% more sparks, then 15% fewer)
       const [r, g, b] = FIRE_COLORS[Math.floor(Math.random() * FIRE_COLORS.length)];
       const v = dir.clone().multiplyScalar(this.rand(7, 20)).add(new Vector3(this.rand(-5, 5), this.rand(-1, 5), this.rand(-5, 5)));
       this.sparks.emit(at.x, at.y, at.z, v.x, v.y, v.z, this.rand(0.05, 0.1) * 1.5, this.rand(0.4, 0.9), r, g, b, true, 0.8 * 1.5); // (50% bigger)
     }
-    for (let i = 0; i < Math.round(9 * K * 0.8); i++) this.puff(at.clone().addScaledVector(dir, this.rand(0, 1.2 * K)), dir.clone().multiplyScalar(this.rand(2, 7) * 1.2).add(new Vector3(this.rand(-1, 1), this.rand(0.5, 2), this.rand(-1, 1))), { life: this.rand(1.2, 2.2) * 1.4, s0: 1.2 * K, s1: 4.5 * K, color: '#9a9ea6', alpha: 0.75, drag: 1.1 });
+    for (let i = 0; i < Math.round(9 * K * 0.8 * MUZZLE_SMOKE_SHARE); i++) this.puff(at.clone().addScaledVector(dir, this.rand(0, 1.2 * K)), dir.clone().multiplyScalar(this.rand(2, 7) * 1.2).add(new Vector3(this.rand(-1, 1), this.rand(0.5, 2), this.rand(-1, 1))), { life: this.rand(1.2, 2.2) * 1.4, s0: 1.2 * K, s1: 4.5 * K, color: '#9a9ea6', alpha: 0.75, drag: 1.1 });
   }
 
   // ---------- per frame ----------
@@ -498,7 +502,7 @@ export class PirateScene {
           c.spark.scale.setScalar(0.25 + 0.09 * Math.sin(this.time * 40 + c.slot) + 0.03 * Math.random());
           const w = c.pivot.localToWorld(tip.clone());
           this.throwSparks(w, 0, 1.6, 1 + Math.random() * 0.4); // sparks fly off the burning end, all fiery orange
-          if (c.litAt !== p.wickAt) { c.litAt = p.wickAt; if (now - p.wickAt! < 400) audio.playFlat(wickLight, id === this.selfId ? 0.5 : 0.18); }
+          if (c.litAt !== p.wickAt) { c.litAt = p.wickAt; if (now - p.wickAt! < 400) { audio.playFlat(wickLight, id === this.selfId ? 0.5 : 0.18); if (id === this.eyeId) audio.playFlat(wickBurn, 0.35); } }
         } else {
           c.spark.visible = false;
           c.cord.visible = now >= p.readyAt; // used up while reloading, a fresh one when ready
@@ -513,8 +517,23 @@ export class PirateScene {
   private updateWhale(view: PirateBroadsideView, t: number) {
     const visit = this.whaleEnabled ? whaleVisitAt(view.whale, t) : null;
     if (!visit) { this.whale.hide(); return; }
+    this.whaleSounds(visit.kind, visit.t);
     const shake = this.whale.update(visit.kind, visit.t, WHALE_TUNING, this.camera, this.renderer.domElement.height);
     this.shake = Math.max(this.shake, shake);
+  }
+
+  /** The whale's sounds, each played once as its moment arrives (never for someone who joins late: a moment more than a second old is skipped). */
+  private whaleSounds(kind: 'peek' | 'blow' | 'breach', t: number) {
+    const once = (key: string, at: number, play: () => void) => {
+      if (t < at || t > at + 1 || this.whaleHeard.has(key)) return;
+      this.whaleHeard.add(key);
+      play();
+    };
+    if (kind === 'blow') once('spout', WHALE_TUNING.blowSeconds * WHALE_TUNING.blowAt, () => audio.playFlat(whaleSpout, 0.5));
+    if (kind === 'breach') {
+      once('rumble', 0, () => audio.playFlat(whaleRumble, 0.7, 0.4)); // (builds with the growing screen shake)
+      once('splash', BREACH.enter, () => audio.playFlat(whaleSplash, 0.8));
+    }
   }
 
   private updateShots(view: PirateBroadsideView, dt: number) {
@@ -555,7 +574,11 @@ export class PirateScene {
     this.muzzleBlast(at, dir);
     const mine = s.owner === this.eyeId;
     audio.playFlat(cannonBoom, mine ? 0.9 : s.team === myTeam ? 0.55 : 0.4, 0, mine ? 1 : s.team === myTeam ? 0.6 : 0.4);
-    if (mine) this.shake = Math.max(this.shake, SHAKE_FIRE); // (only your own cannon shakes your screen)
+    if (mine) {
+      this.shake = Math.max(this.shake, SHAKE_FIRE); // (only your own cannon shakes your screen)
+      audio.playFlat(reloadChain, 0.5, 0.5); // the reload starts once the boom has died down...
+      audio.playFlat(readyClang, 0.55, Math.max(0.1, (s.launchAt + RELOAD_MS - this.serverNow()) / 1000)); // ...and the clang says the cannon is ready (as the FIRE button turns green)
+    }
     void c;
   }
 
@@ -565,14 +588,14 @@ export class PirateScene {
       const at = enemy.group.localToWorld(v3(s.hitLocal));
       this.hitBurst(at);
       const onMyShip = myTeam !== null && enemyOf(s.team) === myTeam;
-      audio.playFlat(shipHit, onMyShip ? 0.9 : 0.55, 0, onMyShip ? 1 : 0.6);
+      audio.playFlat(onMyShip ? hitReceived : shipHit, onMyShip ? 0.9 : 0.55, 0, onMyShip ? 1 : 0.6); // (a ball hitting your own ship has its own, more dramatic sound)
       if (onMyShip) this.shake = Math.max(this.shake, SHAKE_HIT_RECEIVED); // (a hit on your ship: half the shake of firing your own cannon)
     } else if (s.blocked) { // it struck the leaping whale: a burst of spray where it hit
       this.hitBurst(v3(s.blocked));
-      audio.playFlat(shipHit, 0.4, 0, 0.5);
+      audio.playFlat(whaleBlocked, 0.5, 0, 0.6);
     } else if (s.splash) {
       this.splash(v3(s.splash));
-      audio.playFlat(seaSplash, 0.3, 0, 0.5);
+      audio.playFlat(seaSplash, 0.4, 0, 0.5);
     }
   }
 

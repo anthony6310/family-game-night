@@ -2,9 +2,10 @@ import {
   AmbientLight, BoxGeometry, BufferGeometry, CanvasTexture, CatmullRomCurve3, Color, ConeGeometry, CylinderGeometry, DirectionalLight, Float32BufferAttribute, Group, Mesh, MeshBasicMaterial,
   MeshStandardMaterial, IcosahedronGeometry, PerspectiveCamera, Scene, SphereGeometry, SRGBColorSpace, TubeGeometry, Vector3, WebGLRenderer,
 } from 'three';
-import { GOAT_BODY_Y, JUMP_MS, arcHeight, birdAt, birdZ, gapAt, indicatorLen, platformX, radiusOf, tolAt, type GoatPlayerView, type MountainGoatView } from '@fgn/shared';
+import { GOAT_BODY_Y, JUMP_MS, arcHeight, birdAt, birdZ, gapAt, indicatorLen, periodAt, platformX, radiusOf, tolAt, type GoatPlayerView, type MountainGoatView } from '@fgn/shared';
 import { createRoundClock } from '../../audio/roundClock';
 import { audio } from '../../audio/spatialAudio';
+import { birdFlaps, birdHit, goatFall, goatJump, goatLand, pointDing, sweepHum } from '../../audio/goatSounds';
 
 /** A bird that has just been hit: where it was (p0), the velocity the collision gave it (v0), its heading and tumble, and how long ago (f seconds). Its motion from there is a pure function of f. */
 interface BirdBump { p0: Vector3; v0: Vector3; yaw: number; spin: Vector3; f: number }
@@ -156,6 +157,9 @@ export class MountainGoatScene {
   private birds = new Map<number, { bird: { group: Group; wings: Mesh[] }; born: number }>(); // the bird of each jump that is in view (this jump's, and the next one's, already flying)
   private puffs: { mesh: Mesh; vel: Vector3; life: number; max: number }[] = []; // the plume of earth and grass thrown up when the goat lands
   private shake = 0; // the camera's current shake, in world units (it dies away quickly)
+  private heardJump = new Map<string, number>(); // per goat: the tap whose leap sound has played
+  private sweepKey = ''; // which sweep of the marker has had its hum
+  private flapsAt = -1e9; // when the bird's wing beats last played
   private fired = new Map<string, number>(); // per goat: the tap whose landing (or fall) has already had its plume / shake
   private disposables: { dispose(): void }[] = [];
   private resizeObserver: ResizeObserver;
@@ -271,6 +275,10 @@ export class MountainGoatScene {
     for (const [gid, g] of this.goats) if (gid !== id) g.visible = false;
     const goat = this.goatOf(id), color = this.colorOf.get(id) ?? '#ffffff';
     const last = pv.last, since = last ? now - last.at : Infinity;
+    if (last && since >= 0 && since < 300 && this.heardJump.get(id) !== last.at) { // the leap's sound, only for a tap that has just happened (following someone late plays nothing old)
+      this.heardJump.set(id, last.at);
+      audio.playFlat(goatJump, 0.6);
+    }
     const jumpFrom = last && last.ok ? n - 1 : n; // the ledge the last leap started from
     const standX = this.xOf(n);
     let x = standX, y = 0, pitch = 0, spin = 0, scale = 1, visible = true, flying = false;
@@ -320,6 +328,7 @@ export class MountainGoatScene {
     // the marker: only while the goat is standing and the round is on
     const armed = !flying && visible && now >= Math.max(pv.armedAt, v.startsAt) && now < v.endsAt && scale >= 0.99;
     this.updateAim(n, pv, now, armed, standX, color);
+    this.updateAimSounds(v, n, pv, now, armed);
 
     this.updateBird(v, n, pv, now, tSec, birdFall, jumpFrom);
 
@@ -328,7 +337,14 @@ export class MountainGoatScene {
       const at = last.ok || last.birdU === null ? JUMP_MS : last.birdU * JUMP_MS;
       if (since >= at && since < at + 400 && this.fired.get(id) !== last.at) {
         this.fired.set(id, last.at);
-        if (last.ok) { this.puff(standX); this.shake = Math.max(this.shake, LAND_SHAKE); } else this.shake = Math.max(this.shake, FAIL_SHAKE);
+        if (last.ok) {
+          this.puff(standX); this.shake = Math.max(this.shake, LAND_SHAKE);
+          audio.playFlat(goatLand, 0.7);
+          audio.playFlat(pointDing, 0.55, 0.05); // (a landing is a point)
+        } else {
+          this.shake = Math.max(this.shake, FAIL_SHAKE);
+          audio.playFlat(last.birdU !== null ? birdHit : goatFall, last.birdU !== null ? 0.75 : 0.7); // (no sound for the climb back up: that is deliberate)
+        }
       }
     }
     this.updatePuffs(dt);
@@ -390,6 +406,17 @@ export class MountainGoatScene {
   }
 
   /** The marker: an arc from the goat to where it would land, as long as the marker is now (the same arc the goat's leap would take), ending in an arrowhead. */
+  /** While the goat stands ready: the marker's hum (one per sweep, started as the sweep starts) and the bird's wing beats (while the next gap has a bird). */
+  private updateAimSounds(v: MountainGoatView, n: number, pv: GoatPlayerView, now: number, armed: boolean) {
+    if (!armed) { this.sweepKey = ''; return; }
+    const period = periodAt(n) * 1000, since = now - pv.armedAt, key = `${pv.armedAt}:${Math.floor(since / period)}`;
+    if (key !== this.sweepKey) {
+      this.sweepKey = key;
+      if (since % period < 250) audio.playFlat(sweepHum, 0.35); // (joining halfway through a sweep waits for the next one)
+    }
+    if (birdAt(v.seed, n) && now - this.flapsAt > 2000) { this.flapsAt = now; audio.playFlat(birdFlaps, 0.3); }
+  }
+
   private updateAim(n: number, pv: GoatPlayerView, now: number, armed: boolean, standX: number, color: string) {
     this.aimGroup.visible = armed;
     if (!armed) return;

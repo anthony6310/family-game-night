@@ -7,7 +7,8 @@ import {
 } from 'three';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
-import { collisionCrunch, rollCrunch, type SoundFn } from '../../audio/snowSounds';
+import type { SoundFn } from '../../audio/snowSounds';
+import { paddedThump, powderSwish, risingZip } from '../../audio/snowballSounds';
 import { SpectatorRig } from '../../spectate/SpectatorRig';
 import { FleckSystem, StreakSystem } from './effects';
 import { FishKit } from './fish';
@@ -44,6 +45,7 @@ interface Pose {
   fish: number; // how many fish are stuck to the ball
   hitDamage: number; // size points the most recent hit took off this ball (the impact's snow is scaled by it)
   leader: boolean; // the single biggest ball: it wears the crown
+  sprinting?: boolean; // its sprint (+50% speed) is on
 }
 
 /** What the effects remember about one ball between frames. */
@@ -52,6 +54,7 @@ interface BallFx {
   rollTimer: number; // seconds until the next rolling crunch
   windDebt: number; // fraction of a wind streak owed (streaks are made at a rate per second, not one per frame)
   hopAge: number; // seconds since this ball was knocked into a hop (>= HOP_SECONDS = not hopping)
+  sprinting: boolean; // was its sprint on last frame? (starting one makes a zip)
 }
 
 /** How far the color ring under each ball floats above the ground (along the slope). Too low and the bumpy ground pokes through it; too high and it distracts. */
@@ -563,8 +566,10 @@ export class SnowballScene {
     const hitPairs = new Set<string>(); // both balls of a collision flash together: react once per pair
 
     for (const [id, pose] of Object.entries(poses)) {
-      const state = this.fx.get(id) ?? { immune: pose.immune, rollTimer: Math.random() * 0.2, windDebt: 0, hopAge: HOP_SECONDS };
+      const state = this.fx.get(id) ?? { immune: pose.immune, rollTimer: Math.random() * 0.2, windDebt: 0, hopAge: HOP_SECONDS, sprinting: !!pose.sprinting };
       this.fx.set(id, state);
+      if (pose.sprinting && !state.sprinting) audio.play(risingZip, pose.x, pose.z, id === this.view.targetId ? 0.5 : 0.2, 1); // a sprint begins (your own is louder)
+      state.sprinting = !!pose.sprinting;
       const speed = Math.hypot(pose.vx, pose.vz);
 
       // --- a collision: the flash just started and another ball is touching this one ---
@@ -600,7 +605,7 @@ export class SnowballScene {
         if (state.rollTimer <= 0) {
           const strength = Math.min(1, speed / 12);
           const heft = 0.75 + 0.25 * Math.min(1, pose.radius / 2); // bigger balls crunch a little louder
-          audio.play(rollCrunch, pose.x, pose.z, (0.12 + 0.28 * strength) * heft, strength);
+          audio.play(powderSwish, pose.x, pose.z, (0.12 + 0.28 * strength) * heft, strength);
           state.rollTimer = (0.34 - 0.21 * strength) * (0.75 + Math.random() * 0.5);
         }
       }
@@ -656,7 +661,7 @@ export class SnowballScene {
     const away = Math.hypot(x - this.rig.focusX, z - this.rig.focusZ);
     const near = Math.min(1, Math.max(0, 1 - (away - SHAKE_NEAR) / (SHAKE_FAR - SHAKE_NEAR)));
     this.shake = Math.min(1, this.shake + 0.55 * Math.min(1, power) * near);
-    audio.play(collisionCrunch, x, z, 0.85 + 0.15 * Math.min(1, power), Math.min(1, power));
+    audio.play(paddedThump, x, z, 0.85 + 0.15 * Math.min(1, power), Math.min(1, power));
   }
 
   /** Jiggle the camera a little while `shake` lasts. Runs after the camera has been placed for the frame, so it never accumulates. */

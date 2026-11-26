@@ -4,8 +4,7 @@ import {
 } from 'three';
 import { TEAM_COLORS, type TeamId, type TugOfWarView, TUG_FALL_SECONDS, TUG_SECONDS, TUG_PULL_SECONDS, TUG_STRAIN_SECONDS } from '@fgn/shared';
 import { audio } from '../../audio/spatialAudio';
-import { typewriterClick } from '../../audio/clickSounds';
-import { giftMiss } from '../../audio/santaSounds';
+import { comicSplat, heave, massiveHeave, ropeStretch } from '../../audio/tugSounds';
 import { createRoundClock } from '../../audio/roundClock';
 import { SparkSystem } from '../taprace/sparks';
 import { createNameTag, disposeNameTag } from '../labelTexture';
@@ -119,7 +118,7 @@ export class TugOfWarScene {
     this.targetBalance = (view.totals.yellow - view.totals.purple) / (sum + 12); // (a head start alone already shows; the more taps there are, the more a lead means)
     for (const p of this.pullers) {
       const n = view.taps[p.id] ?? 0;
-      if (n > p.taps) { p.pulse = 1; if (p.id === this.selfId) audio.playFlat(typewriterClick, 0.5, 1); else this.sweatOff(p, n - p.taps); } // (your own sweat came at the instant you tapped)
+      if (n > p.taps) { p.pulse = 1; if (p.id === this.selfId) audio.playFlat(heave, 0.5); else this.sweatOff(p, n - p.taps); } // (your own sweat came at the instant you tapped)
       p.taps = n;
     }
   }
@@ -166,6 +165,7 @@ export class TugOfWarScene {
 
   // ---------- the world ----------
 
+  private sounded = new Set<string>(); // the closing sequence's sounds that have played
   private track<T extends { dispose(): void }>(thing: T): T { this.disposables.push(thing); return thing; }
   private material(color: string, extra: Partial<ConstructorParameters<typeof MeshStandardMaterial>[0]> = {}) { return this.track(new MeshStandardMaterial({ color, roughness: 0.85, flatShading: true, ...extra })); }
 
@@ -404,6 +404,8 @@ export class TugOfWarScene {
     const winner = fin?.winner ?? null;
     const dir = winner === 'yellow' ? -1 : winner === 'purple' ? 1 : 0;
     if (fin && t >= 0) {
+      if (t < 1.5 && !this.sounded.has('strain')) { this.sounded.add('strain'); audio.playFlat(ropeStretch, 0.45); } // the rope creaks as the teams strain
+      if (winner && t >= STRAIN && t < STRAIN + 1.5 && !this.sounded.has('pull')) { this.sounded.add('pull'); audio.playFlat(massiveHeave, 0.7); } // the winners' massive pull (nothing for a draw)
       const strain = smooth(t / STRAIN);
       push = strain * (winner ? 1 : 0.4);
       if (t < STRAIN) tremble = strain;
@@ -466,7 +468,7 @@ export class TugOfWarScene {
       p.root.position.y = jump + flyY;
       p.root.position.x = p.baseX + flyX;
       p.root.position.z = ((p.slot % 2) - 0.5) * 0.9 * fall; // (they land alternately a little in front of and behind the line, so those lying down do not lie on top of each other)
-      if (fall > 0 && fall < 1 && fall + dt * 3 >= 1 && t < STRAIN + PULL + FALL + 1) audio.playFlat(giftMiss, 0.4); // (a thump as they land)
+      if (fall > 0 && fall < 1 && fall + dt * 3 >= 1 && t < STRAIN + PULL + FALL + 1) audio.playFlat(comicSplat, 0.4); // (a splat as they land)
       if (p.you) p.you.position.y = 2.5 + Math.sin(seconds * 4) * 0.1;
     }
 

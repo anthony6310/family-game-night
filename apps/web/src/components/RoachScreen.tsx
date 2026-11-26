@@ -6,6 +6,8 @@ import { useRemainingMs } from './Countdown';
 import { Joystick } from './Joystick';
 import { useStarted } from './useStarted';
 import { RoachScene, type RoachStyle } from './roach/RoachScene';
+import { audio } from '../audio/spatialAudio';
+import { kitchenHum } from '../audio/roachRumbleSounds';
 import { useRoachSteering } from './roach/useRoachSteering';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
 import { FALLBACK_COLOR } from './playerColors';
@@ -47,6 +49,9 @@ export default function RoachScreen({ game, players, colors, selfId, serverNow, 
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+
+  // The dark kitchen hums from the moment this screen is up until it goes away (the theme is played by the room screen: audio/gameThemes.ts).
+  useEffect(() => audio.startBed(kitchenHum, 0.3), []);
 
   useEffect(() => {
     const s = new RoachScene(container.current!, styles, isPlayer ? selfId : null);

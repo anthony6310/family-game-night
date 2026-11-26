@@ -8,7 +8,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { FISHING_BREACH_SECONDS, FISH_POINTS, type FishView, type FishingView } from '@fgn/shared';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
-import { fishCatch, mineBoom, rodSwish, splash } from '../../audio/fishSounds';
+import { REEL_SECONDS, bigExplosion, bigSplash, fishPile, reelRatchet, reelZing, whipSwish } from '../../audio/fishingSounds';
 import type { SoundFn } from '../../audio/snowSounds';
 import { createNameTag, disposeNameTag } from '../labelTexture';
 import { FISH_LENGTH, FishKit } from '../snowball/fish';
@@ -460,6 +460,7 @@ export class FishingScene {
     this.renderer.domElement.remove();
   }
 
+  private reelSoundAt = 0; // when the last burst of reel clicks started (server time)
   private playHere(sound: SoundFn, gain: number) {
     audio.play(sound, this.cx, this.cy, gain, 1);
   }
@@ -858,7 +859,7 @@ export class FishingScene {
     this.hookedIds.add(id);
     this.attach(angler, obj, now, true);
     const hookY = -this.hookDepthNow() + angler.lift;
-    audio.play(fishCatch, angler.x, hookY, by === this.view.targetId ? 0.9 : 0.4, 1);
+    audio.play(reelZing, angler.x, hookY, by === this.view.targetId ? 0.9 : 0.4, 1);
     const sprite = createNameTag(`+${FISH_POINTS[obj.kind]}`, angler.color);
     sprite.scale.set(2.4, 0.6, 1);
     this.scene.add(sprite);
@@ -1086,7 +1087,8 @@ export class FishingScene {
     const cutAtMs = v.startsAt + (LAND + CUT_DELAY) * k * 1000;
     const dive = t >= length || serverMs >= cutAtMs ? 1 : 0;
 
-    if (inDock && !this.pilesBuilt) this.buildPiles();
+    if (!inDock && serverMs >= v.ascentStartsAt && serverMs < v.endsAt && serverMs - this.reelSoundAt >= REEL_SECONDS * 1000) { this.reelSoundAt = serverMs; this.playHere(reelRatchet, 0.15); } // the hooks reel up: a second of ratchet clicks, again and again
+    if (inDock && !this.pilesBuilt) { this.buildPiles(); if (serverMs - dockAt < 1500) this.playHere(fishPile, 0.5); } // the catch lands on the dock (not for someone who arrives late)
     const atPlayArea = dive === 1 && !inDock;
     this.ocean.visible = !inDock;
     this.pileGroup.visible = inDock;
@@ -1185,7 +1187,7 @@ export class FishingScene {
         if (dist > HANG_LENGTH) a.hookPos.copy(tip).addScaledVector(off, HANG_LENGTH / dist); // (the line is only so long)
         hs = HOOK_SMALL; hx = a.hookPos.x; hy = a.hookPos.y; hz = a.hookPos.z;
         hanging = true;
-        if (t > WIND_BACK * k && !this.soundedCast.has(`swish-${a.id}`)) { this.soundedCast.add(`swish-${a.id}`); audio.play(rodSwish, hx, hy, 0.25, 1); }
+        if (t > WIND_BACK * k && !this.soundedCast.has(`swish-${a.id}`)) { this.soundedCast.add(`swish-${a.id}`); audio.play(whipSwish, hx, hy, 0.25, 1); }
       } else if (t < LAND * k) {
         // The CAST: from the instant the rod arrives forward, the hook is thrown out from where it was, as a ball would be, to land in the water at its
         // lane (the flight is worked out so that it lands exactly then). The line plays out behind it.
@@ -1200,7 +1202,7 @@ export class FishingScene {
       } else if (!this.soundedCast.has(`splash-${a.id}`)) {
         this.soundedCast.add(`splash-${a.id}`);
         this.splashAt(laneX);
-        audio.play(splash, laneX, 0, 0.45, 1);
+        audio.play(bigSplash, laneX, 0, 0.45, 1);
       }
 
       // After the splash the hook is in the plane the fishing happens in: sideways it follows the server (smoothed), its height is the shared depth.
@@ -1233,7 +1235,7 @@ export class FishingScene {
         const breachAt = this.latest!.endsAt + this.outro().breachAfter * 1000;
         if (serverMs >= breachAt) {
           a.sprayed = true;
-          if (serverMs - breachAt < 1500) { this.splashAt(hx, a.hooked.length, false); audio.play(splash, hx, 0, Math.min(1, 0.4 + a.hooked.length * 0.03), 1); }
+          if (serverMs - breachAt < 1500) { this.splashAt(hx, a.hooked.length, false); audio.play(bigSplash, hx, 0, Math.min(1, 0.4 + a.hooked.length * 0.03), 1); }
         }
       }
       a.tag.position.set(hx, hy + 1.8, hz + 1);
@@ -1424,7 +1426,7 @@ export class FishingScene {
     this.blasts.push({ ball, ring, age: 0 });
     this.sparks.blast(obj.x, -obj.y, PLAY_Z + 0.5, owner === this.view.targetId ? 1 : 0.6, BLAST_PALETTE); // reddish-orange sparks flying out
     const mine = owner === this.view.targetId;
-    audio.play(mineBoom, obj.x, -obj.y, mine ? 0.9 : 0.35, 1);
+    audio.play(bigExplosion, obj.x, -obj.y, mine ? 0.9 : 0.35, 1);
     this.shake = Math.min(1, this.shake + (mine ? 0.5 : 0.15));
   }
 

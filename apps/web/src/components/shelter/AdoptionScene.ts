@@ -11,7 +11,7 @@ import {
 } from '@fgn/shared';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
-import { captureChime, cashIn, loopMiss } from '../../audio/iceSounds';
+import { adoptedArpeggio, deskBell, footstep, glowHum, joyWhoop, padChime, plop, scoopUp, scurry, uhOh } from '../../audio/zooSounds';
 import type { SoundFn } from '../../audio/snowSounds';
 import { createNameTag, disposeNameTag } from '../labelTexture';
 import { AnimalKit } from './AnimalKit';
@@ -111,6 +111,12 @@ export class AdoptionScene {
   private camSmooth = { pos: new Vector3(), look: new Vector3(), ready: false };
   private uiLast: ShelterUi = { highlight: null, nearAdoptee: false, carrying: false };
   private lastCarrying = false;
+  private lastHighlight: number | null = null; // the animal that was lit up a moment ago (a new one gets the glow sound)
+  private lastGlowAt = 0;
+  private lastAdoptions = 0; // the followed player's adoptions a frame ago (a rise means a hand-over just scored)
+  private padKey = -1; // the carpet the player is standing on while holding an animal (its chime has played)
+  private stepClock = 0.25; // seconds of walking since the last footstep
+  private introHopSeen = new Set<number>(); // which adopters have had their hop sound during the opening pan
   private time = 0;
   /** Where the opening is: 'hold' (static on the first adopter), 'pan' (along the adopters, one after another), 'count' (the 3, 2, 1: into the player's eyes) or 'none'. */
   private intro = { phase: 'none' as 'none' | 'hold' | 'pan' | 'count', focus: 0, f: 0, c: 0, segSeconds: SHELTER_PAN_SECONDS / ADOPTEE_COUNT };
@@ -640,6 +646,10 @@ export class AdoptionScene {
       }
     }
     this.bobPhase += dt * (this.eye.moving ? 9.5 : 0);
+    if (this.eye.moving && id !== null && id === this.selfId) { // a soft footstep about every third of a second while you walk
+      this.stepClock += dt;
+      if (this.stepClock >= 0.32) { this.stepClock = 0; audio.playFlat(footstep, 1); }
+    } else this.stepClock = 0.25; // (so the first step comes quickly)
   }
 
   private updateAnimals(dt: number, age: number) {
@@ -721,7 +731,21 @@ export class AdoptionScene {
       this.uiLast = { highlight, nearAdoptee, carrying };
       this.onUi(this.uiLast);
     }
-    if (carrying && !this.lastCarrying && this.eyeId === this.selfId) audio.playFlat(captureChime, 0.5); // picked up
+    if (this.eyeId !== null && this.eyeId === this.selfId) { // the player's own sounds (a spectator hears the room, not a volunteer's hands)
+      const adoptions = view.players[this.eyeId]?.adoptions ?? 0;
+      if (highlight !== null && highlight !== this.lastHighlight && performance.now() - this.lastGlowAt > 250) { this.lastGlowAt = performance.now(); audio.playFlat(glowHum, 0.6); } // a new animal came within reach
+      if (carrying && !this.lastCarrying) audio.playFlat(scoopUp, 0.7); // picked up
+      else if (!carrying && this.lastCarrying) {
+        if (adoptions > this.lastAdoptions) audio.playFlat(adoptedArpeggio, 0.7); // handed over: a point
+        else { // dropped: but not a wrong hand-over, which has its own sound (the adopter's "uh-oh")
+          const slot = handoverSlot(this.eye.x, this.eye.z, { width: view.width, depth: view.depth });
+          const ad = slot !== null ? view.adoptees[slot] : null;
+          if (!(ad && ad.nopeAt !== null && this.serverNow() - ad.nopeAt < 800)) audio.playFlat(plop, 0.7);
+        }
+      }
+      this.lastAdoptions = adoptions;
+    }
+    this.lastHighlight = highlight;
     this.lastCarrying = carrying;
   }
 
@@ -735,6 +759,9 @@ export class AdoptionScene {
     const sNow = this.serverNow();
     const onPad = this.eyeId ? handoverSlot(this.eye.x, this.eye.z, { width: view.width, depth: view.depth }) : null;
     const holding = !!(this.eyeId && view.players[this.eyeId]?.carry);
+    const padReady = onPad !== null && holding && view.adoptees[onPad]?.doneAt === null && this.eyeId === this.selfId ? onPad : -1;
+    if (padReady !== -1 && padReady !== this.padKey) audio.playFlat(padChime, 0.6); // stepped onto a carpet holding an animal: it turns green
+    this.padKey = padReady;
     this.pads.forEach((m, i) => {
       const leaving = view.adoptees[i]?.doneAt != null;
       m.color.copy(leaving ? PAD_LEAVING : onPad === i && holding ? PAD_READY : PAD_IDLE);
@@ -744,6 +771,7 @@ export class AdoptionScene {
       const slot = this.slots[i];
       if (!slot) return;
       if (slot.id !== ad.id) { // a new person has stepped up
+        if (slot.id !== -1) audio.playFlat(deskBell, 0.5); // (not for the first six, who are just there when the round opens)
         slot.id = ad.id; slot.born = performance.now(); slot.seenDone = null; slot.seenNope = null;
         slot.person.geometry.dispose();
         slot.person.geometry = buildPerson(adopteeLook(ad.id));
@@ -771,13 +799,14 @@ export class AdoptionScene {
         hop = Math.abs(Math.sin(u * 8)) * 0.9 * Math.max(0, 1 - u / total);
         bubbleScale = u < 0.2 ? 1 + u * 1.5 : Math.max(0, 1.3 - (u - 0.2) * 5);
         if (u > total - 0.5) scale *= Math.max(0, (total - u) / 0.5);
-        if (slot.seenDone !== ad.doneAt) { slot.seenDone = ad.doneAt; this.burstHearts(slot.x, PERSON_HEIGHT + 0.6, slot.z + 0.8); audio.playFlat(cashIn, 0.45); }
+        if (slot.seenDone !== ad.doneAt) { slot.seenDone = ad.doneAt; this.burstHearts(slot.x, PERSON_HEIGHT + 0.6, slot.z + 0.8); if (u < 1) audio.playFlat(joyWhoop, 0.6); }
       }
       // The opening: as the camera reaches each adopter they jump for joy (the success hop, without the hearts) and their bubble gives a little pulse, so the pan has movement.
       if (ad.doneAt === null && this.intro.phase === 'pan' && i === this.intro.focus) {
         const h = Math.max(0, (this.intro.f - 0.3) * this.intro.segSeconds);
         hop = Math.abs(Math.sin(h * 9)) * 0.9 * Math.max(0, 1 - h / 0.9);
         if (h > 0 && h < 0.5) bubbleScale = 1 + 0.12 * Math.sin((h / 0.5) * Math.PI);
+        if (h > 0 && !this.introHopSeen.has(i)) { this.introHopSeen.add(i); audio.playFlat(joyWhoop, 0.35); } // (a softer whoop for each hop of the pan)
       }
       slot.person.position.y = hop;
       slot.root.scale.setScalar(Math.max(0.0001, scale));
@@ -785,7 +814,7 @@ export class AdoptionScene {
       // Wrong animal: the bubble turns red and shakes, and the adopter shakes their head.
       if (ad.nopeAt !== null) {
         const u = (sNow - ad.nopeAt) / ADOPTEE_NOPE_MS;
-        if (slot.seenNope !== ad.nopeAt) { slot.seenNope = ad.nopeAt; if (u < 1) audio.playFlat(loopMiss, 0.5); }
+        if (slot.seenNope !== ad.nopeAt) { slot.seenNope = ad.nopeAt; if (u < 1) { audio.playFlat(uhOh, 0.7); audio.playFlat(scurry, 0.6, 0.15); } } // (the wrong animal is dropped and runs off)
         const decay = u >= 0 && u <= 1 ? 1 - u : 0;
         slot.wallMat.color.set('#ffffff').lerp(new Color('#ff4d4d'), Math.min(1, decay * 1.6));
         slot.shaker.position.x = Math.sin(u * 55) * 0.5 * decay;

@@ -1,6 +1,8 @@
 import { useLatest } from './useLatest';
 import { StartCountdown, introProgress } from './StartCountdown';
 import { useEffect, useMemo, useRef } from 'react';
+import { audio } from '../audio/spatialAudio';
+import { blizzardWind } from '../audio/snowballSounds';
 import type { GameAction, Player, RoundResult, SnowballView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { Joystick } from './Joystick';
@@ -46,6 +48,9 @@ export default function SnowballScreen({ game, players, colors, selfId, serverNo
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+
+  // The sound of the place runs from the moment this screen is up until it goes away (the theme is played by the room screen: audio/gameThemes.ts).
+  useEffect(() => audio.startBed(blizzardWind, 0.3), []);
 
   // Create the 3D scene once; tear it down (freeing GPU memory) when the round screen closes.
   useEffect(() => {

@@ -8,7 +8,8 @@ import {
 import { CREATURE_POINTS, type CreatureKind, type LoopView, type PenguinLassoView, type SkaterView } from '@fgn/shared';
 import { audio } from '../../audio/spatialAudio';
 import { createRoundClock } from '../../audio/roundClock';
-import { captureChime, cashIn, loopMiss, skateSwish } from '../../audio/iceSounds';
+import { captureChime } from '../../audio/iceSounds';
+import { bagFull, iceCarve, iglooFanfare } from '../../audio/penguinSounds';
 import type { SoundFn } from '../../audio/snowSounds';
 import { SpectatorRig } from '../../spectate/SpectatorRig';
 import { FleckSystem } from '../snowball/effects';
@@ -106,6 +107,7 @@ export class PenguinScene {
   private iglooDoor = new ShapeGeometry(archShape(0.26)); // the dark opening in the end of the tunnel
   private iglooRing = new RingGeometry(0.97, 1, 48); // the cash-in zone's edge
   private bagGeometry = new IcosahedronGeometry(0.6, 1);
+  private fullSeen = new Map<string, boolean>(); // whether each skater's bag was full last frame (false = it was not, so becoming full makes a sound)
   private iglooFlagGeometry = new BoxGeometry(0.1, 1.1, 0.7);
   private pluses: { sprite: Sprite; age: number; x: number; z: number }[] = [];
   private disposables: { dispose(): void }[] = [];
@@ -552,6 +554,9 @@ export class PenguinScene {
         const v = this.skaters.get(id) ?? this.addSkater(id);
         this.updateSkater(v, pose, dt);
         const mine = this.latest.skaters[id];
+        const full = !!mine?.bagFull; // the bag has just become full: a thump and a ping (for the skater you follow)
+        if (full && this.fullSeen.get(id) === false && id === this.view.targetId) audio.play(bagFull, pose.x, pose.z, 0.5, 1);
+        this.fullSeen.set(id, full);
         this.updateBag(v, mine?.carriedSpace ?? 0, mine?.topCarried ?? null, this.latest.bagCapacity, dt);
         this.updateTrail(v, pose, this.latest.skaters[id]);
       }
@@ -608,7 +613,7 @@ export class PenguinScene {
       v.swishTimer -= dt;
       if (v.swishTimer <= 0) {
         const strength = Math.min(1, speed / 10);
-        audio.play(skateSwish, pose.x, pose.z, 0.1 + 0.2 * strength, strength);
+        audio.play(iceCarve, pose.x, pose.z, 0.1 + 0.2 * strength, strength);
         v.swishTimer = (SKATE_SOUND_EVERY + 0.25 * (1 - strength)) * (0.8 + Math.random() * 0.4);
       }
     }
@@ -747,7 +752,7 @@ export class PenguinScene {
         const igloo = view.igloos[id];
         if (igloo) {
           this.flecks.burst(igloo.x, 2.5, igloo.z, 1, 0, 1.2, 1.4);
-          audio.play(cashIn, igloo.x, igloo.z, 0.9, 1);
+          audio.play(iglooFanfare, igloo.x, igloo.z, 0.9, 1);
           this.floatText(`+${s.banked - v.lastBanked}`, '#ffd84a', igloo.x, igloo.z, 3.2);
           v.hop = 0;
         }
@@ -826,12 +831,6 @@ export class PenguinScene {
       mesh.renderOrder = 2;
       this.scene.add(mesh);
       this.flashes.push({ mesh, material, age: 0 });
-      // Did it catch anything? The catch itself plays its own chime; an empty loop just zips shut.
-      const caught = this.latest?.penguins.some((p) => p.caughtBy === loop.playerId && insideLoop(p.x, p.z, loop.points));
-      if (!caught) {
-        const [cx, cz] = loop.points.reduce(([ax, az], [x, z]) => [ax + x / loop.points.length, az + z / loop.points.length], [0, 0]);
-        audio.play(loopMiss, cx, cz, 0.35, 1);
-      }
     }
     if (this.seenLoops.size > 200) this.seenLoops = new Set([...this.seenLoops].slice(-50)); // never grows forever
   }
@@ -990,16 +989,6 @@ function cutTrailAt(trail: [number, number][], x: number, z: number): [number, n
     if (d < bestDist - 1e-6) { bestDist = d; bestIndex = i; bestPoint = [px, pz]; }
   }
   return [...trail.slice(0, bestIndex + 1), bestPoint, [x, z]];
-}
-
-/** Point-in-polygon (for the empty-loop sound; the server decided the real catches). */
-function insideLoop(x: number, z: number, poly: [number, number][]): boolean {
-  let inside = false;
-  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
-    const [xi, zi] = poly[i], [xj, zj] = poly[j];
-    if ((zi > z) !== (zj > z) && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
-  }
-  return inside;
 }
 
 /** Tileable pale-blue ice with faint white scratches and a few darker cracks, drawn on a canvas at runtime. */

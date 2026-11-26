@@ -89,7 +89,7 @@ Each of these is standardized. **Plug into them; do not reinvent them per game.*
 - **Player colors and names.** Each player has one color in every game (a team game draws team colors instead). Floating names use the shared name-tag helper (`labelTexture.ts`, which draws on a top layer) and must be readable. (Rules 6, 7.)
 - **No emojis anywhere in the UI.** Use text or the SVG icons in `Icon.tsx`. (Rule 20.)
 - **Tile picture.** A 720 x 450 screenshot of the game's **3D models only**: no HUD, no timer, no names, no arrows over heads. Made by a short-lived preview page that builds just the scene in a fixed pose; registered in `GAME_IMAGES`. (Rule 9.)
-- **Sounds.** Shared synthesized sounds live in `apps/web/src/audio`; play them through `audio.playFlat` (or the positional API). They follow the player's sound setting automatically.
+- **Sounds.** Shared synthesized sounds live in `apps/web/src/audio`; play them through `audio.playFlat` (or the positional API). They follow the player's sound setting automatically. **Every game needs a theme:** add an entry to `GAME_THEMES` in `apps/web/src/audio/gameThemes.ts` (a `ThemeSpec` for the engine in `themeEngine.ts` is enough); the room screen plays it from the loading step to the finish, so the game's own screen must not play theme music itself. Looping ambience (wind, sea) is a bed started with `audio.startBed`. Build sounds from the shared toolkit in `audio/synth.ts`. **Register every sound in the mixer table** (`audio/mix.ts`: the sound in `ENTRIES`, its level in `MIX_LEVELS`, and `theme` for the game's music): the engine multiplies each sound's volume by its level there, so the volume of the whole game is tuned in that one place (a sound that is not listed plays at 1).
 
 ---
 

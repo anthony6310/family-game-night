@@ -65,6 +65,16 @@ function playBar(ctx: BaseAudioContext, out: AudioNode, track: Track, index: num
 }
 
 let started = false;
+let ducks = 0; // how many things (a game's own theme, say) currently want the background loop silent
+
+/** Silences the app's background loop until the returned function is called. Several callers can overlap: it plays again once all have let go. */
+export function duckMusic(): () => void {
+  ducks++;
+  let released = false;
+  return () => {
+    if (!released) { released = true; ducks--; }
+  };
+}
 
 /** Starts the loop on the given (running) audio context. Safe to call more than once. */
 export function startMusic(ctx: AudioContext) {
@@ -82,7 +92,7 @@ export function startMusic(ctx: AudioContext) {
 
   // Every 100 ms: follow the mute setting, and queue bars a little ahead of time so playback never gaps.
   setInterval(() => {
-    const muted = isMuted() || ctx.state !== 'running';
+    const muted = isMuted() || ducks > 0 || ctx.state !== 'running';
     master.gain.setTargetAtTime(muted ? 0 : MUSIC_VOLUME, ctx.currentTime, 0.1); // smooth fade, no pop
     if (muted) {
       wasMuted = true;

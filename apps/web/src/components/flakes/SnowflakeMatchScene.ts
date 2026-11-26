@@ -7,6 +7,7 @@ import { BRANCH_ANGLES_DEG, FLAKE_COUNT, FLAKE_RADIUS_FRAC, HAND_SWAP_MS, STEM_L
 import { NightCamp } from './NightCamp';
 import { createRoundClock } from '../../audio/roundClock';
 import { audio } from '../../audio/spatialAudio';
+import { crystalDing, descendingBlips, gloveSqueak } from '../../audio/flakeSounds';
 
 export interface FlakeStyle { id: string; name: string; color: string }
 
@@ -228,10 +229,12 @@ export class SnowflakeMatchScene {
     if (correct) {
       this.hidden.set(i, { born: field[i].born, t: performance.now() });
       this.burst(w.x, w.y, ['#ffffff', '#bfe4ff', '#8fd0ff']);
+      audio.playFlat(crystalDing, 0.6); // a match
       if (this.lastHand >= 0 && !this.handPop) this.popHand(this.lastHand); // (the flake in your hand pops too, as the next one is on its way)
     } else {
       this.flash.set(i, performance.now() + 350);
       this.burst(w.x, w.y, ['#ff6b6b', '#ff9a9a'], 10);
+      audio.playFlat(descendingBlips, 0.6); // a wrong tap
       this.shake = Math.max(this.shake, WRONG_SHAKE);
       this.handShake = performance.now(); // (and the hand shakes its head: side to side, as strongly as it lifts for a match)
     }
@@ -251,6 +254,7 @@ export class SnowflakeMatchScene {
   /** The held snowflake has been matched: it pops in white particles where it sits on the glove, and the hand moves; the next snowflake shows HAND_SWAP_MS later. */
   private popHand(design: number) {
     this.handPop = { t: performance.now(), design };
+    audio.playFlat(gloveSqueak, 0.4, HAND_SWAP_MS / 1000); // the next flake shows when the hand has swapped
     this.camera.updateMatrixWorld(true);
     const at = this.handFlake.group.getWorldPosition(new Vector3());
     this.burst(at.x, at.y, ['#ffffff', '#ffffff', '#e8f6ff'], 24, at.z + 0.05, 0.22);
@@ -300,7 +304,7 @@ export class SnowflakeMatchScene {
       const d = pv.hand[0] ?? -1;
       if (this.shownFor !== id) { this.shownFor = id; this.lastHand = d; this.handPop = null; } // (a different hand: no pop)
       else if (d !== this.lastHand) { // the design in the hand changed: that was a match (for a spectator, or any match this phone did not see being tapped)
-        if (!this.handPop || this.handPop.design !== this.lastHand) this.popHand(this.lastHand);
+        if (!this.handPop || this.handPop.design !== this.lastHand) { audio.playFlat(crystalDing, 0.4); this.popHand(this.lastHand); } // (a match this phone did not tap: a quieter ding)
         this.lastHand = d;
       }
       // the held flake: gone while it pops, then the next one pops in

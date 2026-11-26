@@ -1,6 +1,13 @@
 import { isMuted } from './soundSettings';
 import type { SoundFn } from './snowSounds';
-import { startMusic } from './music';
+import { duckMusic, startMusic } from './music';
+import { levelOf } from './mix';
+
+/**
+ * A "bed": a sound that keeps going until it is stopped (a game's own theme music, a sea ambience). It gets the node to play into (already
+ * at the right volume and following the mute setting) and returns the function that stops whatever it scheduled.
+ */
+export type BedFn = (ctx: BaseAudioContext, out: AudioNode) => () => void;
 
 /**
  * "Spatial" sound: every sound has a place in the world, and you hear it as if you stood at the listener's place.
@@ -98,11 +105,34 @@ export const audio = {
   },
   play(sound: SoundFn, x: number, z: number, gain: number, strength = 1) {
     if (!mixer || !ctx || ctx.state !== 'running' || isMuted()) return;
-    mixer.play(sound, x, z, gain, strength);
+    mixer.play(sound, x, z, gain * levelOf(sound), strength); // (`levelOf`: the mixer table, mix.ts)
   },
   /** A sound that belongs to everyone equally (no place, no fading): used for the winner sequence. `delaySeconds` schedules it ahead on the audio clock. */
   playFlat(sound: SoundFn, gain: number, delaySeconds = 0, strength = 1) {
     if (!mixer || !ctx || ctx.state !== 'running' || isMuted()) return;
-    mixer.playFlat(sound, gain, strength, ctx.currentTime + delaySeconds);
+    mixer.playFlat(sound, gain * levelOf(sound), strength, ctx.currentTime + delaySeconds);
+  },
+  /**
+   * Starts a bed (see `BedFn`) at the given loudness and returns the function that fades it out and stops it. While it plays, the app's
+   * own background music is silenced (so the two never fight). It follows the mute setting, and is a safe no-op before the first tap.
+   */
+  startBed(make: BedFn, gain: number): () => void {
+    const live = ctx;
+    const mix = mixer;
+    if (!live || !mix || live.state !== 'running') return () => {};
+    const release = duckMusic();
+    const held: { level: GainNode | null; stop: () => void } = { level: null, stop: () => {} };
+    mix.playFlat((c, out) => { held.level = out as GainNode; held.stop = make(c, out); }, 0); // (the mixer hands us a gain node: we steer it ourselves)
+    const loudness = gain * levelOf(make);
+    const follow = () => held.level?.gain.setTargetAtTime(isMuted() ? 0 : loudness, live.currentTime, 0.4); // (a slow fade in, and a fade out when muted)
+    follow();
+    const timer = setInterval(follow, 200);
+    return () => {
+      clearInterval(timer);
+      held.stop();
+      held.level?.gain.setTargetAtTime(0, live.currentTime, 0.15);
+      release();
+      setTimeout(() => held.level?.disconnect(), 1500);
+    };
   },
 };

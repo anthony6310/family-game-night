@@ -2,6 +2,8 @@ import { useLatest } from './useLatest';
 import { StartCountdown, introProgress } from './StartCountdown';
 import { useStarted } from './useStarted';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { audio } from '../audio/spatialAudio';
+import { labBuzz } from '../audio/tapSounds';
 import { type GameAction, type Player, type RoundResult, type TapRaceView } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { TapRaceScene, type ButtonStyle } from './taprace/TapRaceScene';
@@ -53,6 +55,9 @@ export default function TapRaceScreen({ game, players, colors, selfId, serverNow
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [],
   );
+
+  // The lab hums from the moment this screen is up until it goes away (the theme is played by the room screen: audio/gameThemes.ts).
+  useEffect(() => audio.startBed(labBuzz, 0.35), []);
 
   // Create the 3D scene once; tear it down (freeing GPU memory) when the round screen closes.
   useEffect(() => {

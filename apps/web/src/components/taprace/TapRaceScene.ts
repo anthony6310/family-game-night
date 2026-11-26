@@ -4,7 +4,7 @@ import {
   type Texture,
 } from 'three';
 import { audio } from '../../audio/spatialAudio';
-import { typewriterClick } from '../../audio/clickSounds';
+import { relayClick } from '../../audio/tapSounds';
 import { createRoundClock } from '../../audio/roundClock';
 import { SpectatorRig } from '../../spectate/SpectatorRig';
 import { SparkSystem } from './sparks';
@@ -133,7 +133,7 @@ export class TapRaceScene {
     const mine = button.id === this.selfId;
     if (!mine && this.clicksThisFrame >= 6) return;
     if (!mine) this.clicksThisFrame++;
-    audio.play(typewriterClick, button.x, button.z, mine ? 0.9 : 0.4, 0.4 + 0.6 * this.progress); // harder, louder-sounding strikes later in the round
+    audio.play(relayClick, button.x, button.z, mine ? 0.9 : 0.4, 0.4 + 0.6 * this.progress); // harder, louder-sounding strikes later in the round
   }
 
   /** How far through the round we are (0 at the start, 1 at the end) and how many seconds are left. The sparks grow in count and size, and shift from yellow to red, with the first; the last second turns them rainbow. */

@@ -8,6 +8,8 @@ import { useStarted } from './useStarted';
 import { PirateScene, type CrewStyle } from './pirate/PirateScene';
 import { useAim } from './pirate/useAim';
 import { WinnerBanner, isWinnerMoment, useWinnerSounds } from './WinnerMoment';
+import { audio } from '../audio/spatialAudio';
+import { seaAmbience } from '../audio/pirateSounds';
 import { FALLBACK_COLOR } from './playerColors';
 import { SpectatorControls } from '../spectate/SpectatorControls';
 import { useSpectatorCamera } from '../spectate/useSpectatorCamera';
@@ -58,6 +60,8 @@ export default function PirateScreen({ game, players, colors, selfId, serverNow,
   const remainingMs = useRemainingMs(game.endsAt, serverNow);
   useEffect(() => { scene.current?.setSecondsLeft(remainingMs / 1000); }, [remainingMs]);
   const live = isPlayer && started && !frozen && remainingMs > 0;
+  // The sea murmurs from the moment this screen is up until it goes away (the battle theme is played by the room screen: audio/gameThemes.ts).
+  useEffect(() => audio.startBed(seaAmbience, 0.35), []);
   const { setStick } = useAim(scene, sendAction, live, me?.team ?? null, me ? { yaw: me.yaw, pitch: me.pitch } : undefined);
 
   // Spectators follow a pirate's cannon.

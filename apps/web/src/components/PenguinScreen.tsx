@@ -1,6 +1,8 @@
 import { useLatest } from './useLatest';
 import { StartCountdown, introProgress } from './StartCountdown';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { audio } from '../audio/spatialAudio';
+import { icyWind } from '../audio/penguinSounds';
 import type { GameAction, PenguinLassoView, Player, RoundResult } from '@fgn/shared';
 import { useRemainingMs } from './Countdown';
 import { BagMeter } from './BagMeter';
@@ -49,6 +51,9 @@ export default function PenguinScreen({ game, players, colors, selfId, serverNow
   );
 
   // Create the 3D scene once; tear it down (freeing GPU memory) when the round screen closes.
+  // The sound of the place runs from the moment this screen is up until it goes away (the theme is played by the room screen: audio/gameThemes.ts).
+  useEffect(() => audio.startBed(icyWind, 0.3), []);
+
   useEffect(() => {
     const s = new PenguinScene(container.current!, game.arenaRadius, game.trailMax, styles, isPlayer ? selfId : null);
     scene.current = s;

@@ -6,6 +6,7 @@ import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js
 import { POLE_WORLD_HEIGHT, bendStress, SWAP_COOLDOWN_MS, frogDeflection, obstaclesFor, poleCurve, worldY, type FrogClimbView, type FrogPlayerView, type Obstacle } from '@fgn/shared';
 import { createRoundClock } from '../../audio/roundClock';
 import { audio } from '../../audio/spatialAudio';
+import { boingHop, leafDash, rubberStretch, rubberySlip, sproingDrop, triumphJingle } from '../../audio/frogSounds';
 import { createNameTag, disposeNameTag } from '../labelTexture';
 
 export interface FrogStyle { id: string; name: string; color: string }
@@ -148,6 +149,8 @@ export class FrogClimbScene {
   private redColors = new Float32Array(0);
   private vineMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.7, flatShading: true });
   private followId: string | null;
+  private topHeard = new Set<string>(); // frogs whose arrival at the top has had its jingle
+  private bendSoundAt = -1e9; // when the pole last creaked (performance time)
   private winnerView = false;
   private disposables: { dispose(): void }[] = [];
   private resizeObserver: ResizeObserver;
@@ -260,14 +263,18 @@ export class FrogClimbScene {
     for (const [id, pv] of Object.entries(view.players)) {
       const p = this.poles.get(id); if (!p) continue;
       if (!p.initialised) { p.initialised = true; p.dispH = pv.h; p.dispLean = pv.lean; p.dispSide = pv.side; p.seenClimbAt = pv.climbAt; p.seenSlipAt = pv.slipAt; continue; }
-      if (pv.climbAt !== p.seenClimbAt) { p.seenClimbAt = pv.climbAt; if (nowPerf - p.localHopAt > 300) p.hopStart = nowPerf; } // (your own hop already started when you tapped)
-      if (pv.slipAt !== p.seenSlipAt) { p.seenSlipAt = pv.slipAt; }
+      if (pv.climbAt !== p.seenClimbAt) { p.seenClimbAt = pv.climbAt; if (nowPerf - p.localHopAt > 300) { p.hopStart = nowPerf; if (id === this.followId) audio.playFlat(boingHop, 0.5); } } // (your own hop already started, and sounded, when you tapped)
+      if (pv.slipAt !== p.seenSlipAt) { // the frog fell: a bent-over pole drops it (a long slip), a thorn makes it spring back (a sproing)
+        p.seenSlipAt = pv.slipAt;
+        if (id === this.followId) audio.playFlat(Math.abs(p.dispLean) > 0.8 ? rubberySlip : sproingDrop, 0.5);
+      }
+      if (pv.finishedAt !== null && !this.topHeard.has(id)) { this.topHeard.add(id); audio.playFlat(triumphJingle, 0.5); } // a frog reached the top
       if (p.pendingSide !== null) {
         if (pv.side === p.pendingSide) p.pendingSide = null; // the server has caught up with your swap
         else if (nowPerf < p.pendingUntil) continue; // (not yet: keep the side you chose)
         else p.pendingSide = null;
       }
-      if (pv.side !== p.dispSide) { p.swapFrom = p.dispSide; p.dispSide = pv.side; p.swapStart = nowPerf; }
+      if (pv.side !== p.dispSide) { p.swapFrom = p.dispSide; p.dispSide = pv.side; p.swapStart = nowPerf; if (id === this.followId) audio.playFlat(leafDash, 0.4); }
     }
   }
   /** Builds every pole's thorny vines once, from the round's seed (they are the same on every pole). */
@@ -288,11 +295,12 @@ export class FrogClimbScene {
   setWinnerView(on: boolean) { this.winnerView = on; }
   setSecondsLeft(s: number) { this.clock.update(s); }
   /** Your own tap, shown at once (the height itself comes from the server). */
-  localClimb(id: string) { const p = this.poles.get(id); if (!p) return; p.hopStart = p.localHopAt = performance.now(); }
+  localClimb(id: string) { const p = this.poles.get(id); if (!p) return; p.hopStart = p.localHopAt = performance.now(); if (id === this.followId) audio.playFlat(boingHop, 0.5); }
   localSwap(id: string) {
     const p = this.poles.get(id); if (!p) return;
     const now = performance.now();
     p.swapFrom = p.dispSide; p.dispSide = p.dispSide === 1 ? -1 : 1; p.swapStart = now; p.pendingSide = p.dispSide; p.pendingUntil = now + 700;
+    if (id === this.followId) audio.playFlat(leafDash, 0.4);
   }
 
   /** The followed pole goes in the sharp scene, all the others in the blurred one (when nobody is followed, everything is sharp: it is the pulled-back look at the whole circle). */
@@ -387,6 +395,7 @@ export class FrogClimbScene {
 
   private update(v: FrogClimbView, dt: number, tPerf: number) {
     const follow = this.followId ? this.poles.get(this.followId) : undefined;
+    if (follow && Math.abs(follow.dispLean) > 0.65 && tPerf - this.bendSoundAt > 1400) { this.bendSoundAt = tPerf; audio.playFlat(rubberStretch, 0.3); } // the pole is bent a long way: it creaks
     for (const p of this.poles.values()) {
       const pv: FrogPlayerView | undefined = v.players[p.id];
       if (!pv) { p.group.visible = false; p.tag.visible = false; continue; }
